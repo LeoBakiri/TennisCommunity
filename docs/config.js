@@ -1,8 +1,5 @@
-// Leo Tennis Community — runtime configuration.
-// Leave both values empty to run the site in DEMO mode (sample data stored in each visitor's browser).
-// Fill them in with your Supabase project's URL and anon/public key to use the real database.
-// These two values are public by design; security is enforced by Row Level Security in the database.
+// Leo Tennis Community — runtime configuration (public values; security is enforced by the database).
 window.LTC_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  supabaseUrl: "https://nqcrhliobtulrjryfcme.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5xY3JobGlvYnR1bHJqcnlmY21lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0ODE5MjEsImV4cCI6MjEwOTA1NzkyMX0.Kpje_dFhQ6UgEwCRDoG-vhxtQtXI8cC8IkBO60hMzCk",
 };
