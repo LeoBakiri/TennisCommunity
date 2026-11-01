@@ -123,6 +123,63 @@ export function CancelButton({ bookingId, status, session, window }: { bookingId
   );
 }
 
+// ───────────────────────── seats left (players) ─────────────────────────
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** The wording tightens as a session fills. Every line comes from the real counts. */
+export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_left" | "waitlist" | "my_booking">) {
+  const left = s.spots_left;
+  const imIn = s.my_booking?.status === "confirmed";
+  const others = s.booked - (imIn ? 1 : 0);
+  const heat = left === 0 ? ("full" as const) : left <= 2 && s.booked > 0 ? ("low" as const) : ("open" as const);
+  if (left === 0) return { heat, title: "Full", sub: imIn ? `You + ${plural(others, "other")}` : s.waitlist > 0 ? `${s.waitlist} waiting` : "Waitlist open" };
+  if (s.booked === 0) return { heat, title: "Be the first in", sub: `${plural(left, "spot")} open` };
+  const title = left === 1 ? "Last spot" : left === 2 ? "Only 2 spots left" : `${left} spots left`;
+  if (imIn) return { heat, title, sub: others === 0 ? "You're the first in" : `You + ${plural(others, "other")}` };
+  return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
+}
+
+const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
+const HEAT_FILL = { low: "#B5672C", full: "#B9574A" };
+
+function SeatMeter({ s }: { s: SessionView }) {
+  const { heat, title, sub } = seatCopy(s);
+  const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat];
+  const taken = Math.min(s.booked, s.capacity);
+  const imIn = s.my_booking?.status === "confirmed";
+  const large = s.capacity <= 8;
+  return (
+    <>
+      {s.capacity <= 14 ? (
+        <div className={cx("flex w-full sm:w-auto sm:justify-end", large ? "gap-1" : "gap-[3px]")} aria-hidden="true">
+          {Array.from({ length: s.capacity }, (_, i) => {
+            const isTaken = i < taken;
+            const size = large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
+            if (!isTaken) {
+              const isNext = i === taken && !s.my_booking;
+              return <span key={i} className={cx("shrink-0 rounded-full border-[1.5px] border-dashed border-ink/20", size, isNext && "seat-next")} style={{ borderColor: isNext ? fill : undefined, color: fill }} />;
+            }
+            return (
+              <span key={i} className={cx("seat-taken flex shrink-0 items-center justify-center rounded-full text-white", size)} style={{ background: fill, animationDelay: `${i * 45}ms` }}>
+                {large && <Icon name={imIn && i === 0 ? "check" : "user"} size={13} strokeWidth={2.4} />}
+              </span>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="h-2 w-full overflow-hidden rounded-full bg-ink/[0.07] sm:w-40" aria-hidden="true">
+          <div className="h-full rounded-full" style={{ width: `${(taken / s.capacity) * 100}%`, background: fill }} />
+        </div>
+      )}
+      <div className="min-w-0 sm:text-right">
+        <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
+        <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
+      </div>
+    </>
+  );
+}
+
 // ───────────────────────── session card (players) ─────────────────────────
 
 export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean }) {
@@ -144,13 +201,8 @@ export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; 
         </div>
         {s.description && <p className="mt-2 text-sm whitespace-pre-line text-ink/60">{s.description}</p>}
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end">
-        <div className="text-sm">
-          <span className={cx("font-semibold tabular-nums", s.spots_left === 0 && "text-[#8E3326]")}>
-            {s.booked} / {s.capacity} booked
-          </span>
-          {s.waitlist > 0 && <span className="block text-xs text-ink/50 sm:text-right">{s.waitlist} waiting</span>}
-        </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 sm:flex-col sm:flex-nowrap sm:items-end">
+        <SeatMeter s={s} />
         {mine ? (
           <div className="flex items-center gap-2">
             <BookingBadge status={mine.status} position={mine.waitlist_position} />
