@@ -44,7 +44,7 @@ export function LoginView({ meta }: { meta: FrameMeta }) {
           </A>
           <div className="mt-auto max-w-md">
             <h1 className="font-display text-4xl leading-tight font-semibold tracking-tight">Book your spot on court.</h1>
-            <p className="mt-4 text-paper/70">See this week\u2019s Group Sessions and Performance Accelerators, book in a few taps, and join the waitlist when a session is full.</p>
+            <p className="mt-4 text-paper/70">See this week&apos;s Group Sessions and Performance Accelerators, book in a few taps, and join the waitlist when a session is full.</p>
           </div>
           <div className="absolute -right-20 -bottom-20 h-72 w-72 rounded-full bg-accent/20 blur-3xl" />
         </div>

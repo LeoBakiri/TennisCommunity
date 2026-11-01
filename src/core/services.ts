@@ -468,12 +468,52 @@ export const actions: Record<string, Handler> = {
     return { ok: true, message: `${p.full_name} added. They can sign in with the same email to claim the account.`, redirect: `/admin/members/${p.id}` };
   }),
 
-  adminUpdateMember: action(z.object({ user_id: id, role: z.enum(["member", "coach", "admin"]), status: z.enum(["active", "inactive"]) }), async (ctx, input) => {
+  adminUpdateMember: action(
+    z.object({ user_id: id, ...profileFields, emergency_contact: text(200), role: z.enum(["member", "coach", "admin"]), status: z.enum(["active", "inactive"]) }),
+    async (ctx, input) => {
+      const a = admin(ctx);
+      const p = await must(ctx.store.get("profiles", input.user_id), "Player");
+      if (p.id === a.id && input.role !== "admin") throw new UserError("You can't remove your own admin access.");
+      if (p.id === a.id && input.status !== "active") throw new UserError("You can't make your own account inactive.");
+      const contact = cleanContact(input);
+      if (!contact.email && !contact.phone) throw new UserError("Add an email or phone number.");
+      const all = await ctx.store.list("profiles");
+      if (all.some((o) => o.id !== p.id && ((contact.email && o.email === contact.email) || (contact.phone && o.phone === contact.phone)))) {
+        throw new UserError("Someone else already has that email or phone.");
+      }
+      await ctx.store.update("profiles", p.id, {
+        full_name: input.full_name,
+        email: contact.email,
+        phone: contact.phone,
+        emergency_contact: input.emergency_contact,
+        role: input.role,
+        status: input.status,
+      });
+      return { ok: true, message: "Member updated." };
+    },
+  ),
+
+  adminRemoveMember: action(z.object({ user_id: id }), async (ctx, input) => {
     const a = admin(ctx);
+    if (input.user_id === a.id) throw new UserError("You can't remove your own account.");
     const p = await must(ctx.store.get("profiles", input.user_id), "Player");
-    if (p.id === a.id && input.role !== "admin") throw new UserError("You can't remove your own admin access.");
-    await ctx.store.update("profiles", p.id, { role: input.role, status: input.status });
-    return { ok: true, message: "Member updated." };
+    if (ctx.store.rpc) {
+      // The database function also deletes the login, which the browser can't reach.
+      await ctx.store.rpc("admin_remove_member", { p_user_id: p.id });
+    } else {
+      const bookings = await ctx.store.list("bookings", { eq: { user_id: p.id } });
+      for (const b of bookings.filter(isActive)) {
+        const s = await ctx.store.get("sessions", b.session_id);
+        if (s && new Date(s.starts_at) > ctx.now) await cancelAndPromote(ctx, b, s, "Member removed", false);
+      }
+      for (const b of bookings) await ctx.store.remove("bookings", b.id);
+      for (const l of await ctx.store.list("lessons", { eq: { coach_id: p.id } })) await ctx.store.remove("lessons", l.id);
+      for (const s of await ctx.store.list("sessions", { contains: { field: "coach_ids", value: p.id } })) {
+        await ctx.store.update("sessions", s.id, { coach_ids: s.coach_ids.filter((c) => c !== p.id) });
+      }
+      await ctx.store.remove("profiles", p.id);
+    }
+    return { ok: true, message: `${p.full_name} removed.`, redirect: "/admin/members" };
   }),
 
   // ── Admin: settings ──
@@ -513,7 +553,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "deleteLesson", "saveSession", "setSessionStatus", "deleteSession"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "deleteLesson", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

@@ -325,7 +325,21 @@ export async function loadAdminMember(ctx: LoadCtx) {
     const booking = bookings.find((b) => b.session_id === session.id);
     return booking ? [{ session, booking }] : [];
   });
-  return { profile, history: history.sort(by((r) => r.session.starts_at, -1)) };
+  const now = ctx.now.toISOString();
+  const [coachSessions, coachLessons, calendars] = await Promise.all([
+    ctx.store.list("sessions", { contains: { field: "coach_ids", value: profile.id }, gte: { field: "starts_at", value: now } }),
+    ctx.store.list("lessons", { eq: { coach_id: profile.id }, gte: { field: "starts_at", value: now } }),
+    ctx.store.list("coach_calendars"),
+  ]);
+  return {
+    profile,
+    history: history.sort(by((r) => r.session.starts_at, -1)),
+    coaching: {
+      sessions: coachSessions.filter((s) => isCommunity(s) && s.status === "published").length,
+      lessons: coachLessons.length,
+      calendar: calendars.find((c) => c.coach_id === profile.id) ?? null,
+    },
+  };
 }
 
 export async function loadSettingsPage(ctx: LoadCtx) {

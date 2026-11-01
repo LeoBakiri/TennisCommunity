@@ -233,3 +233,59 @@ test("old links land on the page that replaced them", () => {
   assert.equal(retiredRedirect("/admin/sessions/abc"), null);
   assert.equal(retiredRedirect("/my-sessions"), null);
 });
+
+const memberEdit = { full_name: "Sam Renamed", email: "sam.new@example.com", phone: "(619) 555-0199", emergency_contact: "Pat, 619 555 0100", role: "coach", status: "active" };
+
+test("an admin can edit a member's details and role", async () => {
+  const { store, ctxFor } = setup();
+  const r = await runAction(await ctxFor(DEMO_IDS.leo), "adminUpdateMember", { user_id: DEMO_IDS.sam, ...memberEdit });
+  assert.equal(r.ok, true);
+  const p = await store.get("profiles", DEMO_IDS.sam);
+  assert.equal(p?.full_name, "Sam Renamed");
+  assert.equal(p?.email, "sam.new@example.com");
+  assert.equal(p?.emergency_contact, "Pat, 619 555 0100");
+  assert.equal(p?.role, "coach");
+});
+
+test("member editing is admin-only and rejects another member's email", async () => {
+  const { store, ctxFor } = setup();
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.maya), "adminUpdateMember", { user_id: DEMO_IDS.sam, ...memberEdit })).ok, false);
+  const maya = await store.get("profiles", DEMO_IDS.maya);
+  const taken = await runAction(await ctxFor(DEMO_IDS.leo), "adminUpdateMember", { user_id: DEMO_IDS.sam, ...memberEdit, email: maya!.email, phone: "" });
+  assert.equal(taken.ok, false);
+});
+
+test("an admin can't deactivate, demote or remove themselves", async () => {
+  const { store, ctxFor } = setup();
+  const ctx = await ctxFor(DEMO_IDS.leo);
+  const leo = await store.get("profiles", DEMO_IDS.leo);
+  const self = { user_id: DEMO_IDS.leo, full_name: leo!.full_name, email: leo!.email, phone: "", emergency_contact: "" };
+  assert.equal((await runAction(ctx, "adminUpdateMember", { ...self, role: "admin", status: "inactive" })).ok, false);
+  assert.equal((await runAction(ctx, "adminUpdateMember", { ...self, role: "member", status: "active" })).ok, false);
+  assert.equal((await runAction(ctx, "adminRemoveMember", { user_id: DEMO_IDS.leo })).ok, false);
+  assert.ok(await store.get("profiles", DEMO_IDS.leo));
+});
+
+test("removing a member frees their seat for the waitlist and clears their data", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 1);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.sam), "bookSession", { session_id: s.id })).ok, true);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.maya), "bookSession", { session_id: s.id })).ok, true);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.maya), "adminRemoveMember", { user_id: DEMO_IDS.sam })).ok, false);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.leo), "adminRemoveMember", { user_id: DEMO_IDS.sam })).ok, true);
+  assert.equal(await store.get("profiles", DEMO_IDS.sam), null);
+  const left = await store.list("bookings", { eq: { session_id: s.id } });
+  assert.equal(left.length, 1);
+  assert.equal(left[0].user_id, DEMO_IDS.maya);
+  assert.equal(left[0].status, "confirmed");
+});
+
+test("removing a coach takes them off sessions and deletes their lessons", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 4);
+  await store.update("sessions", s.id, { coach_ids: [DEMO_IDS.leo, DEMO_IDS.kaan] });
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.kaan), "saveLesson", lessonInput)).ok, true);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.leo), "adminRemoveMember", { user_id: DEMO_IDS.kaan })).ok, true);
+  assert.deepEqual((await store.get("sessions", s.id))?.coach_ids, [DEMO_IDS.leo]);
+  assert.equal((await store.list("lessons", { eq: { coach_id: DEMO_IDS.kaan } })).length, 0);
+});

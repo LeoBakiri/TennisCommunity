@@ -356,7 +356,7 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
 export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
   return (
     <>
-      <PageHeader title="Coaches" subtitle="Who's assigned to what. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="Who's assigned to what. Open a coach to edit their settings. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
       {data.unassigned.length > 0 && (
         <div className="mb-5">
           <Notice tone="warn">
@@ -417,7 +417,7 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
     <>
       <PageHeader
         title="Members"
-        subtitle={`${data.total} people`}
+        subtitle={data.total === 1 ? "1 person" : `${data.total} people`}
         actions={
           <button className={btn("primary")} onClick={() => setAdding(true)}>
             <Icon name="plus" size={17} /> Add player
@@ -506,6 +506,8 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
 
 export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; meta: FrameMeta }) {
   const p = data.profile;
+  const isMe = p.id === meta.user!.id;
+  const isCoach = p.role !== "member";
   return (
     <>
       <PageHeader back={{ href: "/admin/members", label: "Members" }} title={p.full_name} subtitle={`Joined ${fmtDate(p.created_at)}`} />
@@ -532,27 +534,78 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
             </div>
           </Card>
           <Card>
-            <SectionTitle>Role</SectionTitle>
+            <SectionTitle>{p.role === "member" ? "Edit player" : "Edit coach settings"}</SectionTitle>
             <ActionForm action="adminUpdateMember" hidden={{ user_id: p.id }}>
               <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Full name" className="sm:col-span-2">
+                  <input className="input" name="full_name" defaultValue={p.full_name} required />
+                </Field>
+                <Field label="Email" hint={p.onboarded ? "Changes the contact email, not the one they sign in with." : undefined}>
+                  <input className="input" type="email" name="email" defaultValue={p.email ?? ""} />
+                </Field>
+                <Field label="Mobile">
+                  <input className="input" type="tel" name="phone" defaultValue={p.phone ?? ""} />
+                </Field>
+                <Field label="Emergency contact" className="sm:col-span-2">
+                  <input className="input" name="emergency_contact" defaultValue={p.emergency_contact} />
+                </Field>
                 <Field label="Role" hint="Coaches get My Schedule; admins also get this admin area.">
-                  <select className="input" name="role" defaultValue={p.role} disabled={p.id === meta.user!.id}>
+                  <select className="input" name="role" defaultValue={p.role} disabled={isMe}>
                     <option value="member">Player</option>
                     <option value="coach">Coach</option>
                     <option value="admin">Admin</option>
                   </select>
-                  {p.id === meta.user!.id && <input type="hidden" name="role" value={p.role} />}
+                  {isMe && <input type="hidden" name="role" value={p.role} />}
                 </Field>
                 <Field label="Status">
-                  <select className="input" name="status" defaultValue={p.status}>
+                  <select className="input" name="status" defaultValue={p.status} disabled={isMe}>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive (can't book)</option>
                   </select>
+                  {isMe && <input type="hidden" name="status" value={p.status} />}
                 </Field>
               </div>
               <Submit className="mt-5">Save</Submit>
             </ActionForm>
           </Card>
+          {isCoach && (
+            <Card>
+              <SectionTitle>Coaching</SectionTitle>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink/70">
+                <span>
+                  {data.coaching.sessions} upcoming community session{data.coaching.sessions === 1 ? "" : "s"} · {data.coaching.lessons} upcoming lesson{data.coaching.lessons === 1 ? "" : "s"}
+                </span>
+                {data.coaching.calendar ? data.coaching.calendar.status === "connected" ? <Badge tone="green">Calendar synced</Badge> : <Badge tone="amber">Calendar needs reconnecting</Badge> : <Badge>No calendar</Badge>}
+              </div>
+            </Card>
+          )}
+          {!isMe && (
+            <Card>
+              <SectionTitle>Remove from the platform</SectionTitle>
+              <p className="mb-4 text-sm text-ink/60">Deletes the account and login. To keep their history, set Status to Inactive instead.</p>
+              <ActionButton
+                action="adminRemoveMember"
+                input={{ user_id: p.id }}
+                variant="danger"
+                icon="trash"
+                confirm={{
+                  title: `Remove ${p.full_name}?`,
+                  label: "Remove permanently",
+                  danger: true,
+                  body: (
+                    <div className="space-y-2">
+                      <p>This deletes their account, login and booking history. Their upcoming seats go to the waitlist. This can't be undone, though they can sign up again as a new player.</p>
+                      {data.coaching.sessions > 0 && <p>They'll also come off {data.coaching.sessions} upcoming session{data.coaching.sessions === 1 ? "" : "s"}, which may then have no coach.</p>}
+                      {data.coaching.lessons > 0 && <p>Their {data.coaching.lessons} upcoming private lesson{data.coaching.lessons === 1 ? "" : "s"} will be deleted.</p>}
+                      {data.coaching.calendar && <p>Events already on their Google Calendar will stay there. To clear them first, ask them to disconnect it.</p>}
+                    </div>
+                  ),
+                }}
+              >
+                Remove {p.role === "member" ? "player" : p.role}
+              </ActionButton>
+            </Card>
+          )}
         </div>
         <div>
           <SectionTitle>Bookings</SectionTitle>
