@@ -123,6 +123,8 @@ export function fmtRange(start: Date | string, end: Date | string): string {
   return ap === bp ? `${clean(at)} – ${clean(bt)} ${bp}` : `${clean(at)} ${ap} – ${clean(bt)} ${bp}`;
 }
 
+export const fmtDayRange = (start: Date | string, end: Date | string) => `${fmtDay(start)} · ${fmtRange(start, end)}`;
+
 export function fmtWeekRange(monday: string): string {
   const sunday = addDays(monday, 6);
   const a = fmt(noon(monday), { month: "short", day: "numeric" });

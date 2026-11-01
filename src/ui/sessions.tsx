@@ -3,7 +3,7 @@ import { A, useAction, withQuery } from "./nav";
 import { Icon } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Dot, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay } from "@/core/time";
+import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay } from "@/core/time";
 import { fmtMoney, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
@@ -109,7 +109,7 @@ export function CancelButton({ bookingId, status, session, window }: { bookingId
         body: (
           <div className="space-y-3">
             <p>
-              {sessionLabel(session)} · {fmtDateTime(session.starts_at)}
+              {sessionLabel(session)} · {fmtDayRange(session.starts_at, session.ends_at)}
             </p>
             {late && <Notice tone="warn">This is within {window} hours of the start, so it counts as a late cancellation.</Notice>}
           </div>

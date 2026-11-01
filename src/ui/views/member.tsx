@@ -3,7 +3,7 @@ import { CancelButton, SessionCard } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMySessions, loadProfile, loadSchedule } from "@/core/queries";
-import { fmtDate, fmtDateTime, fmtKeyLong } from "@/core/time";
+import { fmtDate, fmtDayRange, fmtKeyLong } from "@/core/time";
 import { sessionTitle } from "@/core/util";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -50,7 +50,7 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
           <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
             <div className="min-w-0">
               <div className="font-semibold">{sessionTitle(r.session)}</div>
-              <div className="mt-0.5 text-sm text-ink/60">{fmtDateTime(r.session.starts_at)}</div>
+              <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
               <div className="text-sm text-ink/60">{r.session.location}</div>
             </div>
             <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, dateKey, fmtRange, startOfWeek, timeKey, weekdayOf, zonedToUtc } from "../src/core/time";
+import { addDays, dateKey, fmtDayRange, fmtRange, startOfWeek, timeKey, weekdayOf, zonedToUtc } from "../src/core/time";
 
 test("converts Los Angeles wall time to UTC in standard and daylight time", () => {
   // PDT (UTC-7)
@@ -38,4 +38,5 @@ test("weeks start on Monday", () => {
 test("formats time ranges compactly", () => {
   assert.equal(fmtRange(zonedToUtc("2026-11-02", "17:00"), zonedToUtc("2026-11-02", "18:30")), "5 – 6:30 PM");
   assert.equal(fmtRange(zonedToUtc("2026-11-02", "11:00"), zonedToUtc("2026-11-02", "12:00")), "11 AM – 12 PM");
+  assert.equal(fmtDayRange(zonedToUtc("2026-11-04", "17:00"), zonedToUtc("2026-11-04", "18:30")), "Wed, Nov 4 · 5 – 6:30 PM");
 });
