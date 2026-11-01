@@ -291,6 +291,9 @@ grant select on public.coach_calendars to authenticated;
 revoke all on public.admin_emails from anon, authenticated;
 revoke all on public.lessons, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;
 revoke all on public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from authenticated;
+-- The google-calendar function uses the service role.
+grant select on public.profiles, public.sessions, public.lessons to service_role;
+grant select, insert, update, delete on public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue to service_role;
 
 -- ───────────────────────── functions ─────────────────────────
 

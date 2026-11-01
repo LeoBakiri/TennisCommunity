@@ -4,7 +4,7 @@ Do the first two parts together: the new site needs the new database, and the ol
 
 ## 1. Database
 
-Run `supabase/migrations/20261102_simplify_platform.sql` in Supabase → SQL Editor. It finishes by showing counts: check that they look right. It deletes nothing; retired tables stay in place, unused.
+Run `supabase/migrations/20261102_simplify_platform.sql`, then `20261102b_service_role_grants.sql`, in Supabase → SQL Editor. It finishes by showing counts: check that they look right. It deletes nothing; retired tables stay in place, unused.
 
 ## 2. Website
 
@@ -31,6 +31,8 @@ In [Google Cloud Console](https://console.cloud.google.com/):
    https://nqcrhliobtulrjryfcme.supabase.co/functions/v1/google-calendar
    ```
 
+Publishing needs a home page and a privacy policy link (`https://leobakiri.github.io/TennisCommunity/privacy.html`) under **Branding**.
+
 Until Google verifies the app, coaches see an "unverified app" warning and must click **Advanced → Continue**. Google limits unverified apps to 100 users in total, which is plenty for a coaching team, so verification is optional.
 
 ### Set the secrets and deploy the function
@@ -47,7 +49,7 @@ npx supabase secrets set --project-ref nqcrhliobtulrjryfcme GOOGLE_CLIENT_ID=...
 npx supabase functions deploy google-calendar --project-ref nqcrhliobtulrjryfcme --no-verify-jwt
 ```
 
-`--no-verify-jwt` is required because Google's redirect carries no Supabase login. The function checks the login itself for every other request.
+Without the CLI, you can paste a bundled copy into Supabase → Edge Functions, then turn off **Verify JWT with legacy secret** under the function's Settings. `--no-verify-jwt` is required because Google's redirect carries no Supabase login. The function checks the login itself for every other request.
 
 `APP_URL` is the address of the live site, without a trailing slash or `#`.
 

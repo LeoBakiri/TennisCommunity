@@ -159,7 +159,10 @@ async function startConnect(coachId: string) {
 
 async function finishConnect(code: string, coachId: string): Promise<string> {
   const { ok, body } = await tokenRequest({ grant_type: "authorization_code", code, redirect_uri: REDIRECT_URI });
-  if (!ok || !body.refresh_token) return "failed";
+  if (!ok || !body.refresh_token) {
+    console.error("Google token exchange failed", body.error ?? "no refresh token", body.error_description ?? "");
+    return "failed";
+  }
   if (!body.scope?.includes("calendar.events")) return "denied";
   // The ID token came straight from Google over TLS, so its payload can be read without verifying it.
   const email = body.id_token ? (JSON.parse(atob(body.id_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { email?: string }).email ?? "" : "";
@@ -199,6 +202,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET") {
       const q = new URL(req.url).searchParams;
       const coachId = await verifyState(CLIENT_SECRET, q.get("state") ?? "");
+      if (!coachId) console.error("Google callback had an invalid or expired state");
       const result = !coachId ? "failed" : q.get("code") ? await finishConnect(q.get("code")!, coachId) : "denied";
       return Response.redirect(`${APP_URL}/#/coach?google=${result}`, 302);
     }
