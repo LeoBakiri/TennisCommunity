@@ -1,6 +1,6 @@
 // Builds the static site into ./docs (served by GitHub Pages).
 //   node scripts/build.mjs            → docs/index.html + docs/assets/*
-//   node scripts/build.mjs --single   → also dist/preview.html (everything inlined)
+//   node scripts/build.mjs --single   → only dist/preview.html (demo data, everything inlined); docs/ is left alone
 import { build } from "esbuild";
 import { compile } from "tailwindcss";
 import { createRequire } from "node:module";
@@ -66,7 +66,7 @@ const head = (assets) => `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Leo Tennis Community</title>
-<meta name="description" content="Private lessons, clinics and community tennis in San Diego. Book online, join waitlists and manage your schedule." />
+<meta name="description" content="Book community tennis sessions in San Diego: Group Sessions and Performance Accelerators." />
 <meta name="theme-color" content="#1F3A2E" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -86,24 +86,26 @@ ${assets}
 </html>
 `;
 
-const docs = join(root, "docs");
-mkdirSync(join(docs, "assets"), { recursive: true });
-writeFileSync(join(docs, "assets", `app.${hash}.js`), jsCode);
-writeFileSync(join(docs, "assets", `app.${hash}.css`), css);
-if (!existsSync(join(docs, "config.js"))) copyFileSync(join(root, "config.example.js"), join(docs, "config.js"));
-// The config is inlined so a cached copy can never disagree with the page.
-const liveConfig = readFileSync(join(docs, "config.js"), "utf8");
-writeFileSync(
-  join(docs, "index.html"),
-  head(`<link rel="stylesheet" href="assets/app.${hash}.css" />
-<script>${liveConfig}</script>
-<script type="module" src="assets/app.${hash}.js"></script>`),
-);
-writeFileSync(join(docs, ".nojekyll"), "");
-// Static files (app icons, manifest) are copied as-is.
-const pub = join(root, "public");
-if (existsSync(pub)) for (const f of readdirSync(pub)) copyFileSync(join(pub, f), join(docs, f));
-console.log(`docs/ built · js ${(jsCode.length / 1024).toFixed(0)} kB · css ${(css.length / 1024).toFixed(0)} kB`);
+if (!single) {
+  const docs = join(root, "docs");
+  mkdirSync(join(docs, "assets"), { recursive: true });
+  writeFileSync(join(docs, "assets", `app.${hash}.js`), jsCode);
+  writeFileSync(join(docs, "assets", `app.${hash}.css`), css);
+  if (!existsSync(join(docs, "config.js"))) copyFileSync(join(root, "config.example.js"), join(docs, "config.js"));
+  // The config is inlined so a cached copy can never disagree with the page.
+  const liveConfig = readFileSync(join(docs, "config.js"), "utf8");
+  writeFileSync(
+    join(docs, "index.html"),
+    head(`<link rel="stylesheet" href="assets/app.${hash}.css" />
+  <script>${liveConfig}</script>
+  <script type="module" src="assets/app.${hash}.js"></script>`),
+  );
+  writeFileSync(join(docs, ".nojekyll"), "");
+  // Static files (app icons, manifest) are copied as-is.
+  const pub = join(root, "public");
+  if (existsSync(pub)) for (const f of readdirSync(pub)) copyFileSync(join(pub, f), join(docs, f));
+  console.log(`docs/ built · js ${(jsCode.length / 1024).toFixed(0)} kB · css ${(css.length / 1024).toFixed(0)} kB`);
+}
 
 if (single) {
   mkdirSync(join(root, "dist"), { recursive: true });

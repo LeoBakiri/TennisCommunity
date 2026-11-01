@@ -1,3 +1,5 @@
+import type { LessonKind, SessionType } from "./types";
+
 export function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   // RFC4122 v4 fallback
@@ -8,6 +10,22 @@ export function uid(): string {
 }
 
 export const nowIso = () => new Date().toISOString();
+
+// The two community session types and the two coach lesson types.
+export const SESSION_META: Record<SessionType, { label: string; color: string }> = {
+  group: { label: "Group Session", color: "#7A8F3A" },
+  performance_accelerator: { label: "Performance Accelerator", color: "#2F5D62" },
+};
+export const LESSON_META: Record<LessonKind, { label: string; color: string }> = {
+  private: { label: "Private Lesson", color: "#1F3A2E" },
+  semi_private: { label: "Semi-Private Lesson", color: "#B5672C" },
+};
+
+export const sessionTitle = (s: { session_type: SessionType | null; title: string }) => {
+  const label = s.session_type ? SESSION_META[s.session_type].label : "Session";
+  return s.session_type === "performance_accelerator" && s.title ? `${label}: ${s.title}` : label;
+};
+export const lessonTitle = (l: { kind: LessonKind; client_names: string[] }) => l.client_names.join(", ") || LESSON_META[l.kind].label;
 
 export function fmtMoney(cents: number | null | undefined, opts: { free?: string } = {}): string {
   if (cents === null || cents === undefined) return "Price TBA";

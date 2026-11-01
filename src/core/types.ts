@@ -1,38 +1,35 @@
-// Domain model shared by the server, the UI and the database schema.
+// Domain model shared by the UI and the database schema.
 // Field names are snake_case so rows map 1:1 to PostgreSQL columns.
 
 export type Role = "member" | "coach" | "admin";
-export type ProgramKind = "private" | "semi_private" | "group" | "event";
-export type Pricing = "per_participant" | "per_session";
+export type SessionType = "group" | "performance_accelerator";
+export type LessonKind = "private" | "semi_private";
 export type SessionStatus = "draft" | "published" | "cancelled";
-export type Visibility = "public" | "private";
-export type BookingStatus = "confirmed" | "pending" | "waitlisted" | "cancelled" | "declined";
-export type RequestStatus = "pending" | "approved" | "declined" | "withdrawn";
+export type BookingStatus = "confirmed" | "waitlisted" | "cancelled";
 
 export interface Settings {
   id: string; // always "default"
   brand_name: string;
-  tagline: string;
   logo_mark: string; // short monogram shown in the logo
   color_primary: string; // hex
   color_accent: string;
   color_background: string;
   color_ink: string;
   color_sage: string;
-  hero_headline: string;
-  hero_subtext: string;
-  coach_bio: string;
-  contact_email: string;
-  contact_phone: string;
-  community_url: string;
+  community_url: string; // the WhatsApp community link
   default_location: string;
   timezone: string;
   currency: string;
   cancellation_window_hours: number;
   cancellation_policy: string;
-  waitlist_auto_promote: boolean;
   booking_horizon_days: number;
   club_disclaimer: string;
+  default_group_capacity: number;
+  default_group_price_cents: number | null;
+  default_group_duration_min: number;
+  default_pa_capacity: number;
+  default_pa_price_cents: number | null;
+  default_pa_duration_min: number;
   updated_at: string;
 }
 
@@ -42,73 +39,26 @@ export interface Profile {
   phone: string | null;
   full_name: string;
   role: Role;
-  skill_level: string;
-  ntrp: string;
-  goals: string;
-  dominant_hand: string;
   emergency_contact: string;
-  bio: string;
-  notify_email: boolean;
-  notify_sms: boolean;
-  tags: string[];
   status: "active" | "inactive";
   onboarded: boolean;
   created_at: string;
 }
 
-export interface Program {
-  id: string;
-  slug: string;
-  name: string;
-  kind: ProgramKind;
-  summary: string;
-  description: string;
-  duration_min: number;
-  capacity: number;
-  price_cents: number | null;
-  pricing: Pricing;
-  requires_approval: boolean;
-  allow_requests: boolean;
-  skill_level: string;
-  location: string;
-  color: string;
-  coaches_count: number;
-  active: boolean;
-  sort_order: number;
-  created_at: string;
-}
-
-export interface ScheduleTemplate {
-  id: string;
-  program_id: string;
-  weekday: number; // 0 = Sunday … 6 = Saturday
-  start_time: string; // "HH:MM" business-local
-  duration_min: number;
-  capacity: number | null;
-  coach_ids: string[];
-  location: string;
-  published: boolean;
-  notes: string;
-  created_at: string;
-}
-
+/** A community session on the public schedule. Private lessons live in `lessons`. */
 export interface Session {
   id: string;
-  program_id: string;
-  title: string;
+  session_type: SessionType | null; // null only on retired rows from before the simplification
+  title: string; // the Performance Accelerator focus; empty for Group Sessions
   starts_at: string; // ISO UTC
   ends_at: string;
   coach_ids: string[];
   capacity: number;
   price_cents: number | null;
-  pricing: Pricing;
   location: string;
   status: SessionStatus;
-  visibility: Visibility;
-  description: string;
-  internal_notes: string;
-  skill_level: string;
-  template_id: string | null;
+  description: string; // notes visible to players
+  internal_notes: string; // session notes visible to coaches only
   created_at: string;
 }
 
@@ -119,8 +69,6 @@ export interface Booking {
   status: BookingStatus;
   seats: number;
   waitlist_position: number | null;
-  guest_name: string;
-  guest_email: string;
   attended: boolean | null;
   late_cancel: boolean;
   cancel_reason: string;
@@ -129,75 +77,38 @@ export interface Booking {
   cancelled_at: string | null;
 }
 
-export interface LessonRequest {
+/** A private or semi-private lesson, owned by one coach and never shown to players. */
+export interface Lesson {
   id: string;
-  user_id: string;
-  program_id: string;
-  preferred_date: string; // YYYY-MM-DD
-  preferred_time: string; // HH:MM
-  alternatives: string;
-  partner_name: string;
-  partner_email: string;
-  message: string;
-  status: RequestStatus;
-  coach_id: string | null;
-  session_id: string | null;
-  admin_note: string;
+  coach_id: string;
+  kind: LessonKind;
+  client_names: string[];
+  starts_at: string;
+  ends_at: string;
+  location: string;
+  price_cents: number | null;
+  notes: string;
   created_at: string;
+  updated_at: string;
 }
 
-export interface CoachNote {
-  id: string;
-  player_id: string;
-  author_id: string;
-  session_id: string | null;
-  body: string;
-  visibility: "staff" | "shared";
-  created_at: string;
-}
-
-export interface Message {
-  id: string;
-  member_id: string; // the conversation is keyed by member
-  sender_id: string;
-  body: string;
-  read_by_staff: boolean;
-  read_by_member: boolean;
-  created_at: string;
-}
-
-export interface Announcement {
-  id: string;
-  title: string;
-  body: string;
-  author_id: string;
-  pinned: boolean;
-  created_at: string;
-}
-
-export interface NotificationLog {
-  id: string;
-  user_id: string | null;
-  channel: "email" | "sms";
-  recipient: string;
-  subject: string;
-  body: string;
-  status: "sent" | "logged" | "failed";
-  created_at: string;
+/** A coach's Google Calendar connection, as visible to the app. The token is stored separately. */
+export interface CoachCalendar {
+  coach_id: string;
+  google_email: string;
+  status: "connected" | "needs_reconnect";
+  last_synced_at: string | null;
+  last_error: string;
+  connected_at: string;
 }
 
 export interface DB {
   settings: Settings[];
   profiles: Profile[];
-  programs: Program[];
-  schedule_templates: ScheduleTemplate[];
   sessions: Session[];
   bookings: Booking[];
-  lesson_requests: LessonRequest[];
-  coach_notes: CoachNote[];
-  messages: Message[];
-  announcements: Announcement[];
-  notifications: NotificationLog[];
+  lessons: Lesson[];
+  coach_calendars: CoachCalendar[];
 }
 
 export type Table = keyof DB;
@@ -208,7 +119,7 @@ export interface Actor {
   /** Authentication identity (Supabase user id or demo id). */
   auth_id: string | null;
   identifier: string | null; // email or phone used to sign in
-  user: Profile | null; // null until onboarding creates the profile
+  user: Profile | null; // null until the welcome step creates the profile
 }
 
 export type ActionResult =

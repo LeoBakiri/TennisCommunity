@@ -2,13 +2,13 @@ import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type Rea
 import { createRoot } from "react-dom/client";
 import { MemoryStore, type Store } from "@/core/store";
 import { demoSeed, DEMO_IDS } from "@/core/seed";
-import { getSettings, isAdmin, isStaff, runAction, type Ctx, type OutgoingMessage } from "@/core/services";
-import { guard, homeFor, matchRoute } from "@/core/routes";
+import { CALENDAR_ACTIONS, getSettings, runAction, type Ctx } from "@/core/services";
+import { guard, homeFor, matchRoute, retiredRedirect } from "@/core/routes";
 import { Forbidden, NotFound } from "@/core/queries";
 import type { ActionResult, Actor, DB, Profile, Settings } from "@/core/types";
-import { hexToRgbTriplet, isEmail, normalizePhone, nowIso, uid } from "@/core/util";
+import { isEmail, normalizePhone, uid } from "@/core/util";
 import { NavProvider, ToastHost, type LinkProps, type NavApi } from "@/ui/nav";
-import { PortalShell, PublicShell, type FrameMeta } from "@/ui/shell";
+import { PlayerShell, PortalShell, type FrameMeta } from "@/ui/shell";
 import { Empty, LinkButton } from "@/ui/kit";
 import { VIEWS } from "./registry";
 import { SupabaseAuth, SupabaseStore, type SupaConfig } from "./supabase";
@@ -28,7 +28,7 @@ const LIVE = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
 const DEMO = !LIVE && __DEMO__;
 const supaAuth = LIVE ? new SupabaseAuth(cfg as SupaConfig) : null;
 
-const DEMO_KEY = "ltc.demo.db.v1";
+const DEMO_KEY = "ltc.demo.db.v2";
 const DEMO_USER = "ltc.demo.user";
 function safeGet(k: string) {
   try {
@@ -79,20 +79,9 @@ async function currentActor(): Promise<Actor> {
   return { auth_id: id, identifier, user: await store.get("profiles", id) };
 }
 
-const notify = async (m: OutgoingMessage) => {
-  const recipient = m.to.email ?? m.to.phone ?? "";
-  if (!recipient) return;
-  await store.insert("notifications", {
-    id: uid(),
-    user_id: m.to.id,
-    channel: m.to.email ? "email" : "sms",
-    recipient,
-    subject: m.subject,
-    body: m.body,
-    status: "logged",
-    created_at: nowIso(),
-  });
-};
+const CALENDAR_FN = "google-calendar";
+/** Push changes to Google right away. If this fails, the queue and the scheduled job retry it. */
+const kickCalendarSync = () => void store.invoke?.(CALENDAR_FN, { action: "sync" }).catch(() => undefined);
 
 // Players may sign up with a mobile number. The login system needs an email,
 // so phone numbers map to a private placeholder address that is never emailed.
@@ -151,25 +140,12 @@ function applyBrand(s: Settings) {
   r.setProperty("--paper", s.color_background);
   r.setProperty("--ink", s.color_ink);
   r.setProperty("--sage", s.color_sage);
-  void hexToRgbTriplet;
 }
 
 async function frameMeta(actor: Actor): Promise<FrameMeta> {
   const settings = await getSettings(store);
   applyBrand(settings);
   const u = actor.user;
-  const counts = { memberUnread: 0, staffUnread: 0, requests: 0 };
-  if (u) {
-    const [mine, staffUnread, reqs, pend] = await Promise.all([
-      store.list("messages", { eq: { member_id: u.id, read_by_member: false } }).catch(() => []),
-      isStaff(u) ? store.list("messages", { eq: { read_by_staff: false } }).catch(() => []) : Promise.resolve([]),
-      isAdmin(u) ? store.list("lesson_requests", { eq: { status: "pending" } }).catch(() => []) : Promise.resolve([]),
-      isAdmin(u) ? store.list("bookings", { eq: { status: "pending" } }).catch(() => []) : Promise.resolve([]),
-    ]);
-    counts.memberUnread = mine.length;
-    counts.staffUnread = staffUnread.length;
-    counts.requests = reqs.length + pend.length;
-  }
   let demo: FrameMeta["demo"] = null;
   if (DEMO) {
     const ids = [DEMO_IDS.sam, DEMO_IDS.maya, DEMO_IDS.leo];
@@ -180,17 +156,54 @@ async function frameMeta(actor: Actor): Promise<FrameMeta> {
     settings,
     user: u ? { id: u.id, full_name: u.full_name, role: u.role, email: u.email } : null,
     signedIn: !!u?.onboarded,
-    counts,
     demo,
   };
 }
 
 // ───────────────────────── app ─────────────────────────
 
+type ViewScreen = { kind: "view"; routeId: string; area: string; data: unknown; meta: FrameMeta; title: string };
 type Screen =
   | { kind: "loading" }
-  | { kind: "view"; routeId: string; area: string; data: unknown; meta: FrameMeta; title: string }
+  | ViewScreen
+  | { kind: "pending"; area: string; meta: FrameMeta }
   | { kind: "notfound" | "forbidden" | "error"; meta: FrameMeta | null; message?: string };
+
+// Main pages reopen instantly from memory while fresh data loads behind them.
+// Only pages without forms are kept: a form would hold on to the older values.
+const CACHED_ROUTES = new Set(["schedule", "m.sessions", "c.schedule", "a.schedule"]);
+const screenCache = new Map<string, ViewScreen>();
+
+// Run through the same path as other actions so the UI gets toasts and a refresh.
+const calendarActions: Record<string, () => Promise<ActionResult>> = {
+  calendarConnect: async () => {
+    if (!store.invoke) return { ok: false, error: "Google Calendar connects on the live site, not in this demo." };
+    try {
+      const { url } = await store.invoke<{ url: string }>(CALENDAR_FN, { action: "start" });
+      return { ok: true, redirect: url };
+    } catch {
+      return { ok: false, error: "Couldn't reach Google Calendar. Please try again." };
+    }
+  },
+  calendarDisconnect: async () => {
+    if (!store.invoke) return { ok: true };
+    try {
+      await store.invoke(CALENDAR_FN, { action: "disconnect" });
+      return { ok: true, message: "Google Calendar disconnected." };
+    } catch {
+      return { ok: false, error: "Couldn't disconnect Google Calendar. Please try again." };
+    }
+  },
+  calendarSync: async () => {
+    if (!store.invoke) return { ok: true };
+    try {
+      const { failed } = await store.invoke<{ failed: number }>(CALENDAR_FN, { action: "sync" });
+      return failed ? { ok: false, error: "Some updates didn't reach Google. They'll retry automatically." } : { ok: true, message: "Calendar is up to date." };
+    } catch {
+      return { ok: false, error: "Couldn't reach Google Calendar. It will retry automatically." };
+    }
+  },
+};
 
 function App() {
   const [loc, setLoc] = useState(readLocation);
@@ -199,6 +212,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const actorRef = useRef<Actor>({ auth_id: null, identifier: null, user: null });
   const seq = useRef(0);
+  const lastPath = useRef(loc.path);
 
   useEffect(() => {
     const on = () => setLoc(readLocation());
@@ -213,11 +227,27 @@ function App() {
   useEffect(() => {
     const my = ++seq.current;
     setBusy(true);
+    // Moving to another portal page: switch right away instead of waiting for its data.
+    if (lastPath.current !== loc.path) {
+      const known = actorRef.current;
+      const target = matchRoute(loc.path);
+      const isPortal = target?.route.area === "member" || target?.route.area === "coach" || target?.route.area === "admin";
+      if (target && isPortal && known.user && !guard(target.route.area, known, loc.full)) {
+        const cached = screenCache.get(`${known.user.id}:${loc.full}`);
+        const area = target.route.area;
+        setScreen((prev) => cached ?? (prev.kind !== "loading" && prev.meta?.user ? { kind: "pending", area, meta: prev.meta } : prev));
+      }
+    }
     (async () => {
       let meta: FrameMeta | null = null;
       try {
         const actor = await currentActor();
         actorRef.current = actor;
+        const retired = retiredRedirect(loc.path);
+        if (retired) {
+          go(retired, true);
+          return;
+        }
         const match = matchRoute(loc.path);
         if (!match) {
           meta = await frameMeta(actor);
@@ -235,8 +265,10 @@ function App() {
         ]);
         meta = m;
         if (my !== seq.current) return;
-        document.title = match.route.id === "home" ? meta.settings.brand_name : `${match.route.title} · ${meta.settings.brand_name}`;
-        setScreen({ kind: "view", routeId: match.route.id, area: match.route.area, data, meta, title: match.route.title });
+        document.title = `${match.route.title} · ${meta.settings.brand_name}`;
+        const next: ViewScreen = { kind: "view", routeId: match.route.id, area: match.route.area, data, meta, title: match.route.title };
+        if (actor.user && CACHED_ROUTES.has(match.route.id)) screenCache.set(`${actor.user.id}:${loc.full}`, next);
+        setScreen(next);
       } catch (e) {
         if (my !== seq.current) return;
         meta ??= await frameMeta(actorRef.current).catch(() => null);
@@ -253,7 +285,6 @@ function App() {
   }, [loc, version]);
 
   // Scroll to top on navigation (not on refresh after an action).
-  const lastPath = useRef(loc.path);
   useEffect(() => {
     if (lastPath.current !== loc.path) window.scrollTo({ top: 0 });
     lastPath.current = loc.path;
@@ -262,6 +293,7 @@ function App() {
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
   const afterLogin = useCallback(async (next?: string): Promise<ActionResult> => {
+    screenCache.clear();
     const actor = await currentActor();
     actorRef.current = actor;
     if (!actor.user?.onboarded) return { ok: true, redirect: `/onboarding${next ? `?next=${encodeURIComponent(next)}` : ""}` };
@@ -278,8 +310,16 @@ function App() {
         else go(href);
       },
       act: async (name, input) => {
-        const ctx: Ctx = { store, actor: await currentActor(), now: new Date(), notify };
+        if (name in calendarActions) {
+          const r = await calendarActions[name]();
+          if (r.ok) screenCache.clear();
+          if (r.ok && !r.redirect) refresh();
+          return r;
+        }
+        const ctx: Ctx = { store, actor: await currentActor(), now: new Date() };
         const r = await runAction(ctx, name, input);
+        if (r.ok) screenCache.clear();
+        if (r.ok && CALENDAR_ACTIONS.has(name)) kickCalendarSync();
         if (r.ok && !r.redirect) refresh();
         if (r.ok && r.redirect && name === "completeOnboarding") {
           const next = loc.search.next;
@@ -339,6 +379,7 @@ function App() {
           return demoLogin(identifier, next);
         },
         signOut: async () => {
+          screenCache.clear();
           if (LIVE) await supaAuth!.signOut();
           else safeSet(DEMO_USER, null);
           go("/");
@@ -349,6 +390,7 @@ function App() {
           : async (id: string) => {
               const p = await store.get("profiles", id);
               if (!p) return;
+              screenCache.clear();
               safeSet(DEMO_USER, JSON.stringify({ id, identifier: p.email ?? p.phone ?? "" }));
               const actor: Actor = { auth_id: id, identifier: p.email, user: p };
               const target = homeFor(actor);
@@ -359,6 +401,7 @@ function App() {
           ? undefined
           : async () => {
               await (store as MemoryStore).reset();
+              screenCache.clear();
               refresh();
             },
       },
@@ -386,7 +429,7 @@ function App() {
 }
 
 function Frame({ area, meta, children }: { area: string; meta: FrameMeta; children: ReactNode }) {
-  if ((area === "member" || area === "coach" || area === "admin") && meta.user) {
+  if ((area === "coach" || area === "admin") && meta.user) {
     return (
       <PortalShell area={area} meta={meta}>
         {children}
@@ -394,7 +437,7 @@ function Frame({ area, meta, children }: { area: string; meta: FrameMeta; childr
     );
   }
   if (area === "auth") return <>{children}</>;
-  return <PublicShell meta={meta}>{children}</PublicShell>;
+  return <PlayerShell meta={meta}>{children}</PlayerShell>;
 }
 
 function Screen({ screen }: { screen: Screen }) {
@@ -408,6 +451,16 @@ function Screen({ screen }: { screen: Screen }) {
       </div>
     );
   }
+  if (screen.kind === "pending") {
+    return (
+      <Frame area={screen.area} meta={screen.meta}>
+        <div className="space-y-5" role="status" aria-label="Loading">
+          <div className="skeleton h-9 w-56" />
+          <div className="skeleton h-64" />
+        </div>
+      </Frame>
+    );
+  }
   if (screen.kind !== "view") {
     const body =
       screen.kind === "notfound" ? (
@@ -419,9 +472,9 @@ function Screen({ screen }: { screen: Screen }) {
       );
     if (!screen.meta) return <div className="mx-auto max-w-lg p-10">{body}</div>;
     return (
-      <PublicShell meta={screen.meta}>
+      <PlayerShell meta={screen.meta}>
         <div className="mx-auto max-w-lg px-4 py-16">{body}</div>
-      </PublicShell>
+      </PlayerShell>
     );
   }
   const View = VIEWS[screen.routeId];

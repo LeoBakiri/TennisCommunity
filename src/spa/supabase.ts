@@ -194,7 +194,7 @@ export class SupabaseStore implements Store {
   }
 
   async get<K extends Table>(table: K, id: string): Promise<Row<K> | null> {
-    const rows = await this.list(table, { eq: { id } as Partial<Row<K>>, limit: 1 });
+    const rows = await this.list(table, { eq: { id } as unknown as Partial<Row<K>>, limit: 1 });
     return rows[0] ?? null;
   }
 
@@ -224,11 +224,17 @@ export class SupabaseStore implements Store {
 
   async sessionStats(ids: string[]): Promise<Record<string, SessionStats>> {
     if (!ids.length) return {};
-    const rows = await this.rpc<{ session_id: string; booked: number; waitlist: number; pending: number }[]>("session_stats", { ids });
+    const rows = await this.rpc<{ session_id: string; booked: number; waitlist: number }[]>("session_stats", { ids });
     const out: Record<string, SessionStats> = {};
-    for (const id of ids) out[id] = { booked: 0, waitlist: 0, pending: 0 };
-    for (const r of rows ?? []) out[r.session_id] = { booked: Number(r.booked), waitlist: Number(r.waitlist), pending: Number(r.pending) };
+    for (const id of ids) out[id] = { booked: 0, waitlist: 0 };
+    for (const r of rows ?? []) out[r.session_id] = { booked: Number(r.booked), waitlist: Number(r.waitlist) };
     return out;
+  }
+
+  async invoke<T = unknown>(fn: string, body: Record<string, unknown>): Promise<T> {
+    const res = await fetch(`${this.cfg.supabaseUrl}/functions/v1/${fn}`, { method: "POST", headers: await this.headers(), body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await parseError(res));
+    return (await res.json()) as T;
   }
 
   async rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {

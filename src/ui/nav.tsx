@@ -11,7 +11,7 @@ export interface LinkProps {
   "aria-label"?: string;
 }
 
-/** Everything a view needs from its host (Next.js app or standalone preview). */
+/** Everything a view needs from its host. */
 export interface NavApi {
   path: string;
   search: Record<string, string>;

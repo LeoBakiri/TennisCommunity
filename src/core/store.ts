@@ -28,22 +28,22 @@ export interface Store {
   sessionStats(ids: string[]): Promise<Record<string, SessionStats>>;
   /** Database-side transactional procedures (Supabase only). */
   rpc?<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
+  /** Server-side functions, such as the Google Calendar sync (Supabase only). */
+  invoke?<T = unknown>(fn: string, body: Record<string, unknown>): Promise<T>;
 }
 
 export interface SessionStats {
   booked: number;
   waitlist: number;
-  pending: number;
 }
 
 export function statsFromBookings(ids: string[], bookings: { session_id: string; status: string; seats: number }[]) {
   const out: Record<string, SessionStats> = {};
-  for (const id of ids) out[id] = { booked: 0, waitlist: 0, pending: 0 };
+  for (const id of ids) out[id] = { booked: 0, waitlist: 0 };
   for (const b of bookings) {
     const st = out[b.session_id];
     if (!st) continue;
-    if (b.status === "confirmed" || b.status === "pending") st.booked += b.seats || 1;
-    if (b.status === "pending") st.pending++;
+    if (b.status === "confirmed") st.booked += b.seats || 1;
     if (b.status === "waitlisted") st.waitlist++;
   }
   return out;
@@ -101,8 +101,8 @@ export class MemoryStore implements Store {
       const f = q.order.field as string;
       const dir = q.order.asc === false ? -1 : 1;
       rows = [...rows].sort((a, b) => {
-        const x = (a as Record<string, unknown>)[f] as string | number;
-        const y = (b as Record<string, unknown>)[f] as string | number;
+        const x = (a as unknown as Record<string, unknown>)[f] as string | number;
+        const y = (b as unknown as Record<string, unknown>)[f] as string | number;
         return x < y ? -dir : x > y ? dir : 0;
       });
     }
