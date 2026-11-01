@@ -209,10 +209,15 @@ export const actions: Record<string, Handler> = {
   // ── Player: booking ──
   bookSession: action(z.object({ session_id: id }), async (ctx, input) => {
     const u = me(ctx);
-    const session = await must(ctx.store.get("sessions", input.session_id), "Session");
-    if (session.status !== "published" || !session.session_type) throw new UserError("This session isn't open for booking.");
-    if (new Date(session.starts_at) <= ctx.now) throw new UserError("This session has already started.");
-    const b = await placeBooking(ctx, session, u);
+    const book = async () => {
+      // The live database makes these same checks inside book_session, so looking first would only add a trip.
+      if (ctx.store.rpc) return ctx.store.rpc<Booking>("book_session", { p_session_id: input.session_id, p_user_id: u.id, p_force_status: null });
+      const session = await must(ctx.store.get("sessions", input.session_id), "Session");
+      if (session.status !== "published" || !session.session_type) throw new UserError("This session isn't open for booking.");
+      if (new Date(session.starts_at) <= ctx.now) throw new UserError("This session has already started.");
+      return placeBooking(ctx, session, u);
+    };
+    const b = await book();
     return b.status === "waitlisted" ? { ok: true, message: `Session is full — you're #${b.waitlist_position} on the waitlist.` } : { ok: true, message: "You're booked!" };
   }),
 

@@ -1,11 +1,13 @@
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryStore, type Store } from "@/core/store";
+import { CachedStore } from "@/core/cache";
 import { demoSeed, DEMO_IDS } from "@/core/seed";
 import { CALENDAR_ACTIONS, getSettings, runAction, type Ctx } from "@/core/services";
-import { guard, homeFor, matchRoute, retiredRedirect } from "@/core/routes";
+import { guard, homeFor, matchRoute, retiredRedirect, type RouteDef } from "@/core/routes";
 import { Forbidden, NotFound } from "@/core/queries";
 import type { ActionResult, Actor, DB, Profile, Settings } from "@/core/types";
+import { addDays } from "@/core/time";
 import { isEmail, normalizePhone, uid } from "@/core/util";
 import { NavProvider, ToastHost, type LinkProps, type NavApi } from "@/ui/nav";
 import { PlayerShell, PortalShell, type FrameMeta } from "@/ui/shell";
@@ -46,7 +48,7 @@ function safeSet(k: string, v: string | null) {
   }
 }
 
-const store: Store & { reset?: () => Promise<void> } = LIVE
+const backend: Store = LIVE
   ? new SupabaseStore(cfg as SupaConfig, supaAuth!)
   : new MemoryStore(
       {
@@ -63,6 +65,7 @@ const store: Store & { reset?: () => Promise<void> } = LIVE
       },
       () => (DEMO ? demoSeed(new Date()) : demoSeed(new Date(0))),
     );
+const store = new CachedStore(backend);
 
 async function currentActor(): Promise<Actor> {
   if (LIVE) {
@@ -99,12 +102,14 @@ function displayIdentifier(email?: string | null, phone?: string | null) {
 
 // ───────────────────────── routing ─────────────────────────
 
-function readLocation() {
-  const h = window.location.hash.replace(/^#/, "") || "/";
+function parseHref(h: string) {
   const [path, qs = ""] = h.split("?");
   const search: Record<string, string> = {};
   new URLSearchParams(qs).forEach((v, k) => (search[k] = v));
   return { path: path || "/", search, full: h };
+}
+function readLocation() {
+  return parseHref(window.location.hash.replace(/^#/, "") || "/");
 }
 const go = (href: string, replace = false) => {
   const target = `#${href}`;
@@ -121,6 +126,8 @@ function Link({ href, className, children, title, onClick, ...rest }: LinkProps)
       title={title}
       aria-current={rest["aria-current"]}
       aria-label={rest["aria-label"]}
+      onPointerEnter={() => prefetch(href, HOVER_REST_MS)}
+      onFocus={() => prefetch(href, HOVER_REST_MS)}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
@@ -171,8 +178,72 @@ type Screen =
 
 // Main pages reopen instantly from memory while fresh data loads behind them.
 // Only pages without forms are kept: a form would hold on to the older values.
-const CACHED_ROUTES = new Set(["schedule", "m.sessions", "c.schedule", "a.schedule"]);
+const CACHED_ROUTES = new Set(["schedule", "m.sessions", "c.schedule", "a.schedule", "a.coaches", "a.members"]);
+const SCREEN_CACHE_SIZE = 40;
 const screenCache = new Map<string, ViewScreen>();
+const prefetchedAt = new Map<string, number>();
+// Bumped whenever data changes, so a page still loading from before the change isn't kept.
+let cacheEpoch = 0;
+let knownActor: Actor = { auth_id: null, identifier: null, user: null };
+
+const HOVER_REST_MS = 8_000;
+const IDLE_REST_MS = 60_000;
+const RELOAD_WAIT_MS = 2_500;
+
+const screenKey = (actor: Actor, full: string) => `${actor.user?.id ?? "anon"}:${full}`;
+
+function forgetScreens() {
+  screenCache.clear();
+  prefetchedAt.clear();
+  cacheEpoch++;
+}
+
+async function loadView(route: RouteDef, params: Record<string, string>, search: Record<string, string>, actor: Actor): Promise<ViewScreen> {
+  const [data, meta] = await Promise.all([route.load ? route.load({ store, actor, params, search, now: new Date() }) : Promise.resolve(null), frameMeta(actor)]);
+  return { kind: "view", routeId: route.id, area: route.area, data, meta, title: route.title };
+}
+
+function remember(key: string, view: ViewScreen, epoch: number) {
+  if (epoch !== cacheEpoch || !CACHED_ROUTES.has(view.routeId)) return;
+  screenCache.delete(key);
+  screenCache.set(key, view);
+  if (screenCache.size > SCREEN_CACHE_SIZE) screenCache.delete(screenCache.keys().next().value!);
+}
+
+/** Load a page before it's opened, so the click finds it ready. */
+function prefetch(href: string, restMs: number) {
+  const actor = knownActor;
+  const key = screenKey(actor, href);
+  const last = prefetchedAt.get(key);
+  if (last !== undefined && Date.now() - last < restMs) return;
+  const { path, search } = parseHref(href);
+  const match = matchRoute(path);
+  if (!match?.route.load || guard(match.route.area, actor, href)) return;
+  prefetchedAt.set(key, Date.now());
+  const epoch = cacheEpoch;
+  loadView(match.route, match.params, search, actor).then(
+    (view) => remember(key, view, epoch),
+    () => prefetchedAt.delete(key),
+  );
+}
+
+/** The pages someone is most likely to open next from this one. */
+function likelyPages(view: ViewScreen): string[] {
+  if (view.area === "admin") return ["/admin", "/admin/coaches", "/admin/members", "/admin/settings"];
+  if (view.routeId === "c.schedule") {
+    const { monday } = view.data as { monday: string };
+    return [`/coach?week=${addDays(monday, 7)}`, `/coach?week=${addDays(monday, -7)}`, "/coach"];
+  }
+  if (view.area === "coach") return ["/coach"];
+  return view.meta.user ? ["/schedule", "/my-sessions"] : [];
+}
+
+function prefetchWhenIdle(view: ViewScreen) {
+  if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
+  const run = () => likelyPages(view).forEach((href) => prefetch(href, IDLE_REST_MS));
+  if ("requestIdleCallback" in window) requestIdleCallback(run, { timeout: 1500 });
+  else setTimeout(run, 300);
+}
 
 // Run through the same path as other actions so the UI gets toasts and a refresh.
 const calendarActions: Record<string, () => Promise<ActionResult>> = {
@@ -210,9 +281,11 @@ function App() {
   const [version, setVersion] = useState(0);
   const [screen, setScreen] = useState<Screen>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
-  const actorRef = useRef<Actor>({ auth_id: null, identifier: null, user: null });
+  const [dimmed, setDimmed] = useState(false);
   const seq = useRef(0);
   const lastPath = useRef(loc.path);
+  const lastFull = useRef(loc.full);
+  const reloadWaiters = useRef<(() => void)[]>([]);
 
   useEffect(() => {
     const on = () => setLoc(readLocation());
@@ -226,23 +299,32 @@ function App() {
 
   useEffect(() => {
     const my = ++seq.current;
-    setBusy(true);
-    // Moving to another portal page: switch right away instead of waiting for its data.
-    if (lastPath.current !== loc.path) {
-      const known = actorRef.current;
+    const epoch = cacheEpoch;
+    let instant = false;
+    // Moving to another page: switch right away instead of waiting for its data.
+    if (lastFull.current !== loc.full) {
+      const known = knownActor;
       const target = matchRoute(loc.path);
-      const isPortal = target?.route.area === "member" || target?.route.area === "coach" || target?.route.area === "admin";
-      if (target && isPortal && known.user && !guard(target.route.area, known, loc.full)) {
-        const cached = screenCache.get(`${known.user.id}:${loc.full}`);
+      if (target?.route.load && target.route.area !== "auth" && !guard(target.route.area, known, loc.full)) {
+        const cached = screenCache.get(screenKey(known, loc.full));
         const area = target.route.area;
-        setScreen((prev) => cached ?? (prev.kind !== "loading" && prev.meta?.user ? { kind: "pending", area, meta: prev.meta } : prev));
+        instant = !!cached;
+        if (cached || lastPath.current !== loc.path) {
+          setScreen((prev) => cached ?? (prev.kind !== "loading" && prev.meta ? { kind: "pending", area, meta: prev.meta } : prev));
+          setDimmed(false);
+        } else {
+          // Same page with other data (next week, another tab): keep its buttons in place while it loads.
+          setDimmed(true);
+        }
       }
     }
+    lastFull.current = loc.full;
+    setBusy(!instant);
     (async () => {
       let meta: FrameMeta | null = null;
       try {
         const actor = await currentActor();
-        actorRef.current = actor;
+        knownActor = actor;
         const retired = retiredRedirect(loc.path);
         if (retired) {
           go(retired, true);
@@ -259,19 +341,18 @@ function App() {
           go(redirect, true);
           return;
         }
-        const [data, m] = await Promise.all([
-          match.route.load ? match.route.load({ store, actor, params: match.params, search: loc.search, now: new Date() }) : Promise.resolve(null),
-          frameMeta(actor),
-        ]);
-        meta = m;
+        const next = await loadView(match.route, match.params, loc.search, actor);
+        meta = next.meta;
+        const key = screenKey(actor, loc.full);
+        prefetchedAt.set(key, Date.now());
+        remember(key, next, epoch);
         if (my !== seq.current) return;
         document.title = `${match.route.title} · ${meta.settings.brand_name}`;
-        const next: ViewScreen = { kind: "view", routeId: match.route.id, area: match.route.area, data, meta, title: match.route.title };
-        if (actor.user && CACHED_ROUTES.has(match.route.id)) screenCache.set(`${actor.user.id}:${loc.full}`, next);
         setScreen(next);
+        prefetchWhenIdle(next);
       } catch (e) {
         if (my !== seq.current) return;
-        meta ??= await frameMeta(actorRef.current).catch(() => null);
+        meta ??= await frameMeta(knownActor).catch(() => null);
         if (e instanceof NotFound) setScreen({ kind: "notfound", meta });
         else if (e instanceof Forbidden) setScreen({ kind: "forbidden", meta });
         else {
@@ -279,7 +360,11 @@ function App() {
           setScreen({ kind: "error", meta, message: e instanceof Error ? e.message : String(e) });
         }
       } finally {
-        if (my === seq.current) setBusy(false);
+        if (my === seq.current) {
+          setBusy(false);
+          setDimmed(false);
+          reloadWaiters.current.splice(0).forEach((done) => done());
+        }
       }
     })();
   }, [loc, version]);
@@ -292,10 +377,22 @@ function App() {
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
+  // An action's spinner runs until the page shows the result, unless the reload is unusually slow.
+  const refreshAndWait = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        reloadWaiters.current.push(resolve);
+        setTimeout(resolve, RELOAD_WAIT_MS);
+        refresh();
+      }),
+    [refresh],
+  );
+
   const afterLogin = useCallback(async (next?: string): Promise<ActionResult> => {
-    screenCache.clear();
+    store.clear();
+    forgetScreens();
     const actor = await currentActor();
-    actorRef.current = actor;
+    knownActor = actor;
     if (!actor.user?.onboarded) return { ok: true, redirect: `/onboarding${next ? `?next=${encodeURIComponent(next)}` : ""}` };
     return { ok: true, redirect: next && next.startsWith("/") ? next : homeFor(actor) };
   }, []);
@@ -312,15 +409,15 @@ function App() {
       act: async (name, input) => {
         if (name in calendarActions) {
           const r = await calendarActions[name]();
-          if (r.ok) screenCache.clear();
-          if (r.ok && !r.redirect) refresh();
+          if (r.ok) forgetScreens();
+          if (r.ok && !r.redirect) await refreshAndWait();
           return r;
         }
         const ctx: Ctx = { store, actor: await currentActor(), now: new Date() };
         const r = await runAction(ctx, name, input);
-        if (r.ok) screenCache.clear();
+        if (r.ok) forgetScreens();
         if (r.ok && CALENDAR_ACTIONS.has(name)) kickCalendarSync();
-        if (r.ok && !r.redirect) refresh();
+        if (r.ok && !r.redirect) await refreshAndWait();
         if (r.ok && r.redirect && name === "completeOnboarding") {
           const next = loc.search.next;
           return { ...r, redirect: next && next.startsWith("/") && !next.startsWith("/onboarding") ? next : homeFor(await currentActor()) };
@@ -379,9 +476,11 @@ function App() {
           return demoLogin(identifier, next);
         },
         signOut: async () => {
-          screenCache.clear();
           if (LIVE) await supaAuth!.signOut();
           else safeSet(DEMO_USER, null);
+          store.clear();
+          forgetScreens();
+          knownActor = { auth_id: null, identifier: null, user: null };
           go("/");
           refresh();
         },
@@ -390,7 +489,8 @@ function App() {
           : async (id: string) => {
               const p = await store.get("profiles", id);
               if (!p) return;
-              screenCache.clear();
+              store.clear();
+              forgetScreens();
               safeSet(DEMO_USER, JSON.stringify({ id, identifier: p.email ?? p.phone ?? "" }));
               const actor: Actor = { auth_id: id, identifier: p.email, user: p };
               const target = homeFor(actor);
@@ -400,14 +500,15 @@ function App() {
         resetDemo: !DEMO
           ? undefined
           : async () => {
-              await (store as MemoryStore).reset();
-              screenCache.clear();
+              await (backend as MemoryStore).reset();
+              store.clear();
+              forgetScreens();
               refresh();
             },
       },
       demo: DEMO,
     }),
-    [loc, refresh, afterLogin],
+    [loc, refresh, refreshAndWait, afterLogin],
   );
 
   async function demoLogin(identifier: string, next?: string): Promise<ActionResult> {
@@ -422,7 +523,7 @@ function App() {
     <NavProvider value={nav}>
       <ToastHost>
         {busy && <div className="fixed inset-x-0 top-0 z-[70] h-0.5 animate-pulse bg-accent" aria-hidden="true" />}
-        <Screen screen={screen} />
+        <Screen screen={screen} dimmed={dimmed} />
       </ToastHost>
     </NavProvider>
   );
@@ -440,7 +541,7 @@ function Frame({ area, meta, children }: { area: string; meta: FrameMeta; childr
   return <PlayerShell meta={meta}>{children}</PlayerShell>;
 }
 
-function Screen({ screen }: { screen: Screen }) {
+function Screen({ screen, dimmed }: { screen: Screen; dimmed: boolean }) {
   if (screen.kind === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -480,7 +581,9 @@ function Screen({ screen }: { screen: Screen }) {
   const View = VIEWS[screen.routeId];
   return (
     <Frame area={screen.area} meta={screen.meta}>
-      <View data={screen.data} meta={screen.meta} />
+      <div className={dimmed ? "opacity-50 transition-opacity" : undefined}>
+        <View data={screen.data} meta={screen.meta} />
+      </div>
     </Frame>
   );
 }

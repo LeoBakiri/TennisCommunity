@@ -140,10 +140,10 @@ const hours = (from: string, to: string) => Math.round(((new Date(to).getTime() 
 
 export async function loadCoachSchedule(ctx: LoadCtx) {
   const u = ctx.actor.user!;
-  const L = await profileMap(ctx.store);
   const monday = weekParam(ctx);
   const nextMonday = addDays(monday, 7);
-  const [rows, lessons, calendars] = await Promise.all([
+  const [L, rows, lessons, calendars] = await Promise.all([
+    profileMap(ctx.store),
     communityBetween(ctx.store, monday, nextMonday),
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(monday) }, lt: { field: "starts_at", value: startIso(nextMonday) } }),
     ctx.store.list("coach_calendars", { eq: { coach_id: u.id } }),
@@ -182,8 +182,7 @@ export async function loadCoachSession(ctx: LoadCtx) {
   if (!s || !isCommunity(s)) throw new NotFound();
   if (!coachesSession(u, s)) throw new Forbidden();
   const L = await profileMap(ctx.store);
-  const [view] = await enrich(ctx.store, [s], L, null);
-  const bookings = await ctx.store.list("bookings", { eq: { session_id: s.id } });
+  const [[view], bookings] = await Promise.all([enrich(ctx.store, [s], L, null), ctx.store.list("bookings", { eq: { session_id: s.id } })]);
   const roster = bookings
     .filter(isActive)
     .sort((a, b) => (a.status === "waitlisted" ? 1 : 0) - (b.status === "waitlisted" ? 1 : 0) || (a.waitlist_position ?? 0) - (b.waitlist_position ?? 0) || (a.created_at < b.created_at ? -1 : 1))
@@ -219,10 +218,10 @@ export async function loadLessonEditor(ctx: LoadCtx) {
 // ───────────────────────── admin ─────────────────────────
 
 export async function loadAdminSchedule(ctx: LoadCtx) {
-  const L = await profileMap(ctx.store);
   const tab = ["upcoming", "past", "draft", "cancelled"].includes(ctx.search.tab) ? ctx.search.tab : "upcoming";
   const now = ctx.now.toISOString();
-  const all = (await ctx.store.list("sessions", { order: { field: "starts_at" } })).filter(isCommunity);
+  const [L, rows] = await Promise.all([profileMap(ctx.store), ctx.store.list("sessions", { order: { field: "starts_at" } })]);
+  const all = rows.filter(isCommunity);
   const filtered = all.filter((s) =>
     tab === "draft" ? s.status === "draft" : tab === "cancelled" ? s.status === "cancelled" : tab === "past" ? s.status === "published" && s.starts_at <= now : s.status === "published" && s.starts_at > now,
   );
@@ -238,8 +237,7 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
 }
 
 export async function loadSessionEditor(ctx: LoadCtx) {
-  const L = await profileMap(ctx.store);
-  const settings = await getSettings(ctx.store);
+  const [L, settings, s] = await Promise.all([profileMap(ctx.store), getSettings(ctx.store), ctx.params.id === "new" ? null : ctx.store.get("sessions", ctx.params.id)]);
   const coaches = L.profiles.filter(isStaff).map(person).sort(by((p) => p.full_name));
   const members = L.profiles.filter((p) => p.status === "active").map(person).sort(by((p) => p.full_name));
   const defaults = {
@@ -262,10 +260,8 @@ export async function loadSessionEditor(ctx: LoadCtx) {
       },
     };
   }
-  const s = await ctx.store.get("sessions", ctx.params.id);
   if (!s || !isCommunity(s)) throw new NotFound();
-  const [view] = await enrich(ctx.store, [s], L, null);
-  const bookings = await ctx.store.list("bookings", { eq: { session_id: s.id } });
+  const [[view], bookings] = await Promise.all([enrich(ctx.store, [s], L, null), ctx.store.list("bookings", { eq: { session_id: s.id } })]);
   const roster = bookings
     .sort(by((b) => `${["confirmed", "waitlisted", "cancelled"].indexOf(b.status)}-${String(b.waitlist_position ?? 0).padStart(3, "0")}-${b.created_at}`))
     .map((b) => {
@@ -276,14 +272,16 @@ export async function loadSessionEditor(ctx: LoadCtx) {
 }
 
 export async function loadAdminCoaches(ctx: LoadCtx) {
-  const L = await profileMap(ctx.store);
   const now = ctx.now.toISOString();
-  const [sessions, lessons, calendars] = await Promise.all([
-    ctx.store.list("sessions", { gte: { field: "starts_at", value: now }, order: { field: "starts_at" } }),
-    ctx.store.list("lessons", { gte: { field: "starts_at", value: now } }),
+  const today = startIso(dateKey(ctx.now));
+  const [L, sessions, allLessons, calendars] = await Promise.all([
+    profileMap(ctx.store),
+    ctx.store.list("sessions", { gte: { field: "starts_at", value: today }, order: { field: "starts_at" } }),
+    ctx.store.list("lessons", { gte: { field: "starts_at", value: today } }),
     ctx.store.list("coach_calendars"),
   ]);
-  const assigned = await enrich(ctx.store, sessions.filter((s) => isCommunity(s) && s.status === "published"), L, null);
+  const lessons = allLessons.filter((l) => l.starts_at >= now);
+  const assigned = await enrich(ctx.store, sessions.filter((s) => s.starts_at >= now && isCommunity(s) && s.status === "published"), L, null);
   return {
     coaches: L.profiles
       .filter((p) => isStaff(p) && p.status === "active")
@@ -300,10 +298,9 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
 }
 
 export async function loadAdminMembers(ctx: LoadCtx) {
-  const L = await profileMap(ctx.store);
   const q = (ctx.search.q ?? "").toLowerCase().trim();
   const role = ctx.search.role ?? "";
-  const bookings = await ctx.store.list("bookings");
+  const [L, bookings] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings")]);
   const count = new Map<string, number>();
   for (const b of bookings) if (holdsSeat(b)) count.set(b.user_id, (count.get(b.user_id) ?? 0) + 1);
   const members = L.profiles
@@ -315,28 +312,30 @@ export async function loadAdminMembers(ctx: LoadCtx) {
 }
 
 export async function loadAdminMember(ctx: LoadCtx) {
-  const profile = await ctx.store.get("profiles", ctx.params.id);
+  const id = ctx.params.id;
+  const now = ctx.now.toISOString();
+  const today = startIso(dateKey(ctx.now));
+  const [profile, L, bookings, coachSessions, coachLessons, calendars] = await Promise.all([
+    ctx.store.get("profiles", id),
+    profileMap(ctx.store),
+    ctx.store.list("bookings", { eq: { user_id: id } }),
+    ctx.store.list("sessions", { contains: { field: "coach_ids", value: id }, gte: { field: "starts_at", value: today } }),
+    ctx.store.list("lessons", { eq: { coach_id: id }, gte: { field: "starts_at", value: today } }),
+    ctx.store.list("coach_calendars"),
+  ]);
   if (!profile) throw new NotFound();
-  const L = await profileMap(ctx.store);
-  const bookings = await ctx.store.list("bookings", { eq: { user_id: profile.id } });
   const sessions = (await ctx.store.list("sessions", { in: { field: "id", values: bookings.map((b) => b.session_id) } })).filter(isCommunity);
   const views = await enrich(ctx.store, sessions, L, null);
   const history = views.flatMap((session) => {
     const booking = bookings.find((b) => b.session_id === session.id);
     return booking ? [{ session, booking }] : [];
   });
-  const now = ctx.now.toISOString();
-  const [coachSessions, coachLessons, calendars] = await Promise.all([
-    ctx.store.list("sessions", { contains: { field: "coach_ids", value: profile.id }, gte: { field: "starts_at", value: now } }),
-    ctx.store.list("lessons", { eq: { coach_id: profile.id }, gte: { field: "starts_at", value: now } }),
-    ctx.store.list("coach_calendars"),
-  ]);
   return {
     profile,
     history: history.sort(by((r) => r.session.starts_at, -1)),
     coaching: {
-      sessions: coachSessions.filter((s) => isCommunity(s) && s.status === "published").length,
-      lessons: coachLessons.length,
+      sessions: coachSessions.filter((s) => s.starts_at >= now && isCommunity(s) && s.status === "published").length,
+      lessons: coachLessons.filter((l) => l.starts_at >= now).length,
       calendar: calendars.find((c) => c.coach_id === profile.id) ?? null,
     },
   };

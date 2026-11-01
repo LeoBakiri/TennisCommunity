@@ -226,7 +226,9 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
   const user = meta.user!;
   const portals = PORTALS.filter((p) => p.roles.includes(user.role));
 
-  const Switcher = ({ dark }: { dark: boolean }) => (
+  // Plain functions, not components: a component defined here would be rebuilt on every
+  // render, and a link rebuilt between press and release loses the click.
+  const switcher = (dark: boolean) => (
     <div className={cx("grid gap-1 rounded-xl p-1", dark ? "bg-paper/10" : "bg-ink/[0.06]")} style={{ gridTemplateColumns: `repeat(${portals.length}, 1fr)` }} role="tablist" aria-label="Switch view">
       {portals.map((p) => (
         <A
@@ -244,7 +246,7 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
     </div>
   );
 
-  const NavList = ({ onDark }: { onDark: boolean }) => (
+  const navList = (onDark: boolean) => (
     <ul className="space-y-0.5">
       {items.map((i) => {
         const active = isActive(path, i.href, items);
@@ -267,7 +269,7 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
     </ul>
   );
 
-  const UserBlock = ({ dark }: { dark: boolean }) => (
+  const userBlock = (dark: boolean) => (
     <div className={cx("flex items-center gap-3 rounded-xl p-2", dark ? "text-paper" : "text-ink")}>
       <Avatar name={user.full_name} size={34} />
       <A href="/profile" className="min-w-0 flex-1 hover:underline">
@@ -291,17 +293,15 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
               <Logo s={s} light={t.light} />
             </A>
           </div>
-          <Switcher dark={t.light} />
-          <nav className="flex-1">
-            <NavList onDark={t.light} />
-          </nav>
+          {switcher(t.light)}
+          <nav className="flex-1">{navList(t.light)}</nav>
           <div className="space-y-2">
             {area === "admin" && (
               <A href="/admin/sessions/new" className="btn btn-accent w-full">
                 <Icon name="plus" size={17} /> New session
               </A>
             )}
-            <UserBlock dark={t.light} />
+            {userBlock(t.light)}
           </div>
         </aside>
 
@@ -326,11 +326,9 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
                   <Icon name="x" />
                 </button>
               </div>
-              <Switcher dark={area === "admin"} />
-              <NavList onDark={area === "admin"} />
-              <div className="mt-auto">
-                <UserBlock dark={area === "admin"} />
-              </div>
+              {switcher(area === "admin")}
+              {navList(area === "admin")}
+              <div className="mt-auto">{userBlock(area === "admin")}</div>
             </div>
           </div>
         )}
