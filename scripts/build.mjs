@@ -85,7 +85,7 @@ if (!existsSync(join(docs, "config.js"))) copyFileSync(join(root, "config.exampl
 writeFileSync(
   join(docs, "index.html"),
   head(`<link rel="stylesheet" href="assets/app.${hash}.css" />
-<script src="config.js"></script>
+<script src="config.js?v=${hash}"></script>
 <script type="module" src="assets/app.${hash}.js"></script>`),
 );
 writeFileSync(join(docs, ".nojekyll"), "");
