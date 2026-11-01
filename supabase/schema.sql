@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════
---  Leo Tennis Community — database schema for Supabase (PostgreSQL)
+--  El Patio Tennis — database schema for Supabase (PostgreSQL)
 --  For a brand-new project: run once in Supabase → SQL Editor.
 --  An existing database upgrades through supabase/migrations/ instead.
 --  Security model: the website talks to the database directly with the
@@ -18,8 +18,8 @@ create table if not exists public.admin_emails (
 
 create table if not exists public.settings (
   id text primary key default 'default',
-  brand_name text not null default 'Leo Tennis Community',
-  logo_mark text not null default 'LT',
+  brand_name text not null default 'El Patio Tennis',
+  logo_mark text not null default 'EP',
   color_primary text not null default '#1F3A2E',
   color_accent text not null default '#C9DC4B',
   color_background text not null default '#F7F4EC',
@@ -528,7 +528,7 @@ grant execute on function public.calendar_enqueue_coach(uuid) to service_role;
 insert into public.admin_emails (email) values ('leocanbakiri@gmail.com') on conflict do nothing;
 
 insert into public.settings (id, brand_name, logo_mark, default_location, cancellation_policy, club_disclaimer)
-values ('default', 'Leo Tennis Community', 'LT', 'Balboa Tennis Club, San Diego',
+values ('default', 'El Patio Tennis', 'EP', 'Balboa Tennis Club, San Diego',
   'Please cancel at least 24 hours before your session so someone from the waitlist can take your spot. Late cancellations may still be charged by the coach.',
-  'Leo Tennis Community is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.')
+  'El Patio Tennis is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.')
 on conflict (id) do nothing;

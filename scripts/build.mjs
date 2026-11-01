@@ -65,7 +65,7 @@ const head = (assets) => `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Leo Tennis Community</title>
+<title>El Patio Tennis</title>
 <meta name="description" content="Book community tennis sessions in San Diego: Group Sessions and Performance Accelerators." />
 <meta name="theme-color" content="#1F3A2E" />
 <meta name="apple-mobile-web-app-capable" content="yes" />

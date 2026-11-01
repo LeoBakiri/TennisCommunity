@@ -1,5 +1,5 @@
 {
-  "name": "leo-tennis-community",
+  "name": "el-patio-tennis",
   "version": "1.0.0",
   "private": true,
   "description": "Community session booking for players and a coaching schedule for coaches, on React and Supabase.",

@@ -5,8 +5,8 @@ const BALBOA = "Balboa Tennis Club, San Diego";
 
 export const DEFAULT_SETTINGS: Settings = {
   id: "default",
-  brand_name: "Leo Tennis Community",
-  logo_mark: "LT",
+  brand_name: "El Patio Tennis",
+  logo_mark: "EP",
   color_primary: "#1F3A2E",
   color_accent: "#C9DC4B",
   color_background: "#F7F4EC",
@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
     "Please cancel at least 24 hours before your session so someone from the waitlist can take your spot. Late cancellations may still be charged by the coach.",
   booking_horizon_days: 28,
   club_disclaimer:
-    "Leo Tennis Community is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.",
+    "El Patio Tennis is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.",
   default_group_capacity: 6,
   default_group_price_cents: 4000,
   default_group_duration_min: 90,
