@@ -134,7 +134,7 @@ export function HomeView({ data, meta }: { data: D<typeof loadHome>; meta: Frame
             <h2 className="font-display text-3xl font-semibold tracking-tight">No more group-chat polls.</h2>
           </div>
           {[
-            ["user", "Create your profile", "Sign in with your email or phone — no password to remember. Tell us your level and goals."],
+            ["user", "Create your profile", "Sign up with your email or mobile number in under a minute. Tell us your level and goals."],
             ["calendar", "Pick a session", "Browse the live weekly schedule, see exactly how many spots are left, and book in two taps."],
             ["check", "Show up & play", "Get instant confirmation and reminders. Plans change? Cancel online and the waitlist moves up automatically."],
           ].map(([icon, title, body], i) => (
@@ -413,8 +413,8 @@ export function LoginView({ meta }: { meta: FrameMeta }) {
                     </button>
                   ))}
                 </div>
-                <Field label="Email" className="mt-6">
-                  <input className="input" type="email" autoFocus autoComplete="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Field label="Email or mobile number" className="mt-6">
+                  <input className="input" type="text" autoFocus autoComplete="username" inputMode="email" placeholder="you@example.com or (619) 555-0123" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </Field>
                 <Field label="Password" className="mt-4" hint={mode === "signup" ? "At least 8 characters" : undefined}>
                   <input className="input" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -424,7 +424,7 @@ export function LoginView({ meta }: { meta: FrameMeta }) {
                   {busy && <Spinner />} {mode === "signin" ? "Sign in" : "Create account"}
                 </button>
                 <button type="button" onClick={() => { setMode("code"); setError(null); }} className="mt-4 w-full text-center text-sm font-medium text-brand hover:underline">
-                  {mode === "signin" ? "Forgot password? Email me a sign-in code" : "Prefer no password? Email me a code"}
+                  {mode === "signin" ? "Forgot your password? Email me a sign-in code" : "Prefer no password? Email me a code"}
                 </button>
               </form>
             )}

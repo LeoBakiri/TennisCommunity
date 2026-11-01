@@ -171,7 +171,7 @@ export async function loadOnboarding(ctx: LoadCtx) {
   const id = a.identifier ?? "";
   return {
     profile: a.user,
-    prefill: { email: id.includes("@") ? id : a.user?.email ?? "", phone: id.includes("@") ? a.user?.phone ?? "" : id || a.user?.phone || "" },
+    prefill: { email: id.includes("@") ? id : a.user?.email ?? "", phone: id.startsWith("+") ? id : a.user?.phone ?? "" },
   };
 }
 

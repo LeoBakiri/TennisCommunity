@@ -6,7 +6,7 @@ import { getSettings, isAdmin, isStaff, runAction, type Ctx, type OutgoingMessag
 import { guard, homeFor, matchRoute } from "@/core/routes";
 import { Forbidden, NotFound } from "@/core/queries";
 import type { ActionResult, Actor, DB, Profile, Settings } from "@/core/types";
-import { hexToRgbTriplet, isEmail, nowIso, uid } from "@/core/util";
+import { hexToRgbTriplet, isEmail, normalizePhone, nowIso, uid } from "@/core/util";
 import { NavProvider, ToastHost, type LinkProps, type NavApi } from "@/ui/nav";
 import { PortalShell, PublicShell, type FrameMeta } from "@/ui/shell";
 import { Empty, LinkButton } from "@/ui/kit";
@@ -68,7 +68,7 @@ async function currentActor(): Promise<Actor> {
     const token = await supaAuth!.token();
     if (!token) return { auth_id: null, identifier: null, user: null };
     const user = await store.get("profiles", s.user.id).catch(() => null);
-    return { auth_id: s.user.id, identifier: s.user.email ?? s.user.phone ?? null, user };
+    return { auth_id: s.user.id, identifier: displayIdentifier(s.user.email, s.user.phone), user };
   }
   const raw = safeGet(DEMO_USER);
   if (!raw) return { auth_id: null, identifier: null, user: null };
@@ -90,6 +90,20 @@ const notify = async (m: OutgoingMessage) => {
     created_at: nowIso(),
   });
 };
+
+// Players may sign up with a mobile number. The login system needs an email,
+// so phone numbers map to a private placeholder address that is never emailed.
+const PHONE_DOMAIN = "phone.leotenniscommunity.app";
+function loginEmail(identifier: string): { email: string; phone: string | null } | null {
+  const v = identifier.trim().toLowerCase();
+  if (isEmail(v)) return { email: v, phone: null };
+  const phone = normalizePhone(v);
+  return phone ? { email: `${phone.replace(/\D/g, "")}@${PHONE_DOMAIN}`, phone } : null;
+}
+function displayIdentifier(email?: string | null, phone?: string | null) {
+  if (email && email.endsWith(`@${PHONE_DOMAIN}`)) return `+${email.split("@")[0]}`;
+  return email ?? phone ?? null;
+}
 
 // ───────────────────────── routing ─────────────────────────
 
@@ -271,20 +285,30 @@ function App() {
         return r;
       },
       auth: {
-        password: async (email, password, mode, next) => {
-          if (!isEmail(email)) return { ok: false, error: "Please enter a valid email address." };
+        password: async (identifier, password, mode, next) => {
+          const id = loginEmail(identifier);
+          if (!id) return { ok: false, error: "Enter a valid email address or mobile number." };
           if (LIVE) {
             try {
-              if (mode === "signup") await supaAuth!.signUp(email, password);
-              else await supaAuth!.signInWithPassword(email, password);
+              if (mode === "signup") await supaAuth!.signUp(id.email, password);
+              else await supaAuth!.signInWithPassword(id.email, password);
               await store.rpc?.("claim_profile", {}).catch(() => undefined);
             } catch (e) {
               const msg = e instanceof Error ? e.message : "Sign-in failed";
-              return { ok: false, error: /invalid login/i.test(msg) ? "Email or password is incorrect." : /already registered/i.test(msg) ? "That email already has an account — sign in instead." : msg };
+              return {
+                ok: false,
+                error: /invalid login/i.test(msg)
+                  ? "That email/number or password is incorrect."
+                  : /already registered|already exists/i.test(msg)
+                    ? "There's already an account with that — sign in instead."
+                    : /password/i.test(msg) && /characters|weak|short/i.test(msg)
+                      ? "Please choose a longer password (at least 8 characters)."
+                      : msg,
+              };
             }
             return afterLogin(next);
           }
-          return demoLogin(email, next);
+          return demoLogin(id.phone ?? id.email, next);
         },
         request: async (identifier) => {
           if (!isEmail(identifier)) return { ok: false, error: "Please enter a valid email address." };

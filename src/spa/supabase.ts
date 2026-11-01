@@ -137,6 +137,17 @@ async function dbError(res: Response): Promise<Error> {
   return new Error(j.message ?? `Database request failed (${res.status})`);
 }
 
+const TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:\d{2}|Z)$/;
+/** Postgres returns timestamps as "…+00:00"; the app compares ISO strings, so normalise to "…Z". */
+function normalize<T>(row: T): T {
+  const r = row as Record<string, unknown>;
+  for (const k of Object.keys(r)) {
+    const v = r[k];
+    if (typeof v === "string" && TS.test(v)) r[k] = new Date(v).toISOString();
+  }
+  return row;
+}
+
 export class SupabaseStore implements Store {
   kind = "supabase" as const;
   constructor(
@@ -179,7 +190,7 @@ export class SupabaseStore implements Store {
     if (q?.limit) params.push(`limit=${q.limit}`);
     const res = await fetch(this.url(table, params), { headers: await this.headers() });
     if (!res.ok) throw await dbError(res);
-    return (await res.json()) as Row<K>[];
+    return ((await res.json()) as Row<K>[]).map(normalize);
   }
 
   async get<K extends Table>(table: K, id: string): Promise<Row<K> | null> {
@@ -191,7 +202,7 @@ export class SupabaseStore implements Store {
     const res = await fetch(this.url(table, []), { method: "POST", headers: await this.headers({ Prefer: "return=representation" }), body: JSON.stringify(row) });
     if (!res.ok) throw await dbError(res);
     const out = (await res.json()) as Row<K>[];
-    return out[0] ?? row;
+    return out[0] ? normalize(out[0]) : row;
   }
 
   async update<K extends Table>(table: K, id: string, patch: Partial<Row<K>>): Promise<Row<K>> {
@@ -199,7 +210,7 @@ export class SupabaseStore implements Store {
     if (!res.ok) throw await dbError(res);
     const out = (await res.json()) as Row<K>[];
     if (!out[0]) throw new UserError("You don't have permission to change that.");
-    return out[0];
+    return normalize(out[0]);
   }
 
   async remove<K extends Table>(table: K, id: string): Promise<void> {
@@ -224,6 +235,7 @@ export class SupabaseStore implements Store {
     const res = await fetch(`${this.cfg.supabaseUrl}/rest/v1/rpc/${fn}`, { method: "POST", headers: await this.headers(), body: JSON.stringify(args) });
     if (!res.ok) throw await dbError(res);
     const text = await res.text();
-    return (text ? JSON.parse(text) : null) as T;
+    const out = text ? JSON.parse(text) : null;
+    return (out && typeof out === "object" && !Array.isArray(out) ? normalize(out) : out) as T;
   }
 }
