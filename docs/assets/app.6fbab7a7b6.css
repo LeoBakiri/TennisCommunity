@@ -691,6 +691,9 @@
   .cursor-pointer {
     cursor: pointer;
   }
+  .grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1154,6 +1157,12 @@
       background-color: color-mix(in oklab, var(--sage) 40%, transparent);
     }
   }
+  .bg-sage\/50 {
+    background-color: var(--sage);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--sage) 50%, transparent);
+    }
+  }
   .bg-sage\/60 {
     background-color: var(--sage);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1525,6 +1534,12 @@
   .text-ink {
     color: var(--ink);
   }
+  .text-ink\/30 {
+    color: var(--ink);
+    @supports (color: color-mix(in lab, red, red)) {
+      color: color-mix(in oklab, var(--ink) 30%, transparent);
+    }
+  }
   .text-ink\/35 {
     color: var(--ink);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1737,6 +1752,9 @@
     --tw-outline-style: dashed;
     outline-style: dashed;
   }
+  :is(.\*\:min-w-0 > *) {
+    min-width: 0px;
+  }
   @media (hover: hover) {
     .group-hover\:block:is(:where(.group):hover *) {
       display: block;
@@ -1878,6 +1896,9 @@
       box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
     }
   }
+  .active\:bg-paper:active {
+    background-color: var(--paper);
+  }
   .has-\[\:checked\]\:border-brand:has(:is(:checked)) {
     border-color: var(--brand);
   }
@@ -1961,6 +1982,9 @@
     }
     .md\:mb-8 {
       margin-bottom: calc(var(--spacing) * 8);
+    }
+    .md\:block {
+      display: block;
     }
     .md\:flex {
       display: flex;
@@ -2136,6 +2160,10 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html, body {
+    overflow-x: clip;
   }
   body {
     background: var(--paper);
@@ -2216,6 +2244,11 @@
     box-shadow: 0 0 0 3px var(--brand);
     @supports (color: color-mix(in lab, red, red)) {
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent);
+    }
+  }
+  @media (max-width: 767px) {
+    .input {
+      font-size: 16px;
     }
   }
   textarea.input {

@@ -771,7 +771,7 @@ export function AdminTemplates({ data }: { data: D<typeof loadTemplates> }) {
           <Notice>All recurring slots start unpublished. Edit a slot and switch on “Published”, then use “Generate sessions” to create the dates.</Notice>
         </div>
       )}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 *:min-w-0 md:grid-cols-2 xl:grid-cols-3">
         {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
           const list = data.templates.filter((t) => t.weekday === wd);
           return (

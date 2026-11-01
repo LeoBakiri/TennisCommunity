@@ -18,11 +18,14 @@ declare global {
     LTC_CONFIG?: Partial<SupaConfig>;
   }
 }
+/** Set by the build: true only for local demo/preview builds, never for the live site. */
+declare const __DEMO__: boolean;
 
 // ───────────────────────── backend selection ─────────────────────────
 
 const cfg = window.LTC_CONFIG ?? {};
 const LIVE = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+const DEMO = !LIVE && __DEMO__;
 const supaAuth = LIVE ? new SupabaseAuth(cfg as SupaConfig) : null;
 
 const DEMO_KEY = "ltc.demo.db.v1";
@@ -58,7 +61,7 @@ const store: Store & { reset?: () => Promise<void> } = LIVE
         },
         save: async (db) => safeSet(DEMO_KEY, JSON.stringify(db)),
       },
-      () => demoSeed(new Date()),
+      () => (DEMO ? demoSeed(new Date()) : demoSeed(new Date(0))),
     );
 
 async function currentActor(): Promise<Actor> {
@@ -168,7 +171,7 @@ async function frameMeta(actor: Actor): Promise<FrameMeta> {
     counts.requests = reqs.length + pend.length;
   }
   let demo: FrameMeta["demo"] = null;
-  if (!LIVE) {
+  if (DEMO) {
     const ids = [DEMO_IDS.sam, DEMO_IDS.maya, DEMO_IDS.leo];
     const users = (await Promise.all(ids.map((id) => store.get("profiles", id)))).filter(Boolean) as Profile[];
     demo = { users: users.map((p) => ({ id: p.id, full_name: p.full_name, role: p.role })) };
@@ -341,7 +344,7 @@ function App() {
           go("/");
           refresh();
         },
-        demoAs: LIVE
+        demoAs: !DEMO
           ? undefined
           : async (id: string) => {
               const p = await store.get("profiles", id);
@@ -352,14 +355,14 @@ function App() {
               if (readLocation().path === target) refresh();
               else go(target);
             },
-        resetDemo: LIVE
+        resetDemo: !DEMO
           ? undefined
           : async () => {
               await (store as MemoryStore).reset();
               refresh();
             },
       },
-      demo: !LIVE,
+      demo: DEMO,
     }),
     [loc, refresh, afterLogin],
   );
@@ -431,6 +434,12 @@ function Screen({ screen }: { screen: Screen }) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    {LIVE || DEMO ? (
+      <App />
+    ) : (
+      <div className="flex min-h-screen items-center justify-center p-6 text-center">
+        <p className="max-w-sm text-ink/70">This site isn&apos;t connected to its database yet. Add the Supabase URL and anon key to config.js.</p>
+      </div>
+    )}
   </StrictMode>,
 );

@@ -51,7 +51,7 @@ export function HomeView({ data, meta }: { data: D<typeof loadHome>; meta: Frame
   const s = meta.settings;
   return (
     <>
-      <section className="mx-auto grid max-w-6xl gap-10 px-4 pt-10 pb-16 md:grid-cols-[1.1fr_1fr] md:items-center md:px-6 md:pt-16 md:pb-24">
+      <section className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-4 pt-10 pb-16 *:min-w-0 md:grid-cols-[1.1fr_1fr] md:items-center md:px-6 md:pt-16 md:pb-24">
         <div>
           <div className="eyebrow mb-5 flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-accent ring-4 ring-accent/30" /> San Diego · Balboa Park

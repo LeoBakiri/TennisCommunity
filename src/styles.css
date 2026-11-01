@@ -24,6 +24,11 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html,
+  body {
+    overflow-x: clip;
   }
   body {
     background: var(--paper);
@@ -86,6 +91,12 @@
     outline: none;
     border-color: var(--brand);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 15%, transparent);
+  }
+  /* 16px stops iOS Safari from zooming into form fields */
+  @media (max-width: 767px) {
+    .input {
+      font-size: 16px;
+    }
   }
   textarea.input {
     min-height: 96px;

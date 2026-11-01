@@ -181,7 +181,7 @@ export function ScheduleBoard({
 }) {
   const byDay = data.days.map((d) => ({ day: d, sessions: data.sessions.filter((s) => dateKey(s.starts_at) === d) }));
   const [day, setDay] = useState<string | null>(null);
-  const shown = day ? byDay.filter((d) => d.day === day) : byDay.filter((d) => d.sessions.length > 0);
+  const shown = day ? byDay.filter((d) => d.day === day) : byDay.filter((d) => d.sessions.length > 0 && (d.day >= data.today || addDays(data.monday, 6) < data.today));
   return (
     <div>
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -295,7 +295,50 @@ export function WeekGrid({
   const nowDay = nowIso ? dateKey(nowIso) : null;
 
   return (
-    <div className="card overflow-x-auto">
+    <>
+    {/* Phones: a simple day-by-day list */}
+    <div className="space-y-4 md:hidden">
+      {days.map((d) => {
+        const list = sessions.filter((s) => dateKey(s.starts_at) === d);
+        return (
+          <section key={d} className="card overflow-hidden">
+            <div className={cx("flex items-center justify-between border-b border-ink/[0.06] px-4 py-2.5", d === today ? "bg-sage/50" : "bg-paper/60")}>
+              <h3 className="text-sm font-semibold">{fmtKeyLong(d)}</h3>
+              {newHref && (
+                <A href={newHref(d, "17:00")} className="rounded-lg p-1 text-brand" aria-label={`New session on ${fmtKeyLong(d)}`}>
+                  <Icon name="plus" size={18} />
+                </A>
+              )}
+            </div>
+            {list.length ? (
+              <div className="divide-y divide-ink/[0.06]">
+                {list.map((s) => (
+                  <A key={s.id} href={hrefFor(s)} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", s.status === "cancelled" && "opacity-50")}>
+                    <span className="h-9 w-1 shrink-0 rounded-full" style={{ background: s.program.color }} />
+                    <span className="min-w-0 flex-1">
+                      <span className={cx("block truncate text-[15px] font-semibold", s.status === "cancelled" && "line-through")}>{sessionName(s)}</span>
+                      <span className="block text-[13px] text-ink/55">
+                        {fmtRange(s.starts_at, s.ends_at)}
+                        {s.status === "draft" && " · Draft"}
+                        {s.visibility === "private" && " · Private"}
+                      </span>
+                    </span>
+                    <span className="text-sm font-medium text-ink/70 tabular-nums">
+                      {s.booked}/{s.capacity}
+                      {s.waitlist > 0 && <span className="block text-right text-[11px] text-ink/45">+{s.waitlist} wl</span>}
+                    </span>
+                    <Icon name="right" size={16} className="text-ink/30" />
+                  </A>
+                ))}
+              </div>
+            ) : (
+              <p className="px-4 py-3 text-sm text-ink/40">No sessions</p>
+            )}
+          </section>
+        );
+      })}
+    </div>
+    <div className="card hidden overflow-x-auto md:block">
       <div className="min-w-[820px]">
         <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: `56px repeat(7, 1fr)` }}>
           <div />
@@ -371,5 +414,6 @@ export function WeekGrid({
         </div>
       </div>
     </div>
+    </>
   );
 }
