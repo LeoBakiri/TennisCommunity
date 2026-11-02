@@ -223,7 +223,7 @@ export const actions: Record<string, Handler> = {
       return placeBooking(ctx, session, u);
     };
     const b = await book();
-    return b.status === "waitlisted" ? { ok: true, message: `Session is full — you're #${b.waitlist_position} on the waitlist.` } : { ok: true, message: "You're booked!" };
+    return b.status === "waitlisted" ? { ok: true, message: b.waitlist_position === 1 ? "You're next in line. The first spot that opens is yours." : `You're #${b.waitlist_position} in line. We'll move you in the moment a spot opens.` } : { ok: true, message: "You're booked!" };
   }),
 
   cancelBooking: action(z.object({ booking_id: id, reason: text(300) }), async (ctx, input) => {

@@ -150,7 +150,7 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
 export function BookingBadge({ status, position }: { status: BookingStatus; position?: number | null }) {
   const map: Record<BookingStatus, [Tone, string]> = {
     confirmed: ["green", "Booked"],
-    waitlisted: ["blue", position ? `Waitlist #${position}` : "Waitlist"],
+    waitlisted: ["blue", position === 1 ? "Next in line" : position ? `#${position} in line` : "In line"],
     cancelled: ["neutral", "Cancelled"],
   };
   const [tone, label] = map[status];

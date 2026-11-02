@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { A, useAction, withQuery } from "./nav";
-import { ballBurst, Icon, SessionMark } from "./icons";
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { A, useAction, useToast, withQuery } from "./nav";
+import { ballBurst, Icon, SessionMark, TennisBall } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
@@ -86,7 +86,15 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             </div>
           </div>
         </div>
-        {isFull && <p className="mt-4 text-sm text-ink/70">This session is full. If a spot opens, the first player on the waitlist moves in automatically.</p>}
+        {isFull && (
+          <div className="mt-4 flex items-center gap-3 rounded-xl bg-[#E1EAF0] p-3 text-sm text-[#2D5068]">
+            <TennisBall size={26} className="ball-bounce shrink-0" />
+            <span>
+              <span className="block font-semibold">{s.waitlist === 0 ? "You'd be first in line" : `You'd be #${s.waitlist + 1} in line`}</span>
+              The moment a spot opens, the first player in line moves in automatically. No need to check back.
+            </span>
+          </div>
+        )}
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className={btn("ghost")} onClick={() => setOpen(false)}>
             Not now
@@ -100,7 +108,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
               const r = await run("bookSession", { session_id: s.id });
               if (r.ok) {
                 setOpen(false);
-                if (!isFull) ballBurst({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
+                ballBurst({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
               }
             }}
           >
@@ -113,7 +121,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
   );
 }
 
-export function CancelButton({ bookingId, status, session, window }: { bookingId: string; status: string; session: SessionView; window: number }) {
+export function CancelButton({ bookingId, status, session, window, position }: { bookingId: string; status: string; session: SessionView; window: number; position?: number | null }) {
   const hours = (new Date(session.starts_at).getTime() - Date.now()) / 3600000;
   const leaving = status === "waitlisted";
   const late = !leaving && hours < window;
@@ -130,14 +138,15 @@ export function CancelButton({ bookingId, status, session, window }: { bookingId
             <p>
               {sessionLabel(session)} · {fmtDayRange(session.starts_at, session.ends_at)}
             </p>
+            {leaving && position ? <p className="text-ink/60">{position === 1 ? "You're next in line. If a spot opens, it goes to the next player instead." : `You'd give up your #${position} place in line.`}</p> : null}
             {late && <Notice tone="warn">This is within {window} hours of the start, so it counts as a late cancellation.</Notice>}
           </div>
         ),
-        label: leaving ? "Leave waitlist" : "Cancel booking",
+        label: leaving ? "Leave the line" : "Cancel booking",
         danger: true,
       }}
     >
-      {leaving ? "Leave waitlist" : "Cancel"}
+      {leaving ? "Leave" : "Cancel"}
     </ActionButton>
   );
 }
@@ -150,6 +159,12 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_left" | "waitlist" | "my_booking">) {
   const left = s.spots_left;
   const imIn = s.my_booking?.status === "confirmed";
+  const place = s.my_booking?.status === "waitlisted" ? (s.my_booking.waitlist_position ?? null) : null;
+  if (place !== null) {
+    const behind = Math.max(0, s.waitlist - place);
+    if (place === 1) return { heat: "line" as const, title: "You're next in", sub: behind ? `First open spot is yours · ${behind} behind you` : "First open spot is yours" };
+    return { heat: "line" as const, title: `#${place} in line`, sub: `${plural(place - 1, "player")} ahead of you` };
+  }
   const others = s.booked - (imIn ? 1 : 0);
   const heat = left === 0 ? ("full" as const) : left <= 2 && s.booked > 0 ? ("low" as const) : ("open" as const);
   if (left === 0) return { heat, title: "Full", sub: imIn ? `You + ${plural(others, "other")}` : s.waitlist > 0 ? `${s.waitlist} waiting` : "Waitlist open" };
@@ -159,12 +174,12 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
 }
 
-const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
+const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]", line: "text-[#2D5068]" };
 const HEAT_FILL = { low: "#B5672C", full: "#B9574A" };
 
 function SeatMeter({ s }: { s: SessionView }) {
   const { heat, title, sub } = seatCopy(s);
-  const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat];
+  const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat === "line" ? "full" : heat];
   const taken = Math.min(s.booked, s.capacity);
   const imIn = s.my_booking?.status === "confirmed";
   const large = s.capacity <= 8;
@@ -191,6 +206,7 @@ function SeatMeter({ s }: { s: SessionView }) {
           <div className="h-full rounded-full" style={{ width: `${(taken / s.capacity) * 100}%`, background: fill }} />
         </div>
       )}
+      {heat === "line" && <WaitLine place={s.my_booking!.waitlist_position ?? 1} total={Math.max(s.waitlist, s.my_booking!.waitlist_position ?? 1)} />}
       <div className="min-w-0 sm:text-right">
         <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
         <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
@@ -199,50 +215,124 @@ function SeatMeter({ s }: { s: SessionView }) {
   );
 }
 
+/** The line to get in, front first: the players ahead, you as a tennis ball (bouncing when you're next), and whoever is behind. */
+function WaitLine({ place, total }: { place: number; total: number }) {
+  const ahead = place - 1;
+  const behind = Math.max(0, total - place);
+  const dot = "h-3.5 w-3.5 shrink-0 rounded-full";
+  return (
+    <div className="flex w-full items-center gap-1 sm:w-auto sm:justify-end" aria-hidden="true">
+      <span className="mr-1 text-[10.5px] font-semibold tracking-wide text-ink/40 uppercase">Line</span>
+      {ahead > 3 && <span className="text-[11px] text-ink/45 tabular-nums">+{ahead - 3}</span>}
+      {Array.from({ length: Math.min(ahead, 3) }, (_, i) => (
+        <span key={`a${i}`} className={cx(dot, "bg-ink/25")} />
+      ))}
+      <span className="relative mx-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-[#E1EAF0] ring-2 ring-[#2D5068]/30">
+        <TennisBall size={20} className={place === 1 ? "ball-bounce" : undefined} />
+      </span>
+      {Array.from({ length: Math.min(behind, 3) }, (_, i) => (
+        <span key={`b${i}`} className={cx(dot, "border-[1.5px] border-dashed border-ink/20")} />
+      ))}
+      {behind > 3 && <span className="text-[11px] text-ink/45 tabular-nums">+{behind - 3}</span>}
+    </div>
+  );
+}
+
+/** Another session of the same kind with room right now, so a waiting player can skip the line. */
+export function skipTheLine(s: SessionView, all: SessionView[]) {
+  if (s.my_booking?.status !== "waitlisted") return undefined;
+  const now = Date.now();
+  const at = new Date(s.starts_at).getTime();
+  return all
+    .filter((o) => o.id !== s.id && o.session_type === s.session_type && o.spots_left > 0 && !o.my_booking && new Date(o.starts_at).getTime() > now)
+    .sort((a, b) => Math.abs(new Date(a.starts_at).getTime() - at) - Math.abs(new Date(b.starts_at).getTime() - at))[0];
+}
+
+const SEEN_WAITING = "waitlist-seen";
+
+/** Remembers which bookings this browser saw on a waitlist, so the move in can be celebrated once. */
+function usePromotedCelebration(booking: SessionView["my_booking"], ref: RefObject<HTMLElement | null>) {
+  const toast = useToast();
+  const [promoted, setPromoted] = useState(false);
+  useEffect(() => {
+    if (!booking) return;
+    try {
+      const seen: string[] = JSON.parse(localStorage.getItem(SEEN_WAITING) || "[]");
+      if (booking.status === "waitlisted" && !seen.includes(booking.id)) {
+        localStorage.setItem(SEEN_WAITING, JSON.stringify([...seen, booking.id].slice(-30)));
+      } else if (booking.status === "confirmed" && seen.includes(booking.id)) {
+        localStorage.setItem(SEEN_WAITING, JSON.stringify(seen.filter((x) => x !== booking.id)));
+        setPromoted(true);
+        toast("A spot opened and you're in. See you on court!");
+        const box = ref.current?.getBoundingClientRect();
+        if (box) setTimeout(() => ballBurst({ x: box.right - 80, y: box.top + box.height / 2 }), 250);
+      }
+    } catch {
+      // Storage can be blocked; the card still shows "You're in".
+    }
+  }, [booking?.id, booking?.status]);
+  return promoted;
+}
+
 // ───────────────────────── session card (players) ─────────────────────────
 
-export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean }) {
+export function SessionCard({ s, signedIn, window, showDay, skip }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean; skip?: SessionView }) {
   const mine = s.my_booking;
   const imIn = mine?.status === "confirmed";
   const hoursAway = (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
+  const ref = useRef<HTMLElement>(null);
+  const promoted = usePromotedCelebration(mine, ref);
   return (
-    <article
-      className="relative flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5"
-      style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}
-    >
+    <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}>
       {imIn && <span className="absolute inset-y-0 left-0 w-1" style={{ background: sessionColor(s) }} />}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
-          <SessionMark type={s.session_type} /> {sessionLabel(s)}
-          {imIn && (
-            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] text-white" style={{ background: sessionColor(s) }}>
-              <Icon name="check" size={12} strokeWidth={2.6} /> You&apos;re in
-            </span>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
+            <SessionMark type={s.session_type} /> {sessionLabel(s)}
+            {imIn && (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] text-white" style={{ background: sessionColor(s) }}>
+                <Icon name="check" size={12} strokeWidth={2.6} /> {promoted ? "Off the waitlist. You're in!" : <>You&apos;re in</>}
+              </span>
+            )}
+            {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
+          </div>
+          {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
+          <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
+            <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
+            <div>{placeLabel(s)}</div>
+            <div>
+              {s.coaches.length > 0 && `${s.coaches.map((c) => c.full_name.split(" ")[0]).join(" & ")} · `}
+              {priceLabel(s)}
+            </div>
+          </div>
+          {s.description && <p className="mt-2 text-sm whitespace-pre-line text-ink/60">{s.description}</p>}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 sm:flex-col sm:flex-nowrap sm:items-end">
+          <SeatMeter s={s} />
+          {mine ? (
+            <div className="flex items-center gap-2">
+              {mine.status !== "waitlisted" && <BookingBadge status={mine.status} position={mine.waitlist_position} />}
+              <CancelButton bookingId={mine.id} status={mine.status} session={s} window={window} position={mine.waitlist_position} />
+            </div>
+          ) : (
+            <BookButton s={s} signedIn={signedIn} />
           )}
-          {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
         </div>
-        {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
-        <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
-          <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
-          <div>{placeLabel(s)}</div>
-          <div>
-            {s.coaches.length > 0 && `${s.coaches.map((c) => c.full_name.split(" ")[0]).join(" & ")} · `}
-            {priceLabel(s)}
+      </div>
+      {skip && (
+        <div className="mt-3 flex flex-col gap-2.5 rounded-xl bg-paper p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5 text-sm">
+            <Icon name="spark" size={17} className="mt-0.5 shrink-0 text-[#B5672C]" />
+            <span>
+              <span className="font-semibold">Skip the line.</span>{" "}
+              <span className="text-ink/70">
+                {skip.title || sessionLabel(skip)} {whenWord(skip.starts_at, dateKey(new Date().toISOString()))}, {fmtRange(skip.starts_at, skip.ends_at)} has {plural(skip.spots_left, "spot")} open.
+              </span>
+            </span>
           </div>
+          <BookButton s={skip} signedIn={signedIn} />
         </div>
-        {s.description && <p className="mt-2 text-sm whitespace-pre-line text-ink/60">{s.description}</p>}
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 sm:flex-col sm:flex-nowrap sm:items-end">
-        <SeatMeter s={s} />
-        {mine ? (
-          <div className="flex items-center gap-2">
-            <BookingBadge status={mine.status} position={mine.waitlist_position} />
-            <CancelButton bookingId={mine.id} status={mine.status} session={s} window={window} />
-          </div>
-        ) : (
-          <BookButton s={s} signedIn={signedIn} />
-        )}
-      </div>
+      )}
     </article>
   );
 }

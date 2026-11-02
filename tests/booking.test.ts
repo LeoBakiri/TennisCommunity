@@ -45,7 +45,7 @@ test("books until full, then waitlists in order", async () => {
   for (const uid of ids.slice(0, 2)) assert.equal((await runAction(await ctxFor(uid), "bookSession", { session_id: s.id })).ok, true);
   const r3 = await runAction(await ctxFor(ids[2]), "bookSession", { session_id: s.id });
   assert.equal(r3.ok, true);
-  assert.match((r3 as { message: string }).message, /#1 on the waitlist/);
+  assert.match((r3 as { message: string }).message, /next in line/);
   const r4 = await runAction(await ctxFor(ids[3]), "bookSession", { session_id: s.id });
   assert.match((r4 as { message: string }).message, /#2/);
   const bookings = await store.list("bookings", { eq: { session_id: s.id } });

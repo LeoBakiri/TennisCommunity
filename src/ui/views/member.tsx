@@ -2,7 +2,7 @@ import { useState } from "react";
 import { A } from "../nav";
 import { Icon, SessionMark, TennisBall } from "../icons";
 import { ActionForm, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, SectionTitle, Submit } from "../kit";
-import { calendarHref, CancelButton, countdown, SessionCard, whenWord } from "../sessions";
+import { calendarHref, CancelButton, countdown, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
@@ -254,7 +254,7 @@ export function ScheduleView({ data, meta }: { data: ScheduleData; meta: FrameMe
                   </h2>
                   <div className="divide-y divide-ink/[0.06]">
                     {sessions.map((s) => (
-                      <SessionCard key={s.id} s={s} signedIn={meta.signedIn} window={data.window} />
+                      <SessionCard key={s.id} s={s} signedIn={meta.signedIn} window={data.window} skip={skipTheLine(s, all)} />
                     ))}
                   </div>
                 </section>
@@ -301,7 +301,7 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
                 </a>
               )}
               <BookingBadge status={r.booking.status} position={r.booking.waitlist_position} />
-              <CancelButton bookingId={r.booking.id} status={r.booking.status} session={r.session} window={window} />
+              <CancelButton bookingId={r.booking.id} status={r.booking.status} session={r.session} window={window} position={r.booking.waitlist_position} />
             </div>
           </div>
         ))}
