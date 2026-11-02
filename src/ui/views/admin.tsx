@@ -6,8 +6,8 @@ import { priceLabel, whenWord } from "../sessions";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
-import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, timeKey } from "@/core/time";
-import { COURTS, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
+import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
+import { COURTS, fmtMoney, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
 import { COMMISSION_ROWS } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -76,28 +76,48 @@ const dollarsField = (cents: number | null | undefined) => (cents == null ? "" :
 
 // ───────────────────────── community schedule ─────────────────────────
 
+const plural = (n: number, word: string) => `${n} ${n === 1 ? word : `${word}s`}`;
+
 function WeekPulse({ pulse }: { pulse: D<typeof loadAdminSchedule>["pulse"] }) {
-  const pct = pulse.capacity ? Math.round((pulse.booked / pulse.capacity) * 100) : 0;
+  const pct = pulse.capacity ? Math.round((pulse.filled / pulse.capacity) * 100) : 0;
+  const open = pulse.capacity - pulse.filled;
   const tallest = Math.max(1, ...pulse.days.map((d) => d.capacity));
+  const today = pulse.days[0].day;
+  const { next, revenue } = pulse;
+  const money = (cents: number) => fmtMoney(cents, { free: "$0" });
   return (
     <HeroPanel eyebrow="Next 7 days">
       <h2 className="mt-2 max-w-lg font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
-        {pulse.sessions ? `${pulse.booked} ${pulse.booked === 1 ? "player" : "players"} on court across ${pulse.sessions} ${pulse.sessions === 1 ? "session" : "sessions"}.` : "Nothing posted for the week yet."}
+        {pulse.sessions ? `${plural(pulse.booked, "player")} booked across ${plural(pulse.sessions, "session")}.` : "Nothing posted for the week yet."}
       </h2>
+      {next && (
+        <A href={`/admin/sessions/${next.id}`} className="mt-3 flex max-w-xl items-center gap-1.5 text-sm text-paper/75 hover:text-paper">
+          <span className="min-w-0">
+            <span className="font-semibold text-accent">Next up</span> {sessionTitle(next)}, {whenWord(next.starts_at, today)} at {fmtTime(next.starts_at)} · {next.spots_left ? `${plural(next.spots_left, "spot")} left` : next.waitlist ? `full, ${next.waitlist} waiting` : "full"}
+          </span>
+          <Icon name="right" size={14} className="shrink-0" />
+        </A>
+      )}
       <div className="mt-6 grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
-          <HeroStat value={`${pct}%`} label="spots filled">
+          <HeroStat value={`${pct}%`} label={`filled · ${open} open${pulse.waitlist ? ` · ${pulse.waitlist} waiting` : ""}`}>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
               <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
             </div>
           </HeroStat>
-          <HeroStat value={Math.max(0, pulse.capacity - pulse.booked)} label="spots open" />
-          <HeroStat value={pulse.waitlist} label="on waitlists" />
-          <HeroStat value={pulse.players} label={pulse.new_players ? `players · ${pulse.new_players} new this week` : "players"} />
+          <HeroStat
+            value={revenue.unpriced === pulse.sessions && pulse.sessions ? "TBA" : money(revenue.booked)}
+            label={revenue.full > revenue.booked ? `booked · ${money(revenue.full)} if full` : revenue.unpriced ? `booked · ${plural(revenue.unpriced, "session")} unpriced` : "booked"}
+          />
+          <HeroStat value={pulse.new_bookings ? `+${pulse.new_bookings}` : 0} label="booked in last 7 days" />
+          <HeroStat value={pulse.last_week} label={`${pulse.last_week === 1 ? "player" : "players"} last week`} />
         </dl>
         <div className="flex items-end gap-1.5 sm:gap-2" aria-label="Spots filled by day">
           {pulse.days.map((d, i) => (
             <div key={d.day} className="flex w-8 flex-col items-center gap-1 sm:w-9" title={`${fmtKeyLong(d.day)}: ${d.booked}/${d.capacity} booked`}>
+              <span className={cx("text-[10px] font-semibold tabular-nums text-paper/80", !d.capacity && "invisible")}>
+                {d.booked}/{d.capacity}
+              </span>
               <div className="flex h-20 w-full items-end">
                 {d.capacity > 0 ? (
                   <div className="relative w-full overflow-hidden rounded-md bg-paper/15" style={{ height: `${(d.capacity / tallest) * 100}%` }}>

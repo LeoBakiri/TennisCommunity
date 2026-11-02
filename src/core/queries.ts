@@ -342,14 +342,21 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
   const list = tab === "past" ? filtered.reverse().slice(0, 60) : filtered.slice(0, 80);
   const today = dateKey(ctx.now);
   const weekEnd = startIso(addDays(today, 7));
-  const [sessions, soon] = await Promise.all([
+  const weekAgo = new Date(ctx.now.getTime() - 7 * 86400000).toISOString();
+  const ahead = all.filter((s) => s.status === "published" && s.starts_at > now);
+  const [sessions, soon, lastWeek, bookings] = await Promise.all([
     enrich(ctx.store, list, L, null),
-    enrich(ctx.store, all.filter((s) => s.status === "published" && s.starts_at > now && s.starts_at < weekEnd), L, null),
+    enrich(ctx.store, ahead.filter((s) => s.starts_at < weekEnd), L, null),
+    enrich(ctx.store, all.filter((s) => s.status === "published" && s.starts_at <= now && s.starts_at > weekAgo), L, null),
+    ahead.length ? ctx.store.list("bookings", { in: { field: "session_id", values: ahead.map((s) => s.id) } }) : Promise.resolve([] as Booking[]),
   ]);
   return {
     tab,
     sessions,
-    pulse: weekPulse(soon, L.profiles, today, ctx.now),
+    pulse: weekPulse(soon, today, ctx.now, {
+      players: lastWeek.reduce((n, s) => n + s.booked, 0),
+      new_bookings: bookings.filter((b) => isActive(b) && b.created_at >= weekAgo).length,
+    }),
     counts: {
       upcoming: all.filter((s) => s.status === "published" && s.starts_at > now).length,
       draft: all.filter((s) => s.status === "draft").length,
@@ -358,10 +365,10 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
 }
 
 /** The next seven days at a glance, and the sessions that need a decision. */
-function weekPulse(soon: SessionView[], profiles: Profile[], today: string, now: Date) {
+function weekPulse(soon: SessionView[], today: string, now: Date, recent: { players: number; new_bookings: number }) {
   const sum = (f: (s: SessionView) => number) => soon.reduce((n, s) => n + f(s), 0);
   const in48h = new Date(now.getTime() + 48 * 3600000).toISOString();
-  const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+  const priced = soon.filter((s) => s.price_cents);
   const attention = soon.flatMap((s) => {
     const why = !s.coach_ids.length
       ? { tone: "amber" as const, text: "No coach assigned" }
@@ -375,15 +382,19 @@ function weekPulse(soon: SessionView[], profiles: Profile[], today: string, now:
   return {
     sessions: soon.length,
     booked: sum((s) => s.booked),
+    filled: sum((s) => Math.min(s.booked, s.capacity)),
     capacity: sum((s) => s.capacity),
     waitlist: sum((s) => s.waitlist),
+    // Per-player price × confirmed players; sessions with no price yet are left out.
+    revenue: { booked: priced.reduce((n, s) => n + s.booked * s.price_cents!, 0), full: priced.reduce((n, s) => n + Math.max(s.booked, s.capacity) * s.price_cents!, 0), unpriced: soon.length - priced.length },
+    next: soon[0] ?? null,
+    last_week: recent.players,
+    new_bookings: recent.new_bookings,
     days: Array.from({ length: 7 }, (_, i) => {
       const day = addDays(today, i);
       const list = soon.filter((s) => dateKey(s.starts_at) === day);
       return { day, sessions: list.length, booked: list.reduce((n, s) => n + Math.min(s.booked, s.capacity), 0), capacity: list.reduce((n, s) => n + s.capacity, 0) };
     }),
-    players: profiles.filter((p) => p.role === "member" && p.status === "active").length,
-    new_players: profiles.filter((p) => p.role === "member" && p.created_at >= weekAgo).length,
     attention,
   };
 }
