@@ -122,14 +122,9 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
       <PageHeader
         title="My Schedule"
         actions={
-          <>
-            <LinkButton href={addHref("private")} icon="plus">
-              Add Private Lesson
-            </LinkButton>
-            <LinkButton href={addHref("semi_private")} variant="outline" icon="plus">
-              Add Semi-Private Lesson
-            </LinkButton>
-          </>
+          <LinkButton href={addHref("private")} icon="plus">
+            Add Lesson
+          </LinkButton>
         }
       />
       <CoachHero data={data} />
@@ -182,7 +177,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
     <>
       <PageHeader
         back={{ href: "/coach", label: "My Schedule" }}
-        title={l ? LESSON_META[l.kind].label : `Add ${LESSON_META[kind].label}`}
+        title={l ? LESSON_META[l.kind].label : "Add Lesson"}
         subtitle={l ? `${fmtDayLong(l.starts_at)} · ${fmtRange(l.starts_at, l.ends_at)}` : `${fmtKeyLong(date)} · ${fmtClock(time)}`}
       />
       <div className="max-w-2xl space-y-4">
