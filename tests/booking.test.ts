@@ -85,14 +85,98 @@ test("cancelling moves the first waitlisted player in and renumbers the rest", a
   assert.equal(after.find((x) => x.user_id === c)!.waitlist_position, 1);
 });
 
-test("flags late cancellations inside the policy window", async () => {
+test("inside the window players can't cancel a booked spot, but can leave the waitlist", async () => {
   const { store, ctxFor } = setup();
-  const s = await freshSession(store, 4, 5); // starts in 5 hours, window is 24
-  const ctx = await ctxFor(DEMO_IDS.sam);
-  await runAction(ctx, "bookSession", { session_id: s.id });
+  const s = await freshSession(store, 1, 5); // starts in 5 hours, window is 24
+  const [a, b] = memberIds(demoSeed());
+  for (const uid of [a, b]) await runAction(await ctxFor(uid), "bookSession", { session_id: s.id });
+  const [booked, waiting] = await Promise.all([a, b].map(async (uid) => (await store.list("bookings", { eq: { session_id: s.id, user_id: uid } }))[0]));
+  const r = await runAction(await ctxFor(a), "cancelBooking", { booking_id: booked.id });
+  assert.equal(r.ok, false);
+  assert.match((r as { error: string }).error, /Offer your spot/);
+  assert.equal((await store.get("bookings", booked.id))!.status, "confirmed");
+  assert.equal((await runAction(await ctxFor(b), "cancelBooking", { booking_id: waiting.id })).ok, true);
+});
+
+test("coaches can still remove a player inside the window", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 2, 5);
+  await runAction(await ctxFor(DEMO_IDS.sam), "bookSession", { session_id: s.id });
   const b = (await store.list("bookings", { eq: { session_id: s.id } }))[0];
-  assert.equal((await runAction(ctx, "cancelBooking", { booking_id: b.id })).ok, true);
-  assert.equal((await store.get("bookings", b.id))!.late_cancel, true);
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.leo), "cancelBooking", { booking_id: b.id, reason: "Removed by coach" })).ok, true);
+  assert.equal((await store.get("bookings", b.id))!.status, "cancelled");
+});
+
+async function offeredSession(store: MemoryStore, ctxFor: (id: string) => Promise<Ctx>) {
+  const s = await freshSession(store, 1, 5);
+  const [a, b, c, d] = memberIds(demoSeed());
+  for (const uid of [a, b, c]) await runAction(await ctxFor(uid), "bookSession", { session_id: s.id });
+  const offer = (await store.list("bookings", { eq: { session_id: s.id, user_id: a } }))[0];
+  assert.equal((await runAction(await ctxFor(a), "offerSpot", { booking_id: offer.id })).ok, true);
+  return { s, offer, a, b, c, d };
+}
+
+test("an offered spot stays booked until someone takes it", async () => {
+  const { store, ctxFor, load } = setup();
+  const { s, offer, a } = await offeredSession(store, ctxFor);
+  const still = (await store.get("bookings", offer.id))!;
+  assert.equal(still.status, "confirmed");
+  assert.ok(still.spot_offered_at);
+  const view = (await loadSchedule(await load(a))).days.flatMap((d) => d.sessions).find((x) => x.id === s.id)!;
+  assert.equal(view.offered, 1);
+  assert.equal(view.spots_left, 0);
+  assert.ok(view.my_booking?.spot_offered_at);
+});
+
+test("a waitlisted player who takes the spot is booked and the first player is let off", async () => {
+  const { store, ctxFor } = setup();
+  const { s, offer, a, c } = await offeredSession(store, ctxFor);
+  // The second on the waitlist can take it: first to tap wins.
+  assert.equal((await runAction(await ctxFor(c), "takeSpot", { session_id: s.id })).ok, true);
+  const after = await store.list("bookings", { eq: { session_id: s.id } });
+  const gone = after.find((x) => x.id === offer.id)!;
+  assert.equal(gone.status, "cancelled");
+  assert.equal(gone.late_cancel, false);
+  assert.match(gone.cancel_reason, /^Handed over to /);
+  assert.equal(after.find((x) => x.user_id === c && x.status !== "cancelled")!.status, "confirmed");
+  assert.equal(after.filter((x) => x.status === "confirmed").length, 1);
+  const wl = after.filter((x) => x.status === "waitlisted");
+  assert.deepEqual(wl.map((x) => x.waitlist_position), [1]);
+  assert.equal((await runAction(await ctxFor(a), "withdrawOffer", { booking_id: offer.id })).ok, false);
+});
+
+test("a player not on the waitlist can take an offered spot too", async () => {
+  const { store, ctxFor } = setup();
+  const { s, d } = await offeredSession(store, ctxFor);
+  assert.equal((await runAction(await ctxFor(d), "takeSpot", { session_id: s.id })).ok, true);
+  const mine = (await store.list("bookings", { eq: { session_id: s.id, user_id: d } }))[0];
+  assert.equal(mine.status, "confirmed");
+});
+
+test("only one player gets an offered spot", async () => {
+  const { store, ctxFor } = setup();
+  const { s, b, c, d } = await offeredSession(store, ctxFor);
+  const results = await Promise.all([b, c, d].map(async (uid) => runAction(await ctxFor(uid), "takeSpot", { session_id: s.id })));
+  assert.equal(results.filter((r) => r.ok).length, 1);
+  const all = await store.list("bookings", { eq: { session_id: s.id } });
+  assert.equal(all.filter((x) => x.status === "confirmed").length, 1);
+});
+
+test("taking the offer back keeps the spot, and nothing is left to take", async () => {
+  const { store, ctxFor } = setup();
+  const { s, offer, a, b } = await offeredSession(store, ctxFor);
+  assert.equal((await runAction(await ctxFor(a), "withdrawOffer", { booking_id: offer.id })).ok, true);
+  assert.equal((await store.get("bookings", offer.id))!.spot_offered_at, null);
+  assert.equal((await runAction(await ctxFor(b), "takeSpot", { session_id: s.id })).ok, false);
+  assert.equal((await store.get("bookings", offer.id))!.status, "confirmed");
+});
+
+test("players can't offer someone else's spot or take their own", async () => {
+  const { store, ctxFor } = setup();
+  const { s, offer, a, b } = await offeredSession(store, ctxFor);
+  assert.equal((await runAction(await ctxFor(b), "offerSpot", { booking_id: offer.id })).ok, false);
+  assert.equal((await runAction(await ctxFor(b), "withdrawOffer", { booking_id: offer.id })).ok, false);
+  assert.equal((await runAction(await ctxFor(a), "takeSpot", { session_id: s.id })).ok, false);
 });
 
 test("players cannot use admin or coach actions", async () => {

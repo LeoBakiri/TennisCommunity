@@ -124,6 +124,7 @@ export function demoSeed(now = new Date()): DB {
       created_at: new Date(new Date(s.starts_at).getTime() - 5 * 86400000).toISOString(),
       updated_at: created,
       cancelled_at: null,
+      spot_offered_at: null,
       ...extra,
     });
   };

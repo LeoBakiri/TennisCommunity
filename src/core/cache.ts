@@ -10,7 +10,7 @@ export const SLOW_MS = 60_000;
 export const FAST_MS = 10_000;
 
 /** These procedures only touch bookings, so rows from the slow tables stay good. */
-const BOOKING_ONLY = new Set(["book_session", "cancel_booking"]);
+const BOOKING_ONLY = new Set(["book_session", "cancel_booking", "offer_spot", "withdraw_offer", "take_offered_spot"]);
 
 interface Entry {
   at: number;

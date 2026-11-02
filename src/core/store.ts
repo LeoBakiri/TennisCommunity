@@ -35,16 +35,18 @@ export interface Store {
 export interface SessionStats {
   booked: number;
   waitlist: number;
+  offered: number; // booked spots up for someone else to take
 }
 
-export function statsFromBookings(ids: string[], bookings: { session_id: string; status: string; seats: number }[]) {
+export function statsFromBookings(ids: string[], bookings: { session_id: string; status: string; seats: number; spot_offered_at?: string | null }[]) {
   const out: Record<string, SessionStats> = {};
-  for (const id of ids) out[id] = { booked: 0, waitlist: 0 };
+  for (const id of ids) out[id] = { booked: 0, waitlist: 0, offered: 0 };
   for (const b of bookings) {
     const st = out[b.session_id];
     if (!st) continue;
     if (b.status === "confirmed") st.booked += b.seats || 1;
     if (b.status === "waitlisted") st.waitlist++;
+    if (b.status === "confirmed" && b.spot_offered_at) st.offered++;
   }
   return out;
 }

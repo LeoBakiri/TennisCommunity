@@ -294,6 +294,7 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
                     <div className="flex flex-wrap items-center gap-3">
                       <Avatar name={r.player?.full_name ?? "?"} size={38} />
                       <div className="min-w-0 flex-1 font-semibold">{r.player?.full_name}</div>
+                      {r.booking.spot_offered_at && <Badge tone="amber">Offering spot</Badge>}
                       <AttendanceToggle bookingId={r.booking.id} value={r.booking.attended} />
                       <button className={btn("ghost", "sm")} onClick={() => setOpen(open === r.booking.id ? null : r.booking.id)} aria-expanded={open === r.booking.id}>
                         <Icon name="down" size={16} className={cx("transition-transform", open === r.booking.id && "rotate-180")} />

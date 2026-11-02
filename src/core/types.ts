@@ -76,6 +76,7 @@ export interface Booking {
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  spot_offered_at: string | null; // a booked player has put their spot up for someone else to take
 }
 
 /** A private or semi-private lesson, owned by one coach and never shown to players. */

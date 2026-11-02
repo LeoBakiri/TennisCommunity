@@ -224,10 +224,10 @@ export class SupabaseStore implements Store {
 
   async sessionStats(ids: string[]): Promise<Record<string, SessionStats>> {
     if (!ids.length) return {};
-    const rows = await this.rpc<{ session_id: string; booked: number; waitlist: number }[]>("session_stats", { ids });
+    const rows = await this.rpc<{ session_id: string; booked: number; waitlist: number; offered?: number }[]>("session_stats", { ids });
     const out: Record<string, SessionStats> = {};
-    for (const id of ids) out[id] = { booked: 0, waitlist: 0 };
-    for (const r of rows ?? []) out[r.session_id] = { booked: Number(r.booked), waitlist: Number(r.waitlist) };
+    for (const id of ids) out[id] = { booked: 0, waitlist: 0, offered: 0 };
+    for (const r of rows ?? []) out[r.session_id] = { booked: Number(r.booked), waitlist: Number(r.waitlist), offered: Number(r.offered ?? 0) };
     return out;
   }
 

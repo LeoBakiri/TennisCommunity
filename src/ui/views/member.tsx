@@ -2,7 +2,7 @@ import { useState } from "react";
 import { A } from "../nav";
 import { Icon, SessionMark, TennisBall } from "../icons";
 import { ActionForm, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, SectionTitle, Submit } from "../kit";
-import { calendarHref, CancelButton, countdown, SessionCard, skipTheLine, whenWord } from "../sessions";
+import { calendarHref, countdown, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
@@ -300,8 +300,7 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
                   <Icon name="calendar" size={15} /> Add to calendar
                 </a>
               )}
-              <BookingBadge status={r.booking.status} position={r.booking.waitlist_position} />
-              <CancelButton bookingId={r.booking.id} status={r.booking.status} session={r.session} window={window} position={r.booking.waitlist_position} />
+              <MyBookingActions s={r.session} window={window} />
             </div>
           </div>
         ))}
@@ -358,7 +357,7 @@ export function MySessions({ data }: { data: D<typeof loadMySessions> }) {
                       <span className="text-ink/55">{fmtDate(r.session.starts_at)}</span>
                     </span>
                   </span>
-                  {r.booking.status === "cancelled" ? <BookingBadge status="cancelled" /> : r.booking.attended === false ? <Badge>Missed</Badge> : <Badge tone="green">Played</Badge>}
+                  {r.booking.status === "cancelled" ? r.booking.cancel_reason.startsWith("Handed over") ? <Badge tone="blue">Handed over</Badge> : <BookingBadge status="cancelled" /> : r.booking.attended === false ? <Badge>Missed</Badge> : <Badge tone="green">Played</Badge>}
                 </li>
               ))}
             </ul>

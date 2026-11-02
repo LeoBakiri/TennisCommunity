@@ -415,6 +415,7 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
                     </A>
                     <div className="truncate text-xs text-ink/50">{r.player?.email ?? r.player?.phone}</div>
                   </div>
+                  {r.booking.status === "confirmed" && r.booking.spot_offered_at && <Badge tone="amber">Offering spot</Badge>}
                   <BookingBadge status={r.booking.status} position={r.booking.waitlist_position} />
                   <div className="flex gap-1">
                     {r.booking.status === "waitlisted" && <ActionButton action="promoteBooking" input={{ booking_id: r.booking.id }}>Move in</ActionButton>}

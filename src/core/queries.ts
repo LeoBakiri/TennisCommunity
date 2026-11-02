@@ -24,7 +24,8 @@ export interface SessionView extends Session {
   booked: number;
   spots_left: number;
   waitlist: number;
-  my_booking: Pick<Booking, "id" | "status" | "waitlist_position"> | null;
+  offered: number;
+  my_booking: Pick<Booking, "id" | "status" | "waitlist_position" | "spot_offered_at"> | null;
 }
 
 /** One entry on a coach's calendar: a community session or their own lesson. */
@@ -57,7 +58,7 @@ async function enrich(store: Store, sessions: Session[], L: Lookups, userId?: st
     userId ? store.list("bookings", { eq: { user_id: userId }, in: { field: "session_id", values: ids } }) : Promise.resolve([] as Booking[]),
   ]);
   return sessions.map((s) => {
-    const st = stats[s.id] ?? { booked: 0, waitlist: 0 };
+    const st = stats[s.id] ?? { booked: 0, waitlist: 0, offered: 0 };
     const mine = mineAll.find((b) => b.session_id === s.id && isActive(b));
     return {
       ...s,
@@ -65,7 +66,8 @@ async function enrich(store: Store, sessions: Session[], L: Lookups, userId?: st
       booked: st.booked,
       spots_left: Math.max(0, s.capacity - st.booked),
       waitlist: st.waitlist,
-      my_booking: mine ? { id: mine.id, status: mine.status, waitlist_position: mine.waitlist_position } : null,
+      offered: st.offered,
+      my_booking: mine ? { id: mine.id, status: mine.status, waitlist_position: mine.waitlist_position, spot_offered_at: mine.spot_offered_at ?? null } : null,
     };
   });
 }

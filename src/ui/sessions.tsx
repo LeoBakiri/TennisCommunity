@@ -124,10 +124,10 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
   );
 }
 
-export function CancelButton({ bookingId, status, session, window, position }: { bookingId: string; status: string; session: SessionView; window: number; position?: number | null }) {
-  const hours = (new Date(session.starts_at).getTime() - Date.now()) / 3600000;
+const hoursUntil = (s: Pick<SessionView, "starts_at">) => (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
+
+export function CancelButton({ bookingId, status, session, position }: { bookingId: string; status: string; session: SessionView; position?: number | null }) {
   const leaving = status === "waitlisted";
-  const late = !leaving && hours < window;
   return (
     <ActionButton
       action="cancelBooking"
@@ -142,7 +142,6 @@ export function CancelButton({ bookingId, status, session, window, position }: {
               {sessionLabel(session)} · {fmtDayRange(session.starts_at, session.ends_at)}
             </p>
             {leaving && position ? <p className="text-ink/60">{position === 1 ? "You're next in line. If a spot opens, it goes to the next player instead." : `You'd give up your #${position} place in line.`}</p> : null}
-            {late && <Notice tone="warn">This is within {window} hours of the start, so it counts as a late cancellation.</Notice>}
           </div>
         ),
         label: leaving ? "Leave the line" : "Cancel booking",
@@ -151,6 +150,103 @@ export function CancelButton({ bookingId, status, session, window, position }: {
     >
       {leaving ? "Leave" : "Cancel"}
     </ActionButton>
+  );
+}
+
+/** Inside the cancellation window a booked player can't cancel, only offer the spot to someone else. */
+function OfferSpotButton({ bookingId, session, window }: { bookingId: string; session: SessionView; window: number }) {
+  return (
+    <ActionButton
+      action="offerSpot"
+      input={{ booking_id: bookingId }}
+      variant="ghost"
+      size="sm"
+      confirm={{
+        title: "Offer your spot?",
+        body: (
+          <div className="space-y-3">
+            <p>
+              {sessionLabel(session)} · {fmtDayRange(session.starts_at, session.ends_at)}
+            </p>
+            <Notice tone="warn">It's less than {window} hours to the session, so you can't cancel.</Notice>
+            <p>
+              We'll offer your spot to {session.waitlist > 0 ? `the ${plural(session.waitlist, "player")} on the waitlist` : "the waitlist"} and anyone else who wants it. If someone takes it, you won't be charged. If
+              nobody takes it, you keep your spot and pay as normal.
+            </p>
+          </div>
+        ),
+        label: "Offer my spot",
+      }}
+    >
+      Offer my spot
+    </ActionButton>
+  );
+}
+
+function shareOfferHref(s: SessionView) {
+  const link = `${window.location.origin}${window.location.pathname}#/schedule`;
+  const text = `I can't make ${sessionLabel(s)} on ${fmtDateTime(s.starts_at)}. My spot is free, first to take it gets it: ${link}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
+/** Someone booked can't make it and is offering their spot. The first to tap gets it. */
+export function TakeSpotButton({ s, signedIn }: { s: SessionView; signedIn: boolean }) {
+  const style = cx(btn("primary", "sm"), "min-w-[112px]");
+  if (!signedIn) {
+    return (
+      <A href={withQuery("/login", { next: "/schedule" })} className={style}>
+        Take spot
+      </A>
+    );
+  }
+  return (
+    <ActionButton
+      action="takeSpot"
+      input={{ session_id: s.id }}
+      variant="primary"
+      size="sm"
+      className="min-w-[112px]"
+      confirm={{
+        title: "Take this spot?",
+        body: (
+          <div className="space-y-3">
+            <p>
+              {sessionLabel(s)} · {fmtDayRange(s.starts_at, s.ends_at)} · {priceLabel(s)}
+            </p>
+            <p>A player can't make it, so their spot is free. Take it and you're booked in.</p>
+          </div>
+        ),
+        label: "Take spot",
+      }}
+    >
+      Take spot
+    </ActionButton>
+  );
+}
+
+/** The badge and buttons for a session the player is booked or waitlisted on. */
+export function MyBookingActions({ s, window, waitlistBadge = true }: { s: SessionView; window: number; waitlistBadge?: boolean }) {
+  const mine = s.my_booking!;
+  if (mine.status === "confirmed" && mine.spot_offered_at) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="amber">Spot offered</Badge>
+        <a href={shareOfferHref(s)} target="_blank" rel="noreferrer" className={btn("ghost", "sm")} title="Share on WhatsApp">
+          <Icon name="message" size={15} /> Share
+        </a>
+        <ActionButton action="withdrawOffer" input={{ booking_id: mine.id }} variant="ghost" size="sm">
+          Take it back
+        </ActionButton>
+      </div>
+    );
+  }
+  const late = mine.status === "confirmed" && hoursUntil(s) < window;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {(waitlistBadge || mine.status !== "waitlisted") && <BookingBadge status={mine.status} position={mine.waitlist_position} />}
+      {mine.status === "waitlisted" && s.offered > 0 && <TakeSpotButton s={s} signedIn />}
+      {late ? <OfferSpotButton bookingId={mine.id} session={s} window={window} /> : <CancelButton bookingId={mine.id} status={mine.status} session={s} position={mine.waitlist_position} />}
+    </div>
   );
 }
 
@@ -320,10 +416,9 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 sm:flex-col sm:flex-nowrap sm:items-end">
           <SeatMeter s={s} />
           {mine ? (
-            <div className="flex items-center gap-2">
-              {mine.status !== "waitlisted" && <BookingBadge status={mine.status} position={mine.waitlist_position} />}
-              <CancelButton bookingId={mine.id} status={mine.status} session={s} window={window} position={mine.waitlist_position} />
-            </div>
+            <MyBookingActions s={s} window={window} waitlistBadge={false} />
+          ) : s.spots_left <= 0 && s.offered > 0 ? (
+            <TakeSpotButton s={s} signedIn={signedIn} />
           ) : (
             <BookButton s={s} signedIn={signedIn} />
           )}

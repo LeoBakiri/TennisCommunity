@@ -94,24 +94,27 @@ export async function placeBooking(ctx: Ctx, session: Session, user: Profile, fo
     }
     const status: BookingStatus = forceStatus ?? (seatsUsed(all) + 1 <= session.capacity ? "confirmed" : "waitlisted");
     const position = status === "waitlisted" ? Math.max(0, ...all.filter((b) => b.status === "waitlisted").map((b) => b.waitlist_position ?? 0)) + 1 : null;
-    const ts = nowIso();
-    const booking: Booking = {
-      id: uid(),
-      session_id: session.id,
-      user_id: user.id,
-      status,
-      seats: 1,
-      waitlist_position: position,
-      attended: null,
-      late_cancel: false,
-      cancel_reason: "",
-      created_at: ts,
-      updated_at: ts,
-      cancelled_at: null,
-    };
-    await ctx.store.insert("bookings", booking);
-    return booking;
+    return ctx.store.insert("bookings", newBooking(session.id, user.id, status, position));
   });
+}
+
+function newBooking(sessionId: string, userId: string, status: BookingStatus, position: number | null): Booking {
+  const ts = nowIso();
+  return {
+    id: uid(),
+    session_id: sessionId,
+    user_id: userId,
+    status,
+    seats: 1,
+    waitlist_position: position,
+    attended: null,
+    late_cancel: false,
+    cancel_reason: "",
+    created_at: ts,
+    updated_at: ts,
+    cancelled_at: null,
+    spot_offered_at: null,
+  };
 }
 
 /** Cancel a booking and move the next person in from the waitlist. */
@@ -234,18 +237,76 @@ export const actions: Record<string, Handler> = {
     if (b.user_id !== u.id && !staffCancel) throw new UserError("You can only cancel your own bookings.");
     if (!isActive(b)) throw new UserError("This booking is already cancelled.");
     if (new Date(session.starts_at) <= ctx.now && !staffCancel) throw new UserError("This session has already started.");
-    const settings = await getSettings(ctx.store);
+    const { cancellation_window_hours: window } = await getSettings(ctx.store);
     const hoursLeft = (new Date(session.starts_at).getTime() - ctx.now.getTime()) / 3600000;
-    const late = !staffCancel && b.status !== "waitlisted" && hoursLeft < settings.cancellation_window_hours;
-    await cancelAndPromote(ctx, b, session, input.reason || (staffCancel && b.user_id !== u.id ? "Cancelled by coach" : "Cancelled by player"), late);
-    return {
-      ok: true,
-      message: late
-        ? `Cancelled. This was inside the ${settings.cancellation_window_hours}-hour window, so the late-cancellation policy may apply.`
-        : b.status === "waitlisted"
-          ? "You've left the waitlist."
-          : "Booking cancelled.",
-    };
+    if (!staffCancel && b.status === "confirmed" && hoursLeft < window) {
+      throw new UserError(`It's less than ${window} hours to the session, so you can't cancel. Offer your spot instead.`);
+    }
+    await cancelAndPromote(ctx, b, session, input.reason || (staffCancel && b.user_id !== u.id ? "Cancelled by coach" : "Cancelled by player"), false);
+    return { ok: true, message: b.status === "waitlisted" ? "You've left the waitlist." : "Booking cancelled." };
+  }),
+
+  // Inside the cancellation window a booked player offers their spot instead of cancelling.
+  // They stay booked (and pay) until someone takes it.
+  offerSpot: action(z.object({ booking_id: id }), async (ctx, input) => {
+    const u = me(ctx);
+    if (ctx.store.rpc) await ctx.store.rpc("offer_spot", { p_booking_id: input.booking_id });
+    else {
+      const b = await must(ctx.store.get("bookings", input.booking_id), "Booking");
+      if (b.user_id !== u.id) throw new UserError("Booking not found.");
+      if (b.status !== "confirmed") throw new UserError("Only a booked spot can be offered.");
+      const session = await must(ctx.store.get("sessions", b.session_id), "Session");
+      if (session.status !== "published" || new Date(session.starts_at) <= ctx.now) throw new UserError("This session has already started.");
+      if (!b.spot_offered_at) await ctx.store.update("bookings", b.id, { spot_offered_at: nowIso(), updated_at: nowIso() });
+    }
+    return { ok: true, message: "Your spot is on offer. You're still booked until someone takes it." };
+  }),
+
+  withdrawOffer: action(z.object({ booking_id: id }), async (ctx, input) => {
+    const u = me(ctx);
+    if (ctx.store.rpc) await ctx.store.rpc("withdraw_offer", { p_booking_id: input.booking_id });
+    else {
+      const first = await must(ctx.store.get("bookings", input.booking_id), "Booking");
+      if (first.user_id !== u.id) throw new UserError("Booking not found.");
+      await ctx.store.exclusive(`session:${first.session_id}`, async () => {
+        const b = await must(ctx.store.get("bookings", first.id), "Booking");
+        if (b.status !== "confirmed") throw new UserError("Someone has already taken your spot.");
+        await ctx.store.update("bookings", b.id, { spot_offered_at: null, updated_at: nowIso() });
+      });
+    }
+    return { ok: true, message: "Offer taken back. The spot is yours." };
+  }),
+
+  takeSpot: action(z.object({ session_id: id }), async (ctx, input) => {
+    const u = me(ctx);
+    if (ctx.store.rpc) await ctx.store.rpc<Booking>("take_offered_spot", { p_session_id: input.session_id });
+    else {
+      const session = await must(ctx.store.get("sessions", input.session_id), "Session");
+      if (!session.session_type) throw new UserError("Session not found.");
+      if (session.status !== "published" || new Date(session.starts_at) <= ctx.now) throw new UserError("This session has already started.");
+      await ctx.store.exclusive(`session:${session.id}`, async () => {
+        const all = await ctx.store.list("bookings", { eq: { session_id: session.id } });
+        const mine = all.find((b) => b.user_id === u.id && isActive(b));
+        if (mine?.status === "confirmed") throw new UserError("You're already booked into this session.");
+        const offer = all
+          .filter((b) => b.status === "confirmed" && b.spot_offered_at && b.user_id !== u.id)
+          .sort((a, b) => (a.spot_offered_at! < b.spot_offered_at! ? -1 : 1))[0];
+        if (!offer) throw new UserError("Someone else just took this spot.");
+        const ts = nowIso();
+        await ctx.store.update("bookings", offer.id, {
+          status: "cancelled",
+          cancelled_at: ts,
+          updated_at: ts,
+          cancel_reason: `Handed over to ${u.full_name}`,
+          late_cancel: false,
+          waitlist_position: null,
+        });
+        if (mine) await ctx.store.update("bookings", mine.id, { status: "confirmed", waitlist_position: null, updated_at: ts });
+        else await ctx.store.insert("bookings", newBooking(session.id, u.id, "confirmed", null));
+        await reindexWaitlist(ctx, session.id);
+      });
+    }
+    return { ok: true, message: "The spot is yours. You're booked!" };
   }),
 
   // ── Coach: community sessions ──

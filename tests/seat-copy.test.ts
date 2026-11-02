@@ -7,7 +7,7 @@ const seat = (booked: number, capacity = 6, extra: { waitlist?: number; mine?: "
   capacity,
   spots_left: Math.max(0, capacity - booked),
   waitlist: extra.waitlist ?? 0,
-  my_booking: extra.mine ? { id: "b", status: extra.mine, waitlist_position: null } : null,
+  my_booking: extra.mine ? { id: "b", status: extra.mine, waitlist_position: null, spot_offered_at: null } : null,
 });
 
 test("the wording tightens as a session fills", () => {
@@ -24,7 +24,7 @@ test("a full session points to the waitlist", () => {
 });
 
 test("a waiting player sees their place in line", () => {
-  const waiting = (place: number, waitlist: number) => seatCopy({ ...seat(6, 6, { waitlist, mine: "waitlisted" }), my_booking: { id: "b", status: "waitlisted", waitlist_position: place } });
+  const waiting = (place: number, waitlist: number) => seatCopy({ ...seat(6, 6, { waitlist, mine: "waitlisted" }), my_booking: { id: "b", status: "waitlisted", waitlist_position: place, spot_offered_at: null } });
   assert.deepEqual(waiting(1, 1), { heat: "line", title: "You're next in", sub: "First open spot is yours" });
   assert.deepEqual(waiting(1, 3), { heat: "line", title: "You're next in", sub: "First open spot is yours · 2 behind you" });
   assert.deepEqual(waiting(2, 2), { heat: "line", title: "1 player ahead of you", sub: "You move in automatically" });
