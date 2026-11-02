@@ -225,7 +225,7 @@ export function TakeSpotButton({ s, signedIn }: { s: SessionView; signedIn: bool
 }
 
 /** The badge and buttons for a session the player is booked or waitlisted on. */
-export function MyBookingActions({ s, window, waitlistBadge = true }: { s: SessionView; window: number; waitlistBadge?: boolean }) {
+export function MyBookingActions({ s, window }: { s: SessionView; window: number }) {
   const mine = s.my_booking!;
   if (mine.status === "confirmed" && mine.spot_offered_at) {
     return (
@@ -243,7 +243,7 @@ export function MyBookingActions({ s, window, waitlistBadge = true }: { s: Sessi
   const late = mine.status === "confirmed" && hoursUntil(s) < window;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {(waitlistBadge || mine.status !== "waitlisted") && <BookingBadge status={mine.status} position={mine.waitlist_position} />}
+      <BookingBadge status={mine.status} position={mine.waitlist_position} />
       {mine.status === "waitlisted" && s.offered > 0 && <TakeSpotButton s={s} signedIn />}
       {late ? <OfferSpotButton bookingId={mine.id} session={s} window={window} /> : <CancelButton bookingId={mine.id} status={mine.status} session={s} position={mine.waitlist_position} />}
     </div>
@@ -260,9 +260,7 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   const imIn = s.my_booking?.status === "confirmed";
   const place = s.my_booking?.status === "waitlisted" ? (s.my_booking.waitlist_position ?? null) : null;
   if (place !== null) {
-    const behind = Math.max(0, s.waitlist - place);
-    if (place === 1) return { heat: "line" as const, title: "You're next in", sub: behind ? `First open spot is yours · ${behind} behind you` : "First open spot is yours" };
-    return { heat: "line" as const, title: `${plural(place - 1, "player")} ahead of you`, sub: "You move in automatically" };
+    return { heat: "full" as const, title: "Full", sub: place === 1 ? "First open spot is yours" : `${plural(place - 1, "player")} ahead of you` };
   }
   const others = s.booked - (imIn ? 1 : 0);
   const heat = left === 0 ? ("full" as const) : left <= 2 && s.booked > 0 ? ("low" as const) : ("open" as const);
@@ -273,12 +271,12 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
 }
 
-const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]", line: "text-[#7A3E12]" };
+const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
 const HEAT_FILL = { low: "#B5672C", full: "#B9574A" };
 
 function SeatMeter({ s }: { s: SessionView }) {
   const { heat, title, sub } = seatCopy(s);
-  const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat === "line" ? "full" : heat];
+  const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat];
   const taken = Math.min(s.booked, s.capacity);
   const imIn = s.my_booking?.status === "confirmed";
   const large = s.capacity <= 8;
@@ -305,36 +303,11 @@ function SeatMeter({ s }: { s: SessionView }) {
           <div className="h-full rounded-full" style={{ width: `${(taken / s.capacity) * 100}%`, background: fill }} />
         </div>
       )}
-      {heat === "line" ? (
-        <>
-          <div className="text-sm leading-tight font-semibold text-[#8E3326] sm:text-right">
-            Session full <span className="text-xs font-normal text-ink/55">· {s.waitlist} on the waitlist</span>
-          </div>
-          <WaitTicket place={s.my_booking!.waitlist_position ?? 1} title={title} sub={sub} />
-        </>
-      ) : (
-        <div className="min-w-0 sm:text-right">
-          <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
-          <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
-        </div>
-      )}
-    </>
-  );
-}
-
-/** A waiting player's place, as an orange waitlist ticket. */
-function WaitTicket({ place, title, sub }: { place: number; title: string; sub: string }) {
-  return (
-    <div className="flex w-full items-center justify-between gap-4 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] py-2 pr-3 pl-3.5 sm:w-auto">
-      <div className="min-w-0">
-        <div className="flex items-center gap-1 text-[10.5px] font-bold tracking-wider text-[#B5672C] uppercase">
-          <Icon name="clock" size={12} strokeWidth={2.4} /> Waitlist
-        </div>
-        <div className="mt-0.5 text-sm leading-tight font-semibold text-[#7A3E12]">{title}</div>
-        <div className="mt-0.5 text-xs text-[#7A3E12]/65">{sub}</div>
+      <div className="min-w-0 sm:text-right">
+        <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
+        <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
       </div>
-      <div className="font-display text-[34px] leading-none font-semibold tracking-tight text-[#B5672C] tabular-nums">#{place}</div>
-    </div>
+    </>
   );
 }
 
@@ -379,13 +352,12 @@ function usePromotedCelebration(booking: SessionView["my_booking"], ref: RefObje
 export function SessionCard({ s, signedIn, window, showDay, skip }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean; skip?: SessionView }) {
   const mine = s.my_booking;
   const imIn = mine?.status === "confirmed";
-  const waiting = mine?.status === "waitlisted";
   const hoursAway = (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
   const ref = useRef<HTMLElement>(null);
   const promoted = usePromotedCelebration(mine, ref);
   return (
-    <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : waiting ? { background: "color-mix(in oklab, #B5672C 5%, white)" } : undefined}>
-      {(imIn || waiting) && <span className="absolute inset-y-0 left-0 w-1" style={{ background: imIn ? sessionColor(s) : "#B5672C" }} />}
+    <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}>
+      {imIn && <span className="absolute inset-y-0 left-0 w-1" style={{ background: sessionColor(s) }} />}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
@@ -395,11 +367,6 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
                 <Icon name="check" size={12} strokeWidth={2.6} /> {promoted ? "Off the waitlist. You're in!" : <>You&apos;re in</>}
               </span>
             )}
-          {waiting && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[#B5672C] px-2 py-0.5 text-[11.5px] text-white">
-              <Icon name="clock" size={12} strokeWidth={2.6} /> On the waitlist
-            </span>
-          )}
           {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
           </div>
           {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
@@ -416,7 +383,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2.5 sm:flex-col sm:flex-nowrap sm:items-end">
           <SeatMeter s={s} />
           {mine ? (
-            <MyBookingActions s={s} window={window} waitlistBadge={false} />
+            <MyBookingActions s={s} window={window} />
           ) : s.spots_left <= 0 && s.offered > 0 ? (
             <TakeSpotButton s={s} signedIn={signedIn} />
           ) : (

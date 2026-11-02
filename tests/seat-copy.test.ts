@@ -23,12 +23,11 @@ test("a full session points to the waitlist", () => {
   assert.deepEqual(seatCopy(seat(6, 6, { waitlist: 2 })), { heat: "full", title: "Full", sub: "2 waiting" });
 });
 
-test("a waiting player sees their place in line", () => {
+test("a waiting player sees the session is full and where they stand", () => {
   const waiting = (place: number, waitlist: number) => seatCopy({ ...seat(6, 6, { waitlist, mine: "waitlisted" }), my_booking: { id: "b", status: "waitlisted", waitlist_position: place, spot_offered_at: null } });
-  assert.deepEqual(waiting(1, 1), { heat: "line", title: "You're next in", sub: "First open spot is yours" });
-  assert.deepEqual(waiting(1, 3), { heat: "line", title: "You're next in", sub: "First open spot is yours · 2 behind you" });
-  assert.deepEqual(waiting(2, 2), { heat: "line", title: "1 player ahead of you", sub: "You move in automatically" });
-  assert.deepEqual(waiting(4, 5), { heat: "line", title: "3 players ahead of you", sub: "You move in automatically" });
+  assert.deepEqual(waiting(1, 1), { heat: "full", title: "Full", sub: "First open spot is yours" });
+  assert.deepEqual(waiting(2, 2), { heat: "full", title: "Full", sub: "1 player ahead of you" });
+  assert.deepEqual(waiting(4, 5), { heat: "full", title: "Full", sub: "3 players ahead of you" });
 });
 
 test("a booked player sees themself in the count", () => {

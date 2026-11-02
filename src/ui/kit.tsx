@@ -155,7 +155,12 @@ export function BookingBadge({ status, position }: { status: BookingStatus; posi
     cancelled: ["neutral", "Cancelled"],
   };
   const [tone, label] = map[status];
-  return <Badge tone={tone}>{label}</Badge>;
+  return (
+    <Badge tone={tone}>
+      {status === "waitlisted" && <Icon name="clock" size={12} strokeWidth={2.4} />}
+      {label}
+    </Badge>
+  );
 }
 
 export function Capacity({ booked, capacity, waitlist = 0, compact }: { booked: number; capacity: number; waitlist?: number; compact?: boolean }) {
