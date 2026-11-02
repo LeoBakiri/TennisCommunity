@@ -93,9 +93,36 @@ export async function loadSchedule(ctx: LoadCtx) {
   const [L, settings] = await Promise.all([profileMap(ctx.store), getSettings(ctx.store)]);
   const now = ctx.now.toISOString();
   const rows = (await communityBetween(ctx.store, today, addDays(today, settings.booking_horizon_days + 1))).filter((s) => s.status === "published" && s.starts_at > now);
-  const sessions = await enrich(ctx.store, rows, L, ctx.actor.user?.id);
+  const u = ctx.actor.user;
+  const [sessions, stats] = await Promise.all([enrich(ctx.store, rows, L, u?.id), u ? playerStats(ctx, u.id) : null]);
   const days = [...new Set(sessions.map((s) => dateKey(s.starts_at)))].map((day) => ({ day, sessions: sessions.filter((s) => dateKey(s.starts_at) === day) }));
-  return { today, days, window: settings.cancellation_window_hours, policy: settings.cancellation_policy };
+  const me = u && stats ? { first_name: u.full_name.split(" ")[0], next: sessions.find((s) => s.my_booking?.status === "confirmed") ?? null, ...stats } : null;
+  const totals = {
+    sessions: sessions.length,
+    booked: sessions.reduce((n, s) => n + s.booked, 0),
+    open: sessions.reduce((n, s) => n + s.spots_left, 0),
+  };
+  return { today, days, totals, me, horizon: settings.booking_horizon_days, window: settings.cancellation_window_hours, policy: settings.cancellation_policy };
+}
+
+/** Sessions a player has played, and how many weeks in a row (ending this week or last) they've been on court. */
+export function playStats(playedStarts: string[], now: Date) {
+  const weeks = new Set(playedStarts.map((iso) => startOfWeek(dateKey(iso))));
+  let week = startOfWeek(dateKey(now));
+  if (!weeks.has(week)) week = addDays(week, -7);
+  let streak = 0;
+  while (weeks.has(week)) {
+    streak++;
+    week = addDays(week, -7);
+  }
+  return { played: playedStarts.length, streak_weeks: streak };
+}
+
+async function playerStats(ctx: LoadCtx, userId: string) {
+  const now = ctx.now.toISOString();
+  const kept = (await ctx.store.list("bookings", { eq: { user_id: userId } })).filter((b) => holdsSeat(b) && b.attended !== false);
+  const sessions = kept.length ? await ctx.store.list("sessions", { in: { field: "id", values: kept.map((b) => b.session_id) } }) : [];
+  return playStats(sessions.filter((s) => isCommunity(s) && s.status !== "cancelled" && s.starts_at <= now).map((s) => s.starts_at), ctx.now);
 }
 
 export type BookingRow = { booking: Booking; session: SessionView };
@@ -110,6 +137,7 @@ export async function loadMySessions(ctx: LoadCtx) {
     return session ? [{ booking: b, session }] : [];
   });
   const now = ctx.now.toISOString();
+  const stats = playStats(rows.filter((r) => holdsSeat(r.booking) && r.booking.attended !== false && r.session.status !== "cancelled" && r.session.starts_at <= now).map((r) => r.session.starts_at), ctx.now);
   const upcoming = rows.filter((r) => r.session.starts_at > now && isActive(r.booking)).sort(by((r) => r.session.starts_at));
   return {
     confirmed: upcoming.filter((r) => r.booking.status === "confirmed"),
@@ -118,6 +146,7 @@ export async function loadMySessions(ctx: LoadCtx) {
       .filter((r) => r.booking.status === "cancelled" || (r.session.starts_at <= now && holdsSeat(r.booking)))
       .sort(by((r) => r.session.starts_at, -1))
       .slice(0, 30),
+    stats,
     window: settings.cancellation_window_hours,
   };
 }

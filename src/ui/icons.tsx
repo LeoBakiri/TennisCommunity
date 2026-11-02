@@ -105,3 +105,40 @@ export function SessionMark({ type, size = 16, className = "" }: { type: Session
     </svg>
   );
 }
+
+const BALL_SEAMS = "M2.6 7.6c3.5 1.3 5.8 4.5 5.8 8.4 0 2.1-.6 4-1.7 5.5M21.4 16.4c-3.5-1.3-5.8-4.5-5.8-8.4 0-2.1.6-4 1.7-5.5";
+
+/** A tennis ball in the brand accent. `empty` draws the dashed outline of one not yet played. */
+export function TennisBall({ size = 24, empty, className = "" }: { size?: number; empty?: boolean; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className={`shrink-0 ${className}`}>
+      {empty ? (
+        <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2.6" opacity="0.35" />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="11" fill="var(--accent)" />
+          <path d={BALL_SEAMS} fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" opacity="0.9" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** A quick burst of tennis balls from a point on screen, for the moment a booking lands. */
+export function ballBurst(from: { x: number; y: number }) {
+  if (typeof document === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const layer = document.createElement("div");
+  layer.className = "ball-burst";
+  layer.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < 14; i++) {
+    const angle = (Math.PI * 2 * i) / 14 + Math.random() * 0.4;
+    const dist = 70 + Math.random() * 90;
+    const size = 12 + Math.round(Math.random() * 12);
+    const ball = document.createElement("span");
+    ball.style.cssText = `left:${from.x}px;top:${from.y}px;width:${size}px;height:${size}px;--dx:${Math.cos(angle) * dist}px;--dy:${Math.sin(angle) * dist - 60}px;--spin:${Math.round(Math.random() * 540 - 270)}deg;animation-delay:${i * 12}ms`;
+    ball.innerHTML = `<svg viewBox="0 0 24 24" width="100%" height="100%"><circle cx="12" cy="12" r="11" fill="var(--accent)"/><path d="${BALL_SEAMS}" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+    layer.appendChild(ball);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), 1300);
+}

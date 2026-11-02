@@ -278,6 +278,53 @@
   .seat-next {
     animation: seat-pulse 2.4s ease-out infinite;
   }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .ball-bounce {
+    animation: ball-bounce 2.8s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+  .ball-burst {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+  }
+  .ball-burst span {
+    position: absolute;
+    margin: -12px 0 0 -12px;
+    filter: drop-shadow(0 2px 3px rgb(30 36 32 / 0.25));
+    animation: ball-fly 1.05s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+}
+
+@keyframes ball-bounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-12deg);
+  }
+  50% {
+    transform: translateY(-14px) rotate(8deg);
+  }
+}
+@keyframes ball-fly {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.3);
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), calc(var(--dy) + 120px)) scale(1) rotate(var(--spin));
+  }
 }
 
 @keyframes shimmer {
@@ -326,7 +373,8 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-  .seat-next {
+  .seat-next,
+  .ball-bounce {
     animation: none;
   }
 }

@@ -25,6 +25,11 @@ export const sessionTitle = (s: { session_type: SessionType | null; title: strin
   const label = s.session_type ? SESSION_META[s.session_type].label : "Session";
   return s.session_type === "performance_accelerator" && s.title ? `${label}: ${s.title}` : label;
 };
+/** Round numbers of sessions played that a player's progress counts toward. */
+export const MILESTONES = [1, 5, 10, 25, 50, 100, 200, 365, 500, 1000];
+export const nextMilestone = (played: number) => MILESTONES.find((m) => m > played) ?? Math.ceil((played + 1) / 500) * 500;
+export const lastMilestone = (played: number) => [0, ...MILESTONES].filter((m) => m <= played).pop() ?? 0;
+
 export const lessonTitle = (l: { kind: LessonKind; client_names: string[] }) => l.client_names.join(", ") || LESSON_META[l.kind].label;
 
 export function fmtMoney(cents: number | null | undefined, opts: { free?: string } = {}): string {

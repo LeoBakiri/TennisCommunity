@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { A, useAction, withQuery } from "./nav";
-import { Icon, SessionMark } from "./icons";
+import { ballBurst, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay } from "@/core/time";
-import { fmtMoney, SESSION_META } from "@/core/util";
+import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
+import { fmtMoney, sessionTitle, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
   if (s.price_cents === null) return "Price TBA";
   return s.price_cents === 0 ? "Free" : fmtMoney(s.price_cents);
 }
 
-const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
+export const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
 const sessionLabel = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].label;
 
 // ───────────────────────── week navigation ─────────────────────────
@@ -80,9 +80,13 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             className={btn("primary")}
             disabled={pending}
             data-autofocus
-            onClick={async () => {
+            onClick={async (e) => {
+              const box = e.currentTarget.getBoundingClientRect();
               const r = await run("bookSession", { session_id: s.id });
-              if (r.ok) setOpen(false);
+              if (r.ok) {
+                setOpen(false);
+                if (!isFull) ballBurst({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
+              }
             }}
           >
             {pending && <Spinner />}
@@ -184,11 +188,23 @@ function SeatMeter({ s }: { s: SessionView }) {
 
 export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean }) {
   const mine = s.my_booking;
+  const imIn = mine?.status === "confirmed";
+  const hoursAway = (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
   return (
-    <article className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
+    <article
+      className="relative flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5"
+      style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}
+    >
+      {imIn && <span className="absolute inset-y-0 left-0 w-1" style={{ background: sessionColor(s) }} />}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
+        <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
           <SessionMark type={s.session_type} /> {sessionLabel(s)}
+          {imIn && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] text-white" style={{ background: sessionColor(s) }}>
+              <Icon name="check" size={12} strokeWidth={2.6} /> You&apos;re in
+            </span>
+          )}
+          {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
         </div>
         {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
         <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
@@ -352,4 +368,14 @@ export function WeekGrid({
       </div>
     </>
   );
+}
+
+// ───────────────────────── add to calendar ─────────────────────────
+
+const gcalStamp = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+/** A Google Calendar "add event" link, filled in from the session. Nothing is sent until the player opens it. */
+export function calendarHref(s: Pick<SessionView, "session_type" | "title" | "starts_at" | "ends_at" | "location" | "description">) {
+  const q = new URLSearchParams({ action: "TEMPLATE", text: sessionTitle(s), dates: `${gcalStamp(s.starts_at)}/${gcalStamp(s.ends_at)}`, location: s.location, details: s.description });
+  return `https://calendar.google.com/calendar/render?${q}`;
 }
