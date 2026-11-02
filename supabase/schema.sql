@@ -549,6 +549,6 @@ insert into public.admin_emails (email) values ('leocanbakiri@gmail.com') on con
 
 insert into public.settings (id, brand_name, logo_mark, default_location, cancellation_policy, club_disclaimer)
 values ('default', 'El Patio Tennis', 'EP', 'Balboa Tennis Club, San Diego',
-  'Please cancel at least 24 hours before your session so someone from the waitlist can take your spot. Late cancellations may still be charged by the coach.',
+  'Less than 24 hours before a session you can''t cancel, but you can offer your spot. If someone takes it, you won''t be charged. If nobody does, you pay as normal.',
   'El Patio Tennis is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.')
 on conflict (id) do nothing;

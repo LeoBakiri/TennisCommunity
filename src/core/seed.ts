@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   currency: "USD",
   cancellation_window_hours: 24,
   cancellation_policy:
-    "Please cancel at least 24 hours before your session so someone from the waitlist can take your spot. Late cancellations may still be charged by the coach.",
+    "Less than 24 hours before a session you can't cancel, but you can offer your spot. If someone takes it, you won't be charged. If nobody does, you pay as normal.",
   booking_horizon_days: 28,
   club_disclaimer:
     "El Patio Tennis is an independent coaching business run by coach Leo Bakiri and co-run by coach Kaan Ayman. It is not affiliated with or operated by Balboa Tennis Club, and booking a lesson here does not reserve club courts.",
