@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
-import { Icon } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Dot, Empty, Field, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
+import { Icon, SessionMark } from "../icons";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
 import { priceLabel } from "../sessions";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
@@ -67,9 +67,9 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                 <tr key={s.id} className="cursor-pointer" onClick={() => nav.push(`/admin/sessions/${s.id}`)}>
                   <td>
                     <div className="flex items-center gap-2 font-medium">
-                      <Dot color={SESSION_META[s.session_type!].color} /> {SESSION_META[s.session_type!].label}
+                      <SessionMark type={s.session_type} /> {SESSION_META[s.session_type!].label}
                     </div>
-                    {s.title && <div className="mt-0.5 pl-4 text-xs text-ink/55">{s.title}</div>}
+                    {s.title && <div className="mt-0.5 pl-5 text-xs text-ink/55">{s.title}</div>}
                   </td>
                   <td className="whitespace-nowrap">
                     <div>{fmtDay(s.starts_at)}</div>
@@ -148,8 +148,8 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink/[0.05] p-1 sm:col-span-2" role="radiogroup" aria-label="Session type">
           {(["group", "performance_accelerator"] as const).map((t) => (
-            <button type="button" key={t} role="radio" aria-checked={type === t} onClick={() => setType(t)} className={cx("rounded-lg px-2 py-2 text-sm font-semibold", type === t ? "bg-card shadow-sm" : "text-ink/55")}>
-              {SESSION_META[t].label}
+            <button type="button" key={t} role="radio" aria-checked={type === t} onClick={() => setType(t)} className={cx("flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold", type === t ? "bg-card shadow-sm" : "text-ink/55")}>
+              <SessionMark type={t} className={type === t ? "" : "opacity-50"} /> {SESSION_META[t].label}
             </button>
           ))}
         </div>
@@ -393,7 +393,7 @@ export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
                 {c.sessions.slice(0, 5).map((s) => (
                   <li key={s.id}>
                     <A href={`/admin/sessions/${s.id}`} className="flex items-center gap-2 py-2.5 text-sm hover:underline">
-                      <Dot color={SESSION_META[s.session_type!].color} />
+                      <SessionMark type={s.session_type} />
                       <span className="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
                       <span className="shrink-0 text-xs text-ink/50">{fmtDateTime(s.starts_at)}</span>
                     </A>
@@ -613,7 +613,7 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
             <div className="card divide-y divide-ink/[0.06]">
               {data.history.slice(0, 25).map((r) => (
                 <A key={r.booking.id} href={`/admin/sessions/${r.session.id}`} className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-paper/60">
-                  <Dot color={SESSION_META[r.session.session_type!].color} />
+                  <SessionMark type={r.session.session_type} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{sessionTitle(r.session)}</span>
                     <span className="text-xs text-ink/50">{fmtDateTime(r.session.starts_at)}</span>

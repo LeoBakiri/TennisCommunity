@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAction, useNav, withQuery } from "../nav";
-import { Icon } from "../icons";
+import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Submit } from "../kit";
 import { WeekGrid, WeekNav } from "../sessions";
 import { TimeSelect } from "./admin";
@@ -69,7 +69,12 @@ function GoogleCalendarCard({ calendar, live }: { calendar: CoachCalendar | null
   );
 }
 
-const LEGEND = [SESSION_META.group, SESSION_META.performance_accelerator, LESSON_META.private, LESSON_META.semi_private];
+const LEGEND = [
+  { ...SESSION_META.group, mark: <SessionMark type="group" size={14} /> },
+  { ...SESSION_META.performance_accelerator, mark: <SessionMark type="performance_accelerator" size={14} /> },
+  { ...LESSON_META.private, mark: <Dot color={LESSON_META.private.color} /> },
+  { ...LESSON_META.semi_private, mark: <Dot color={LESSON_META.semi_private.color} /> },
+];
 
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
@@ -96,7 +101,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
         <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink/60">
           {LEGEND.map((m) => (
             <span key={m.label} className="flex items-center gap-1.5">
-              <Dot color={m.color} /> {m.label}
+              {m.mark} {m.label}
             </span>
           ))}
         </div>

@@ -337,6 +337,9 @@
   .mt-10 {
     margin-top: calc(var(--spacing) * 10);
   }
+  .mt-\[2px\] {
+    margin-top: 2px;
+  }
   .mt-auto {
     margin-top: auto;
   }
@@ -1099,8 +1102,8 @@
   .pl-2\.5 {
     padding-left: calc(var(--spacing) * 2.5);
   }
-  .pl-4 {
-    padding-left: calc(var(--spacing) * 4);
+  .pl-5 {
+    padding-left: calc(var(--spacing) * 5);
   }
   .text-center {
     text-align: center;

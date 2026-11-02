@@ -1,3 +1,4 @@
+import { SessionMark } from "../icons";
 import { ActionForm, Badge, BookingBadge, Card, Empty, LinkButton, PageHeader, SectionTitle, Submit } from "../kit";
 import { CancelButton, SessionCard } from "../sessions";
 import { ProfileFields } from "./public";
@@ -49,7 +50,9 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
         {rows.map((r) => (
           <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
             <div className="min-w-0">
-              <div className="font-semibold">{sessionTitle(r.session)}</div>
+              <div className="flex items-center gap-2 font-semibold">
+                <SessionMark type={r.session.session_type} /> {sessionTitle(r.session)}
+              </div>
               <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
               <div className="text-sm text-ink/60">{r.session.location}</div>
             </div>
@@ -79,9 +82,12 @@ export function MySessions({ data }: { data: D<typeof loadMySessions> }) {
             <ul className="mt-3 divide-y divide-ink/[0.06]">
               {data.history.map((r) => (
                 <li key={r.booking.id} className="flex items-center justify-between gap-3 py-3 text-sm">
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{sessionTitle(r.session)}</span>
-                    <span className="text-ink/55">{fmtDate(r.session.starts_at)}</span>
+                  <span className="flex min-w-0 items-start gap-2">
+                    <SessionMark type={r.session.session_type} size={15} className="mt-[2px]" />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{sessionTitle(r.session)}</span>
+                      <span className="text-ink/55">{fmtDate(r.session.starts_at)}</span>
+                    </span>
                   </span>
                   {r.booking.status === "cancelled" ? <BookingBadge status="cancelled" /> : r.booking.attended === false ? <Badge>Missed</Badge> : <Badge tone="green">Played</Badge>}
                 </li>

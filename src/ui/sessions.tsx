@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { A, useAction, withQuery } from "./nav";
-import { Icon } from "./icons";
-import { ActionButton, Badge, BookingBadge, btn, cx, Dot, Modal, Notice, Spinner } from "./kit";
+import { Icon, SessionMark } from "./icons";
+import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay } from "@/core/time";
 import { fmtMoney, SESSION_META } from "@/core/util";
@@ -56,7 +56,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
       <Modal open={open} onClose={() => setOpen(false)} title={isFull ? "Join the waitlist" : "Confirm your booking"}>
         <div className="rounded-xl bg-paper p-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Dot color={sessionColor(s)} /> {sessionLabel(s)}
+            <SessionMark type={s.session_type} /> {sessionLabel(s)}
           </div>
           {s.title && <div className="mt-1 text-sm font-medium">{s.title}</div>}
           <div className="mt-2 space-y-1 text-sm text-ink/70">
@@ -188,7 +188,7 @@ export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; 
     <article className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
-          <Dot color={sessionColor(s)} /> {sessionLabel(s)}
+          <SessionMark type={s.session_type} /> {sessionLabel(s)}
         </div>
         {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
         <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">

@@ -1,5 +1,7 @@
 // A small hand-drawn outline icon set (24×24, 1.75 stroke) in the spirit of Lucide.
 import type { SVGProps } from "react";
+import type { SessionType } from "@/core/types";
+import { SESSION_META } from "@/core/util";
 
 const paths: Record<string, string> = {
   home: "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
@@ -67,6 +69,39 @@ export function Icon({ name, size = 18, className = "", ...rest }: { name: IconN
       {...rest}
     >
       <path d={paths[name]} />
+    </svg>
+  );
+}
+
+// Cut-paper marks for the two session types, the way the WhatsApp groups use them:
+// a palm for Group Sessions and a rocket for Performance Accelerators. Filled, on a 100×120 box.
+const marks: Record<SessionType, string[]> = {
+  group: [
+    "M49 52C47 70 44 90 46 106C43 110 42 114 43 118H59C58 113 56 109 54 106C53 88 55 70 56 52Z",
+    "M52 48C32 32 10 40 4 68C8 72 12 70 14 66C20 52 36 48 52 60Z",
+    "M52 46C40 22 20 14 6 20C4 24 6 28 10 26C24 22 38 32 50 54Z",
+    "M52 44C50 24 42 8 28 2C24 4 26 10 30 12C38 22 44 34 50 50Z",
+    "M52 48C72 32 94 40 100 68C96 72 92 70 90 66C84 52 68 48 52 60Z",
+    "M52 46C64 22 84 14 98 20C100 24 98 28 94 26C80 22 66 32 54 54Z",
+    "M52 44C54 24 62 8 76 2C80 4 78 10 74 12C66 22 60 34 54 50Z",
+    "M52 42A6 6 0 1 0 52.1 42Z",
+  ],
+  performance_accelerator: [
+    "M50 4C66 18 72 42 68 76H32C28 42 34 18 50 4ZM50 32A7 7 0 1 0 50.1 32Z",
+    "M32 60C20 68 16 82 18 94L33 82Z",
+    "M68 60C80 68 84 82 82 94L67 82Z",
+    "M40 82C40 96 46 106 50 116C54 106 60 96 60 82Z",
+  ],
+};
+
+/** Stands in for the colour dot wherever a session's type is shown. */
+export function SessionMark({ type, size = 16, className = "" }: { type: SessionType | null; size?: number; className?: string }) {
+  const t = type ?? "group";
+  return (
+    <svg width={(size * 5) / 6} height={size} viewBox="0 0 100 120" fill={SESSION_META[t].color} fillRule="evenodd" aria-hidden="true" className={`shrink-0 ${className}`}>
+      {marks[t].map((d) => (
+        <path key={d} d={d} />
+      ))}
     </svg>
   );
 }
