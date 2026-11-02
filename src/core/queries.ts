@@ -566,10 +566,13 @@ export async function loadSessionEditor(ctx: LoadCtx) {
 export async function loadAdminCoaches(ctx: LoadCtx) {
   const now = ctx.now.toISOString();
   const today = startIso(dateKey(ctx.now));
+  const weekEnd = startIso(addDays(startOfWeek(dateKey(ctx.now)), 7));
+  const monthEnd = startIso(addDays(dateKey(ctx.now), 28));
+  const clientsSince = startIso(addDays(dateKey(ctx.now), -60));
   const [L, sessions, allLessons, calendars] = await Promise.all([
     profileMap(ctx.store),
     ctx.store.list("sessions", { gte: { field: "starts_at", value: today }, order: { field: "starts_at" } }),
-    ctx.store.list("lessons", { gte: { field: "starts_at", value: today } }),
+    ctx.store.list("lessons", { gte: { field: "starts_at", value: clientsSince } }),
     ctx.store.list("coach_calendars"),
   ]);
   const lessons = allLessons.filter((l) => l.starts_at >= now);
@@ -578,13 +581,27 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
     coaches: L.profiles
       .filter((p) => isStaff(p) && p.status === "active")
       .sort(by((p) => p.full_name))
-      .map((p) => ({
-        ...person(p),
-        email: p.email,
-        sessions: assigned.filter((s) => s.coach_ids.includes(p.id)),
-        lessons: lessons.filter((l) => l.coach_id === p.id).length,
-        calendar: calendars.find((c) => c.coach_id === p.id) ?? null,
-      })),
+      .map((p) => {
+        const mine = assigned.filter((s) => s.coach_ids.includes(p.id));
+        const month = mine.filter((s) => s.starts_at < monthEnd);
+        // Clients: anyone they taught or have booked in the last 60 days, matched by name like the Clients tab.
+        const clients = new Set(allLessons.filter((l) => l.coach_id === p.id).flatMap((l) => l.client_names.map((n) => n.trim().toLowerCase())).filter(Boolean));
+        return {
+          ...person(p),
+          email: p.email,
+          sessions: mine,
+          lessons: lessons.filter((l) => l.coach_id === p.id).length,
+          calendar: calendars.find((c) => c.coach_id === p.id) ?? null,
+          stats: {
+            this_week: mine.filter((s) => s.starts_at < weekEnd).length,
+            month: month.length,
+            booked: month.reduce((n, s) => n + s.booked, 0),
+            capacity: month.reduce((n, s) => n + s.capacity, 0),
+            waitlist: month.reduce((n, s) => n + s.waitlist, 0),
+            clients: clients.size,
+          },
+        };
+      }),
     unassigned: assigned.filter((s) => !s.coach_ids.length),
   };
 }

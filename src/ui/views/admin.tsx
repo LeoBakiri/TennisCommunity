@@ -485,10 +485,21 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
 
 // ───────────────────────── coaches ─────────────────────────
 
+function CoachStat({ label, value, hint }: { label: string; value: number | string; hint: string }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-ink/[0.03] px-3 py-2.5">
+      <div className="text-[12px] text-ink/55">{label}</div>
+      <div className="mt-0.5 font-display text-xl font-semibold tracking-tight tabular-nums">{value}</div>
+      <div className="truncate text-[11px] text-ink/45">{hint}</div>
+    </div>
+  );
+}
+
 export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
+  const now = Date.now();
   return (
     <>
-      <PageHeader title="Coaches" subtitle="Who's assigned to what. Open a coach to edit their settings. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="How each coach is doing. Sessions, booked and waiting cover the next 4 weeks; clients are anyone taught in the last 60 days or booked ahead. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
       {data.unassigned.length > 0 && (
         <div className="mb-5">
           <Notice tone="warn">
@@ -504,7 +515,7 @@ export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
           </Notice>
         </div>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {data.coaches.map((c) => (
           <Card key={c.id}>
             <div className="flex items-start gap-3">
@@ -517,22 +528,44 @@ export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
               </div>
               {c.calendar ? c.calendar.status === "connected" ? <Badge tone="green">Calendar synced</Badge> : <Badge tone="amber">Calendar needs reconnecting</Badge> : <Badge>No calendar</Badge>}
             </div>
-            <div className="mt-4 text-sm text-ink/60">
-              {c.sessions.length} upcoming community session{c.sessions.length === 1 ? "" : "s"} · {c.lessons} upcoming lesson{c.lessons === 1 ? "" : "s"}
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <CoachStat label="Sessions" value={c.stats.month} hint={`${c.stats.this_week} this week`} />
+              <CoachStat label="Booked" value={c.stats.capacity ? `${Math.round((c.stats.booked / c.stats.capacity) * 100)}%` : "–"} hint={`${c.stats.booked}/${c.stats.capacity} spots`} />
+              <CoachStat label="Waiting" value={c.stats.waitlist} hint="on waitlists" />
+              <CoachStat label="Clients" value={c.stats.clients} hint={c.lessons ? `${plural(c.lessons, "lesson")} ahead` : "No lessons ahead"} />
             </div>
-            {c.sessions.length > 0 && (
+            {c.sessions.length > 0 ? (
               <ul className="mt-3 divide-y divide-ink/[0.06] border-t border-ink/[0.06]">
-                {c.sessions.slice(0, 5).map((s) => (
-                  <li key={s.id}>
-                    <A href={`/admin/sessions/${s.id}`} className="flex items-center gap-2 py-2.5 text-sm hover:underline">
-                      <SessionMark type={s.session_type} />
-                      <span className="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
-                      <span className="shrink-0 text-xs text-ink/50">{fmtDateTime(s.starts_at)}</span>
-                    </A>
-                  </li>
-                ))}
+                {c.sessions.slice(0, 5).map((s) => {
+                  const pct = Math.min(100, (s.booked / Math.max(1, s.capacity)) * 100);
+                  // Under half full with two days to go: worth a nudge on WhatsApp.
+                  const low = pct < 50 && new Date(s.starts_at).getTime() - now < 2 * 86400000;
+                  return (
+                    <li key={s.id}>
+                      <A href={`/admin/sessions/${s.id}`} className="flex items-center gap-2 py-2.5 text-sm hover:underline">
+                        <SessionMark type={s.session_type} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{sessionTitle(s)}</span>
+                          <span className="block truncate text-xs text-ink/50">{fmtDateTime(s.starts_at)}</span>
+                        </span>
+                        {s.waitlist > 0 && <Badge tone="blue">+{s.waitlist} waiting</Badge>}
+                        <span className="w-20 shrink-0">
+                          <span className={cx("block text-right text-xs tabular-nums", low ? "font-medium text-[#8A5A10]" : "text-ink/55")}>
+                            {s.booked}/{s.capacity}
+                          </span>
+                          <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-ink/[0.07]">
+                            <span className={cx("block h-full rounded-full", low ? "bg-[#D29A3A]" : "bg-brand")} style={{ width: `${pct}%` }} />
+                          </span>
+                        </span>
+                      </A>
+                    </li>
+                  );
+                })}
               </ul>
+            ) : (
+              <div className="mt-3 border-t border-ink/[0.06] pt-3 text-sm text-ink/45">No community sessions coming up.</div>
             )}
+            {c.sessions.length > 5 && <div className="mt-2 text-xs text-ink/45">and {plural(c.sessions.length - 5, "more session")}</div>}
           </Card>
         ))}
       </div>
