@@ -19,6 +19,7 @@ export const VIEWS: Record<string, View> = {
   "c.schedule": C.CoachSchedule as View,
   "c.session": C.CoachSession as View,
   "c.lesson": C.LessonEditor as View,
+  "c.earnings": C.CoachEarnings as View,
 
   "a.schedule": AD.AdminSchedule as View,
   "a.session": AD.AdminSession as View,

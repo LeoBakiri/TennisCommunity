@@ -190,7 +190,11 @@ type NavItem = { href: string; label: string; icon: IconName };
 
 function navFor(area: PortalArea): NavItem[] {
   if (area === "member") return PLAYER_TABS;
-  if (area === "coach") return [{ href: "/coach", label: "My Schedule", icon: "calendar" }];
+  if (area === "coach")
+    return [
+      { href: "/coach", label: "My Schedule", icon: "calendar" },
+      { href: "/coach/earnings", label: "Earnings", icon: "chart" },
+    ];
   return [
     { href: "/admin", label: "Community Schedule", icon: "calendar" },
     { href: "/admin/coaches", label: "Coaches", icon: "whistle" },

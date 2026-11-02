@@ -1,11 +1,12 @@
 // All state-changing operations. Every action validates its input with Zod
 // and checks the actor's permissions before touching the store.
 import { z, ZodError } from "zod";
-import type { ActionResult, Actor, Booking, BookingStatus, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { ActionResult, Actor, Booking, BookingStatus, CommissionRule, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, timeKey, zonedToUtc } from "./time";
 import { isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
+import { COMMISSION_ROWS, commissionFor } from "./earnings";
 
 export class UserError extends Error {}
 
@@ -288,25 +289,33 @@ export const actions: Record<string, Handler> = {
       location: text(200),
       court,
       price: dollars,
+      paid: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
       notes: text(4000),
     }),
     async (ctx, input) => {
       const u = staff(ctx);
       const start = zonedToUtc(input.date, input.time);
-      const fields = {
-        kind: input.kind,
-        client_names: lessonClients(input.kind, input.client_names),
+      const money = {
+        price_cents: input.price,
         starts_at: start.toISOString(),
         ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString(),
         location: input.location,
+      };
+      const prev = input.id ? await must(ctx.store.get("lessons", input.id), "Lesson") : null;
+      if (prev && prev.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
+      // The commission stays as saved unless something it depends on changed, so new club rates don't rewrite old lessons.
+      const same = prev && prev.commission_cents !== null && prev.price_cents === money.price_cents && prev.location === money.location && prev.ends_at === money.ends_at && prev.starts_at === money.starts_at;
+      const fields = {
+        kind: input.kind,
+        client_names: lessonClients(input.kind, input.client_names),
+        ...money,
         court: courtFor(input.location, input.court),
-        price_cents: input.price,
+        commission_cents: same ? prev.commission_cents : commissionFor(money, await ctx.store.list("commission_rules")),
+        paid_at: input.paid ? (prev?.paid_at ?? nowIso()) : null,
         notes: input.notes,
         updated_at: nowIso(),
       };
-      if (input.id) {
-        const prev = await must(ctx.store.get("lessons", input.id), "Lesson");
-        if (prev.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
+      if (prev) {
         await ctx.store.update("lessons", prev.id, fields);
         return { ok: true, message: "Lesson saved.", redirect: `/coach?week=${input.date}` };
       }
@@ -321,6 +330,14 @@ export const actions: Record<string, Handler> = {
     if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can delete it.");
     await ctx.store.remove("lessons", l.id);
     return { ok: true, message: "Lesson deleted.", redirect: "/coach" };
+  }),
+
+  setLessonPaid: action(z.object({ lesson_id: id, paid: z.enum(["yes", "no"]) }), async (ctx, input) => {
+    const u = staff(ctx);
+    const l = await must(ctx.store.get("lessons", input.lesson_id), "Lesson");
+    if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
+    await ctx.store.update("lessons", l.id, { paid_at: input.paid === "yes" ? nowIso() : null });
+    return { ok: true, message: input.paid === "yes" ? "Marked paid." : "Marked unpaid." };
   }),
 
   // ── Admin: community schedule ──
@@ -531,6 +548,23 @@ export const actions: Record<string, Handler> = {
   }),
 
   // ── Admin: settings ──
+  saveCommissionRules: action(z.record(z.unknown()), async (ctx, raw) => {
+    admin(ctx);
+    // The form sends rows as place_0, percent_0, per_hour_0, per_lesson_0, … Rows without a place are dropped.
+    const rows = z
+      .array(z.object({ id: text(80), place: text(80), percent: z.preprocess((v) => (v === "" || v == null ? 0 : Number(v)), z.number({ invalid_type_error: "Commission % must be a number" }).min(0, "Commission % can't be negative").max(100, "Commission % must be at most 100")), per_hour: dollars, per_lesson: dollars }))
+      .parse(Array.from({ length: COMMISSION_ROWS }, (_, i) => ({ id: raw[`id_${i}`], place: raw[`place_${i}`], percent: raw[`percent_${i}`], per_hour: raw[`per_hour_${i}`], per_lesson: raw[`per_lesson_${i}`] })))
+      .filter((r) => r.place);
+    const existing = await ctx.store.list("commission_rules");
+    for (const r of existing) if (!rows.some((x) => x.id === r.id)) await ctx.store.remove("commission_rules", r.id);
+    for (const r of rows) {
+      const fields = { place: r.place, percent: Math.round(r.percent * 100) / 100, per_hour_cents: r.per_hour ?? 0, per_lesson_cents: r.per_lesson ?? 0 };
+      if (existing.some((x) => x.id === r.id)) await ctx.store.update("commission_rules", r.id, fields);
+      else await ctx.store.insert("commission_rules", { id: uid(), created_at: nowIso(), ...fields } satisfies CommissionRule);
+    }
+    return { ok: true, message: "Commission saved. It applies to lessons saved from now on, and to earlier ones at places that had none." };
+  }),
+
   updateSettings: action(
     z.object({
       brand_name: req("Business name", 80),

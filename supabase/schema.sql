@@ -108,12 +108,24 @@ create table if not exists public.lessons (
   location text not null default '',
   court int check (court between 1 and 4),
   price_cents int check (price_cents is null or price_cents >= 0),
+  commission_cents int check (commission_cents is null or commission_cents >= 0), -- the club's cut, fixed when saved
+  paid_at timestamptz,
   notes text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (ends_at > starts_at)
 );
 create index if not exists lessons_coach_idx on public.lessons (coach_id, starts_at);
+
+-- What a club takes from lessons at its courts, matched by place name in the lesson location.
+create table if not exists public.commission_rules (
+  id uuid primary key default gen_random_uuid(),
+  place text not null,
+  percent numeric(5,2) not null default 0 check (percent >= 0 and percent <= 100),
+  per_hour_cents int not null default 0 check (per_hour_cents >= 0),
+  per_lesson_cents int not null default 0 check (per_lesson_cents >= 0),
+  created_at timestamptz not null default now()
+);
 
 create table if not exists public.coach_calendars (
   coach_id uuid primary key references public.profiles(id) on update cascade on delete cascade,
@@ -246,6 +258,7 @@ alter table public.profiles enable row level security;
 alter table public.sessions enable row level security;
 alter table public.bookings enable row level security;
 alter table public.lessons enable row level security;
+alter table public.commission_rules enable row level security;
 alter table public.coach_calendars enable row level security;
 alter table public.coach_google_tokens enable row level security;
 alter table public.calendar_event_links enable row level security;
@@ -282,6 +295,10 @@ create policy lessons_update on public.lessons for update to authenticated
   using (coach_id = auth.uid() and public.is_staff()) with check (coach_id = auth.uid() and public.is_staff());
 create policy lessons_delete on public.lessons for delete to authenticated using (coach_id = auth.uid() and public.is_staff());
 
+-- commission rules: coaches read them for their earnings; only admins change them
+create policy commission_rules_read on public.commission_rules for select to authenticated using (public.is_staff());
+create policy commission_rules_write on public.commission_rules for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
 create policy calendars_read on public.coach_calendars for select to authenticated using (coach_id = auth.uid() or public.is_admin());
 
 -- ───────────────────────── privileges ─────────────────────────
@@ -290,8 +307,9 @@ grant usage on schema public to anon, authenticated;
 grant select on public.settings, public.profiles, public.sessions to anon;
 grant select, insert, update, delete on public.settings, public.profiles, public.sessions, public.bookings, public.lessons to authenticated;
 grant select on public.coach_calendars to authenticated;
+grant select, insert, update, delete on public.commission_rules to authenticated;
 revoke all on public.admin_emails from anon, authenticated;
-revoke all on public.lessons, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;
+revoke all on public.lessons, public.commission_rules, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;
 revoke all on public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from authenticated;
 -- The google-calendar function uses the service role.
 grant select on public.profiles, public.sessions, public.lessons to service_role;

@@ -96,7 +96,7 @@ export class MemoryStore implements Store {
 
   async list<K extends Table>(table: K, q?: Query<Row<K>>): Promise<Row<K>[]> {
     const db = await this.data();
-    let rows = (db[table] as Row<K>[]).filter((r) => matches(r, q));
+    let rows = ((db[table] ?? []) as Row<K>[]).filter((r) => matches(r, q));
     if (q?.order) {
       const f = q.order.field as string;
       const dir = q.order.asc === false ? -1 : 1;
@@ -112,13 +112,13 @@ export class MemoryStore implements Store {
 
   async get<K extends Table>(table: K, id: string): Promise<Row<K> | null> {
     const db = await this.data();
-    const row = (db[table] as Row<K>[]).find((r) => (r as { id: string }).id === id);
+    const row = ((db[table] ?? []) as Row<K>[]).find((r) => (r as { id: string }).id === id);
     return row ? structuredClone(row) : null;
   }
 
   async insert<K extends Table>(table: K, row: Row<K>): Promise<Row<K>> {
     const db = await this.data();
-    (db[table] as Row<K>[]).push(structuredClone(row));
+    ((db[table] ??= [] as never) as Row<K>[]).push(structuredClone(row));
     await this.persistence.save(db);
     return row;
   }

@@ -8,6 +8,7 @@ import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSche
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, timeKey } from "@/core/time";
 import { COURTS, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
+import { COMMISSION_ROWS } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -18,13 +19,29 @@ const TIMES = Array.from({ length: 64 }, (_, i) => {
 });
 
 /** Location, plus a court picker once the location is Balboa. */
-export function LocationCourt({ location, court, wide }: { location: string; court: number | null; wide?: boolean }) {
+export function LocationCourt({ location, court, wide, places, onLocation }: { location: string; court: number | null; wide?: boolean; places?: string[]; onLocation?: (v: string) => void }) {
   const [where, setWhere] = useState(location);
   const balboa = isBalboa(where);
   return (
     <>
       <Field label="Location" className={wide && !balboa ? "sm:col-span-2" : undefined}>
-        <input className="input" name="location" value={where} onChange={(e) => setWhere(e.target.value)} />
+        <input
+          className="input"
+          name="location"
+          list={places ? "known-places" : undefined}
+          value={where}
+          onChange={(e) => {
+            setWhere(e.target.value);
+            onLocation?.(e.target.value);
+          }}
+        />
+        {places && (
+          <datalist id="known-places">
+            {places.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </Field>
       {balboa && (
         <Field label="Court">
@@ -805,6 +822,45 @@ export function AdminSettings({ data }: { data: D<typeof loadSettingsPage> }) {
           </Submit>
         </div>
       </ActionForm>
+      <CommissionCard rules={data.rules} />
     </>
+  );
+}
+
+/** What each club takes from coaches' lessons. Coaches see the result on their Earnings page. */
+function CommissionCard({ rules }: { rules: D<typeof loadSettingsPage>["rules"] }) {
+  const rows = Array.from({ length: COMMISSION_ROWS }, (_, i) => rules[i] ?? (i === 0 && !rules.length ? { id: "", place: "Balboa", percent: 0, per_hour_cents: 0, per_lesson_cents: 0 } : null));
+  return (
+    <Card className="mt-6 max-w-3xl">
+      <SectionTitle>Club commission</SectionTitle>
+      <p className="-mt-1 mb-4 text-sm text-ink/60">
+        Taken automatically from private and semi-private lessons whose location contains the place name. Use any mix of a percentage, an hourly court fee and a flat fee per lesson. A lesson keeps the commission it was saved with, so changing a rate doesn't rewrite past earnings.
+      </p>
+      <ActionForm action="saveCommissionRules">
+        <div className="space-y-3">
+          {rows.map((r, i) => (
+            <div key={r?.id || i} className="grid grid-cols-2 gap-3 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
+              <input type="hidden" name={`id_${i}`} defaultValue={r?.id ?? ""} />
+              <Field label="Place" className="col-span-2 sm:col-span-1">
+                <input className="input" name={`place_${i}`} defaultValue={r?.place ?? ""} placeholder="e.g. Balboa" />
+              </Field>
+              <Field label="% of price">
+                <input className="input" name={`percent_${i}`} inputMode="decimal" defaultValue={r?.percent || ""} placeholder="0" />
+              </Field>
+              <Field label="Per hour (USD)">
+                <input className="input" name={`per_hour_${i}`} inputMode="decimal" defaultValue={r?.per_hour_cents ? r.per_hour_cents / 100 : ""} placeholder="0" />
+              </Field>
+              <Field label="Per lesson (USD)" className="col-span-2 sm:col-span-1">
+                <input className="input" name={`per_lesson_${i}`} inputMode="decimal" defaultValue={r?.per_lesson_cents ? r.per_lesson_cents / 100 : ""} placeholder="0" />
+              </Field>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-ink/50">Clear a place name to remove it.</p>
+        <Submit className="mt-4" icon="check">
+          Save commission
+        </Submit>
+      </ActionForm>
+    </Card>
   );
 }

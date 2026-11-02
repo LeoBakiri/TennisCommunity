@@ -88,10 +88,22 @@ export interface Lesson {
   ends_at: string;
   location: string;
   court: number | null; // Balboa court 1–4, when set
-  price_cents: number | null;
+  price_cents: number | null; // what the player pays, for all players together
+  commission_cents: number | null; // the club's cut, fixed when saved; null until a rule covers the place
+  paid_at: string | null; // when the coach marked it paid
   notes: string;
   created_at: string;
   updated_at: string;
+}
+
+/** What a club takes from lessons taught at its courts. Coaches can read these; only admins change them. */
+export interface CommissionRule {
+  id: string;
+  place: string; // matched against the lesson location, e.g. "Balboa"
+  percent: number; // % of the lesson price
+  per_hour_cents: number; // court fee per hour on court
+  per_lesson_cents: number; // flat fee per lesson
+  created_at: string;
 }
 
 /** A coach's Google Calendar connection, as visible to the app. The token is stored separately. */
@@ -111,6 +123,7 @@ export interface DB {
   bookings: Booking[];
   lessons: Lesson[];
   coach_calendars: CoachCalendar[];
+  commission_rules: CommissionRule[];
 }
 
 export type Table = keyof DB;

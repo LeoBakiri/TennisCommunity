@@ -128,9 +128,12 @@ export function demoSeed(now = new Date()): DB {
     });
   };
 
-  const lesson = (coach_id: string, kind: Lesson["kind"], client_names: string[], day: string, time: string, price: number, notes = "") => {
+  const lesson = (coach_id: string, kind: Lesson["kind"], client_names: string[], day: string, time: string, price: number, notes = "", location = BALBOA) => {
     const start = zonedToUtc(day, time);
-    lessons.push({ id: lid(), coach_id, kind, client_names, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600000).toISOString(), location: BALBOA, court: null, price_cents: price, notes, created_at: created, updated_at: created });
+    const end = new Date(start.getTime() + 3600000);
+    // Older demo lessons are paid, except one so "Owed to you" has something in it.
+    const paid = end < now && !(kind === "semi_private" && start.getTime() > now.getTime() - 9 * 86400000);
+    lessons.push({ id: lid(), coach_id, kind, client_names, starts_at: start.toISOString(), ends_at: end.toISOString(), location, court: null, price_cents: price, commission_cents: null, paid_at: paid ? end.toISOString() : null, notes, created_at: created, updated_at: created });
   };
 
   // Three weeks: last week (history), this week, next week.
@@ -156,6 +159,16 @@ export function demoSeed(now = new Date()): DB {
     lesson(DEMO_IDS.leo, "private", ["Rachel Green"], wed, "08:00", 10000, "Second serve. Bring the speed gun.");
     lesson(DEMO_IDS.leo, "semi_private", ["Tom Baker", "Chris Baker"], sat, "10:00", 11000, "Doubles patterns.");
     lesson(DEMO_IDS.maya, "private", ["Amir Sadeghi"], thu, "07:30", 9000);
+    lesson(DEMO_IDS.leo, "private", ["Sofia Marquez"], fri, "07:00", 9000, "", "Morley Field");
+  }
+
+  // Earlier weeks of lessons, so the month and year earnings views have history.
+  const regulars = ["Rachel Green", "Amir Sadeghi", "Sofia Marquez", "Ben Carter", "Lucia Romero"];
+  for (let w = 2; w <= 12; w++) {
+    const mon = addDays(monday, -7 * w);
+    lesson(DEMO_IDS.leo, "private", [regulars[w % regulars.length]], addDays(mon, 2), "08:00", 10000);
+    lesson(DEMO_IDS.leo, "private", [regulars[(w + 2) % regulars.length]], addDays(mon, 3), "07:00", 9000, "", w % 3 ? BALBOA : "Morley Field");
+    if (w % 2) lesson(DEMO_IDS.leo, "semi_private", ["Tom Baker", "Chris Baker"], addDays(mon, 5), "10:00", 11000);
   }
 
   // A draft for the admin views.
@@ -168,5 +181,7 @@ export function demoSeed(now = new Date()): DB {
     bookings,
     lessons,
     coach_calendars: [],
+    // A sample rate so the demo shows commission at work; the live site starts with none.
+    commission_rules: [{ id: "demo-rule-balboa", place: "Balboa", percent: 20, per_hour_cents: 0, per_lesson_cents: 0, created_at: created }],
   };
 }

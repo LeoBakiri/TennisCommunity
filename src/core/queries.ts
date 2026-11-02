@@ -4,6 +4,7 @@ import type { Store } from "./store";
 import { addDays, dateKey, isDateKey, startOfWeek, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
+import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
@@ -230,12 +231,15 @@ export async function loadCoachSession(ctx: LoadCtx) {
 
 export async function loadLessonEditor(ctx: LoadCtx) {
   const u = ctx.actor.user!;
-  const [settings, mine] = await Promise.all([getSettings(ctx.store), ctx.store.list("lessons", { eq: { coach_id: u.id } })]);
+  const [settings, mine, rules] = await Promise.all([getSettings(ctx.store), ctx.store.list("lessons", { eq: { coach_id: u.id } }), ctx.store.list("commission_rules")]);
   const clients = [...new Set(mine.flatMap((l) => l.client_names))].sort();
+  const places = [...new Set([settings.default_location, ...mine.map((l) => l.location)].filter(Boolean))].sort();
   if (ctx.params.id === "new") {
     return {
       lesson: null as Lesson | null,
       clients,
+      places,
+      rules,
       prefill: {
         kind: (ctx.search.kind === "semi_private" ? "semi_private" : "private") as Lesson["kind"],
         date: isDateKey(ctx.search.date) ? ctx.search.date : dateKey(ctx.now),
@@ -247,7 +251,82 @@ export async function loadLessonEditor(ctx: LoadCtx) {
   const lesson = await ctx.store.get("lessons", ctx.params.id);
   if (!lesson) throw new NotFound();
   if (lesson.coach_id !== u.id) throw new Forbidden();
-  return { lesson: lesson as Lesson | null, clients, prefill: null };
+  return { lesson: lesson as Lesson | null, clients, places, rules, prefill: null };
+}
+
+/** One coach's lesson income for a week, month or year. Community sessions are counted, not priced. */
+export async function loadCoachEarnings(ctx: LoadCtx) {
+  const u = ctx.actor.user!;
+  const period: Period = PERIODS.includes(ctx.search.period as Period) ? (ctx.search.period as Period) : "week";
+  const today = dateKey(ctx.now);
+  const at = isDateKey(ctx.search.at) ? ctx.search.at : today;
+  const range = periodRange(period, at);
+  const before = periodRange(period, range.prev);
+  // A year back covers the previous period and any lesson still waiting to be paid.
+  const since = [before.from, addDays(today, -400)].sort()[0];
+  const [lessons, rules, community] = await Promise.all([
+    ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(since) }, order: { field: "starts_at" } }),
+    ctx.store.list("commission_rules"),
+    communityBetween(ctx.store, range.from, range.to),
+  ]);
+  const now = ctx.now.toISOString();
+  const rows = lessons.map((l) => ({ lesson: l, money: lessonMoney(l, rules), done: l.ends_at <= now, hours: hours(l.starts_at, l.ends_at), place: ruleFor(l.location, rules)?.place ?? null }));
+  type R = (typeof rows)[number];
+  const within = (from: string, to: string) => rows.filter((r) => inRange(r.lesson.starts_at, from, to));
+  const inPeriod = within(range.from, range.to);
+  const total = (rs: R[]) => ({ ...addMoney(rs.map((r) => r.money)), lessons: rs.length, hours: Math.round(rs.reduce((n, r) => n + r.hours, 0) * 10) / 10 });
+
+  const earned = inPeriod.filter((r) => r.done);
+  const t = total(earned);
+  const scheduled = total(inPeriod.filter((r) => !r.done));
+  // Compare like with like: the same share of the previous period that has passed in this one.
+  const elapsed = Math.min(1, Math.max(0, (ctx.now.getTime() - new Date(startIso(range.from)).getTime()) / (new Date(startIso(range.to)).getTime() - new Date(startIso(range.from)).getTime())));
+  const prevCut = new Date(new Date(startIso(before.from)).getTime() + elapsed * (new Date(startIso(before.to)).getTime() - new Date(startIso(before.from)).getTime())).toISOString();
+  const previous = total(within(before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut));
+
+  const sumBy = (rs: R[], key: (r: R) => string[]) => {
+    const m = new Map<string, { net: number; gross: number; commission: number; lessons: number }>();
+    for (const r of rs) {
+      const keys = key(r);
+      for (const k of keys) {
+        const e = m.get(k) ?? { net: 0, gross: 0, commission: 0, lessons: 0 };
+        // Semi-private income is split evenly between its players.
+        e.net += r.money.net / keys.length;
+        e.gross += r.money.gross / keys.length;
+        e.commission += r.money.commission / keys.length;
+        e.lessons += 1;
+        m.set(k, e);
+      }
+    }
+    return [...m.entries()].map(([name, e]) => ({ name, ...e, net: Math.round(e.net), gross: Math.round(e.gross), commission: Math.round(e.commission) })).sort(by((e) => e.net, -1));
+  };
+
+  const owed = rows.filter((r) => r.done && !r.lesson.paid_at && r.money.gross > 0).map((r) => ({ lesson: r.lesson, money: r.money }));
+  const view = (r: R) => ({ lesson: r.lesson, money: r.money, done: r.done, place: r.place });
+  const communitySessions = community.filter((s) => s.coach_ids.includes(u.id) && s.status === "published");
+  return {
+    period,
+    at,
+    today,
+    label: periodLabel(period, at),
+    current: inRange(now, range.from, range.to),
+    prev: range.prev,
+    next: range.next,
+    totals: { ...t, per_hour: t.hours ? Math.round(t.net / t.hours / 100) * 100 : 0, unpriced: inPeriod.filter((r) => !r.money.priced) },
+    scheduled,
+    previous,
+    chart: buckets(period, at).map((b) => {
+      const rs = within(b.from, b.to);
+      return { key: b.key, label: b.label, earned: addMoney(rs.filter((r) => r.done).map((r) => r.money)).net, scheduled: addMoney(rs.filter((r) => !r.done).map((r) => r.money)).net, current: today >= b.from && today < b.to };
+    }),
+    byKind: (["private", "semi_private"] as const).map((k) => ({ kind: k, ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
+    byPlace: sumBy(inPeriod, (r) => [r.place ?? (r.lesson.location || "No location")]).map((p) => ({ ...p, commissioned: rules.some((x) => x.place === p.name) })),
+    clients: sumBy(inPeriod, (r) => (r.lesson.client_names.length ? r.lesson.client_names : ["Unnamed"])).slice(0, 6),
+    lessons: inPeriod.map(view).sort(by((r) => r.lesson.starts_at, -1)),
+    owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
+    community: { sessions: communitySessions.length, hours: Math.round(communitySessions.reduce((n, s) => n + hours(s.starts_at, s.ends_at), 0) * 10) / 10 },
+    rules,
+  };
 }
 
 // ───────────────────────── admin ─────────────────────────
@@ -415,5 +494,6 @@ export async function loadAdminMember(ctx: LoadCtx) {
 }
 
 export async function loadSettingsPage(ctx: LoadCtx) {
-  return { settings: await getSettings(ctx.store) };
+  const [settings, rules] = await Promise.all([getSettings(ctx.store), ctx.store.list("commission_rules", { order: { field: "created_at" } })]);
+  return { settings, rules };
 }
