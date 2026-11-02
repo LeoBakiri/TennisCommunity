@@ -1,10 +1,11 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Lesson, Profile, Session, SessionType } from "./types";
+import type { Actor, Booking, Client, Lesson, Profile, Session, SessionType } from "./types";
 import type { Store } from "./store";
-import { addDays, dateKey, isDateKey, startOfWeek, weekDays, zonedToUtc } from "./time";
+import { addDays, dateKey, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
+import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
@@ -231,29 +232,45 @@ export async function loadCoachSession(ctx: LoadCtx) {
   return { session: view, roster, isAdmin: isAdmin(u) };
 }
 
+const CLIENT_PAGE = /^\/coach\/clients\/[\w-]+$/;
+const lessonMinutes = (l: Pick<Lesson, "starts_at" | "ends_at">) => Math.round((new Date(l.ends_at).getTime() - new Date(l.starts_at).getTime()) / 60000);
+
 export async function loadLessonEditor(ctx: LoadCtx) {
   const u = ctx.actor.user!;
-  const [settings, mine, rules] = await Promise.all([getSettings(ctx.store), ctx.store.list("lessons", { eq: { coach_id: u.id } }), ctx.store.list("commission_rules")]);
-  const clients = [...new Set(mine.flatMap((l) => l.client_names))].sort();
+  const [settings, mine, rules, cards] = await Promise.all([getSettings(ctx.store), ctx.store.list("lessons", { eq: { coach_id: u.id } }), ctx.store.list("commission_rules"), ctx.store.list("clients", { eq: { coach_id: u.id } })]);
+  const seen = new Set<string>();
+  const clients = [...cards.map((c) => c.full_name), ...mine.flatMap((l) => l.client_names)].filter((n) => !seen.has(nameKey(n)) && !!seen.add(nameKey(n))).sort();
+  const cardIds = Object.fromEntries(cards.map((c) => [nameKey(c.full_name), c.id]));
   const places = [...new Set([settings.default_location, ...mine.map((l) => l.location)].filter(Boolean))].sort();
+  const back = CLIENT_PAGE.test(ctx.search.back ?? "") ? ctx.search.back : "";
   if (ctx.params.id === "new") {
+    const s = ctx.search;
+    // "Book a lesson" from a client card or a community player names who it's for.
+    const member = s.member ? await ctx.store.get("profiles", s.member) : null;
+    const client = cards.find((c) => c.id === s.client)?.full_name ?? member?.full_name ?? "";
+    const duration = Number(s.duration);
     return {
       lesson: null as Lesson | null,
       clients,
+      cardIds,
       places,
       rules,
+      back,
       prefill: {
-        kind: (ctx.search.kind === "semi_private" ? "semi_private" : "private") as Lesson["kind"],
-        date: isDateKey(ctx.search.date) ? ctx.search.date : dateKey(ctx.now),
-        time: /^\d{2}:\d{2}$/.test(ctx.search.time ?? "") ? ctx.search.time : "08:00",
-        location: settings.default_location,
+        kind: (s.kind === "semi_private" ? "semi_private" : "private") as Lesson["kind"],
+        date: isDateKey(s.date) ? s.date : dateKey(ctx.now),
+        time: /^\d{2}:\d{2}$/.test(s.time ?? "") ? s.time : "08:00",
+        location: s.location?.trim() || settings.default_location,
+        client,
+        duration: Number.isInteger(duration) && duration >= 15 && duration <= 600 ? duration : 60,
+        price: /^\d+(\.\d{1,2})?$/.test(s.price ?? "") ? s.price : "",
       },
     };
   }
   const lesson = await ctx.store.get("lessons", ctx.params.id);
   if (!lesson) throw new NotFound();
   if (lesson.coach_id !== u.id) throw new Forbidden();
-  return { lesson: lesson as Lesson | null, clients, places, rules, prefill: null };
+  return { lesson: lesson as Lesson | null, clients, cardIds, places, rules, back, prefill: null };
 }
 
 /** One coach's lesson income for a week, month or year. Community sessions are counted, not priced. */
@@ -328,6 +345,116 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
     community: { sessions: communitySessions.length, hours: Math.round(communitySessions.reduce((n, s) => n + hours(s.starts_at, s.ends_at), 0) * 10) / 10 },
     rules,
+  };
+}
+
+// ───────────────────────── clients ─────────────────────────
+
+export const CLIENT_TABS = ["all", "booked", "rebook", "lapsed", "owes", "community"] as const;
+export type ClientTab = (typeof CLIENT_TABS)[number];
+
+/** Community players this coach has had on court in the last six months, with how often. */
+async function communityRegulars(ctx: LoadCtx, coachId: string, L: Lookups) {
+  const now = ctx.now.toISOString();
+  const played = (await ctx.store.list("sessions", { contains: { field: "coach_ids", value: coachId }, gte: { field: "starts_at", value: startIso(addDays(dateKey(ctx.now), -180)) } })).filter(
+    (s) => isCommunity(s) && s.status === "published" && s.starts_at <= now,
+  );
+  if (!played.length) return [];
+  const when = new Map(played.map((s) => [s.id, s.starts_at]));
+  const bookings = await ctx.store.list("bookings", { in: { field: "session_id", values: played.map((s) => s.id) } });
+  const seen = new Map<string, { sessions: number; last: string }>();
+  for (const b of bookings) {
+    if (!holdsSeat(b) || b.attended === false || b.user_id === coachId) continue;
+    const e = seen.get(b.user_id) ?? { sessions: 0, last: "" };
+    e.sessions++;
+    if (when.get(b.session_id)! > e.last) e.last = when.get(b.session_id)!;
+    seen.set(b.user_id, e);
+  }
+  return [...seen.entries()].flatMap(([id, e]) => {
+    const p = L.profile.get(id);
+    return p ? [{ id: p.id, full_name: p.full_name, phone: p.phone, email: p.email, ...e }] : [];
+  });
+}
+
+export async function loadCoachClients(ctx: LoadCtx) {
+  const u = ctx.actor.user!;
+  const tab: ClientTab = CLIENT_TABS.includes(ctx.search.tab as ClientTab) ? (ctx.search.tab as ClientTab) : "all";
+  const q = (ctx.search.q ?? "").toLowerCase().trim();
+  const [L, cards, lessons, rules] = await Promise.all([
+    profileMap(ctx.store),
+    ctx.store.list("clients", { eq: { coach_id: u.id } }),
+    ctx.store.list("lessons", { eq: { coach_id: u.id } }),
+    ctx.store.list("commission_rules"),
+  ]);
+  const all = cards.map((client) => ({ client, summary: clientSummary(client.full_name, lessons, rules, ctx.now) }));
+  const regulars = (await communityRegulars(ctx, u.id, L)).map((p) => ({ ...p, client_id: cards.find((c) => sameName(c.full_name, p.full_name))?.id ?? null }));
+  const is = (st: ClientStatus) => (r: (typeof all)[number]) => r.summary.status === st;
+  const owes = (r: (typeof all)[number]) => r.summary.owed > 0;
+  const match = (name: string, ...more: (string | null)[]) => !q || [name, ...more].some((v) => (v ?? "").toLowerCase().includes(q));
+  const pick = { all: () => true, booked: is("booked"), rebook: is("rebook"), lapsed: is("lapsed"), owes, community: () => false }[tab];
+  const order = {
+    all: by((r: (typeof all)[number]) => r.client.full_name.toLowerCase()),
+    booked: by((r: (typeof all)[number]) => r.summary.next?.starts_at ?? ""),
+    rebook: by((r: (typeof all)[number]) => r.summary.days_since ?? 0),
+    lapsed: by((r: (typeof all)[number]) => r.summary.days_since ?? 0),
+    owes: by((r: (typeof all)[number]) => r.summary.owed, -1),
+    community: by((r: (typeof all)[number]) => r.client.full_name),
+  }[tab];
+  const active = all.filter((r) => r.summary.status === "booked" || (r.summary.days_since ?? Infinity) <= 60);
+  return {
+    tab,
+    q,
+    clients: all.filter(pick).filter((r) => match(r.client.full_name, r.client.email, r.client.phone, r.client.level)).sort(order),
+    community: tab === "community" ? regulars.filter((p) => match(p.full_name, p.email, p.phone)).sort(by((p) => p.sessions, -1)) : [],
+    counts: { all: all.length, booked: all.filter(is("booked")).length, rebook: all.filter(is("rebook")).length, lapsed: all.filter(is("lapsed")).length, owes: all.filter(owes).length, community: regulars.filter((p) => !p.client_id).length },
+    totals: {
+      active: active.length,
+      booked_ahead: all.reduce((n, r) => n + r.summary.upcoming, 0),
+      owed: all.reduce((n, r) => n + r.summary.owed, 0),
+      // Lessons taught in the last 30 days.
+      lessons_30d: lessons.filter((l) => l.ends_at <= ctx.now.toISOString() && l.starts_at >= new Date(ctx.now.getTime() - 30 * 86400000).toISOString()).length,
+    },
+    today: dateKey(ctx.now),
+  };
+}
+
+export async function loadCoachClient(ctx: LoadCtx) {
+  const u = ctx.actor.user!;
+  if (ctx.params.id === "new") {
+    // Adding a community player as a client starts from their profile.
+    const member = ctx.search.member ? await ctx.store.get("profiles", ctx.search.member) : null;
+    return { client: null as Client | null, prefill: { full_name: member?.full_name ?? "", phone: member?.phone ?? "", email: member?.email ?? "" }, summary: null, lessons: [], again: null, member: null, today: dateKey(ctx.now) };
+  }
+  const client = await ctx.store.get("clients", ctx.params.id);
+  if (!client) throw new NotFound();
+  if (client.coach_id !== u.id) throw new Forbidden();
+  const [lessons, rules, L] = await Promise.all([ctx.store.list("lessons", { eq: { coach_id: u.id } }), ctx.store.list("commission_rules"), profileMap(ctx.store)]);
+  const now = ctx.now.toISOString();
+  const today = dateKey(ctx.now);
+  const summary = clientSummary(client.full_name, lessons, rules, ctx.now);
+  const mine = lessons.filter((l) => hasClient(l, client.full_name)).sort(by((l) => l.starts_at, -1));
+  // Book again: the latest lesson's day, time, length, place and price, one week on (or next on that weekday).
+  const ref = mine[0] ?? null;
+  const again = ref
+    ? {
+        kind: ref.kind,
+        date: ref.starts_at > now ? addDays(dateKey(ref.starts_at), 7) : nextSameWeekday(dateKey(ref.starts_at), today),
+        time: timeKey(ref.starts_at),
+        duration: lessonMinutes(ref),
+        price: ref.price_cents == null ? "" : String(ref.price_cents / 100),
+        location: ref.location,
+      }
+    : null;
+  const profile = L.profiles.find((p) => sameName(p.full_name, client.full_name) && p.id !== u.id);
+  const regular = profile ? (await communityRegulars(ctx, u.id, L)).find((p) => p.id === profile.id) : null;
+  return {
+    client: client as Client | null,
+    prefill: null,
+    summary,
+    lessons: mine.map((l) => ({ lesson: l, money: lessonMoney(l, rules), done: l.ends_at <= now })),
+    again,
+    member: profile ? { id: profile.id, phone: profile.phone, email: profile.email, sessions: regular?.sessions ?? 0, last: regular?.last ?? null } : null,
+    today,
   };
 }
 

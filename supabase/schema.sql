@@ -127,6 +127,21 @@ create table if not exists public.commission_rules (
   created_at timestamptz not null default now()
 );
 
+-- A card per person a coach teaches privately. Lessons match it by name, ignoring case.
+create table if not exists public.clients (
+  id uuid primary key default gen_random_uuid(),
+  coach_id uuid not null references public.profiles(id) on update cascade on delete cascade,
+  full_name text not null check (length(trim(full_name)) > 0),
+  phone text,
+  email text,
+  level text not null default '',
+  goals text not null default '',
+  notes text not null default '', -- only the coach sees these
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists clients_coach_name on public.clients (coach_id, lower(full_name));
+
 create table if not exists public.coach_calendars (
   coach_id uuid primary key references public.profiles(id) on update cascade on delete cascade,
   google_email text not null default '',
@@ -258,6 +273,7 @@ alter table public.profiles enable row level security;
 alter table public.sessions enable row level security;
 alter table public.bookings enable row level security;
 alter table public.lessons enable row level security;
+alter table public.clients enable row level security;
 alter table public.commission_rules enable row level security;
 alter table public.coach_calendars enable row level security;
 alter table public.coach_google_tokens enable row level security;
@@ -295,6 +311,13 @@ create policy lessons_update on public.lessons for update to authenticated
   using (coach_id = auth.uid() and public.is_staff()) with check (coach_id = auth.uid() and public.is_staff());
 create policy lessons_delete on public.lessons for delete to authenticated using (coach_id = auth.uid() and public.is_staff());
 
+-- clients belong to their coach, like lessons
+create policy clients_read on public.clients for select to authenticated using ((coach_id = auth.uid() and public.is_staff()) or public.is_admin());
+create policy clients_insert on public.clients for insert to authenticated with check (coach_id = auth.uid() and public.is_staff());
+create policy clients_update on public.clients for update to authenticated
+  using (coach_id = auth.uid() and public.is_staff()) with check (coach_id = auth.uid() and public.is_staff());
+create policy clients_delete on public.clients for delete to authenticated using (coach_id = auth.uid() and public.is_staff());
+
 -- commission rules: coaches read them for their earnings; only admins change them
 create policy commission_rules_read on public.commission_rules for select to authenticated using (public.is_staff());
 create policy commission_rules_write on public.commission_rules for all to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -305,7 +328,7 @@ create policy calendars_read on public.coach_calendars for select to authenticat
 
 grant usage on schema public to anon, authenticated;
 grant select on public.settings, public.profiles, public.sessions to anon;
-grant select, insert, update, delete on public.settings, public.profiles, public.sessions, public.bookings, public.lessons to authenticated;
+grant select, insert, update, delete on public.settings, public.profiles, public.sessions, public.bookings, public.lessons, public.clients to authenticated;
 grant select on public.coach_calendars to authenticated;
 grant select, insert, update, delete on public.commission_rules to authenticated;
 revoke all on public.admin_emails from anon, authenticated;

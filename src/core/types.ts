@@ -97,6 +97,20 @@ export interface Lesson {
   updated_at: string;
 }
 
+/** Someone a coach teaches privately. Lessons find their clients by name, ignoring case. */
+export interface Client {
+  id: string;
+  coach_id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  level: string; // e.g. "3.5" or "Beginner"
+  goals: string;
+  notes: string; // only the coach sees these
+  created_at: string;
+  updated_at: string;
+}
+
 /** What a club takes from lessons taught at its courts. Coaches can read these; only admins change them. */
 export interface CommissionRule {
   id: string;
@@ -125,6 +139,7 @@ export interface DB {
   lessons: Lesson[];
   coach_calendars: CoachCalendar[];
   commission_rules: CommissionRule[];
+  clients: Client[];
 }
 
 export type Table = keyof DB;

@@ -1,4 +1,4 @@
-import type { Booking, DB, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { Booking, Client, DB, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import { addDays, dateKey, startOfWeek, zonedToUtc } from "./time";
 
 const BALBOA = "Balboa Tennis Club, San Diego";
@@ -172,6 +172,20 @@ export function demoSeed(now = new Date()): DB {
     if (w % 2) lesson(DEMO_IDS.leo, "semi_private", ["Tom Baker", "Chris Baker"], addDays(mon, 5), "10:00", 11000);
   }
 
+  // A client card for everyone on a lesson, a few filled in the way a coach would.
+  const details: Record<string, Partial<Client>> = {
+    "Rachel Green": { phone: "+16195550142", email: "rachel@example.com", level: "3.5", goals: "A second serve she can trust in league matches.", notes: "Left knee: keep the first 10 minutes light." },
+    "Tom Baker": { phone: "+16195550177", level: "3.0", goals: "Doubles with his son Chris: poaching and serve + volley." },
+    "Sofia Marquez": { email: "sofia.m@example.com", level: "Beginner", goals: "Rally from the baseline by spring." },
+  };
+  const clients: Client[] = [];
+  for (const l of lessons) {
+    for (const name of l.client_names) {
+      if (clients.some((c) => c.coach_id === l.coach_id && c.full_name === name)) continue;
+      clients.push({ id: `00000000-0000-4000-c000-${String(clients.length + 1).padStart(12, "0")}`, coach_id: l.coach_id, full_name: name, phone: null, email: null, level: "", goals: "", notes: "", created_at: created, updated_at: created, ...details[name] });
+    }
+  }
+
   // A draft for the admin views.
   mk("performance_accelerator", addDays(monday, 9), "19:00", { title: "Return of Serve", status: "draft" });
 
@@ -184,5 +198,6 @@ export function demoSeed(now = new Date()): DB {
     coach_calendars: [],
     // A sample rate so the demo shows commission at work; the live site starts with none.
     commission_rules: [{ id: "demo-rule-balboa", place: "Balboa", percent: 20, per_hour_cents: 0, per_lesson_cents: 0, created_at: created }],
+    clients,
   };
 }

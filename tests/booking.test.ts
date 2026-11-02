@@ -36,7 +36,7 @@ async function freshSession(store: MemoryStore, capacity: number, startsInHours 
 }
 
 const memberIds = (db: DB) => db.profiles.filter((p) => p.role === "member").map((p) => p.id);
-const lessonInput = { kind: "private", client_names: "Rachel Green", date: addDays(dateKey(new Date()), 2), time: "08:00", duration_min: 60, location: "Balboa", price: "100", notes: "" };
+const lessonInput = { kind: "private", client_names: "Rachel Green", date: addDays(dateKey(new Date()), 2), time: "12:00", duration_min: 60, location: "Balboa", price: "100", notes: "" };
 
 test("books until full, then waitlists in order", async () => {
   const { store, ctxFor } = setup();

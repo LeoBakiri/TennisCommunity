@@ -26,6 +26,8 @@ export const ROUTES: RouteDef[] = [
   { id: "c.session", pattern: "/coach/sessions/:id", area: "coach", title: "Session", load: Q.loadCoachSession },
   { id: "c.lesson", pattern: "/coach/lessons/:id", area: "coach", title: "Lesson", load: Q.loadLessonEditor },
   { id: "c.earnings", pattern: "/coach/earnings", area: "coach", title: "Earnings", load: Q.loadCoachEarnings },
+  { id: "c.clients", pattern: "/coach/clients", area: "coach", title: "Clients", load: Q.loadCoachClients },
+  { id: "c.client", pattern: "/coach/clients/:id", area: "coach", title: "Client", load: Q.loadCoachClient },
 
   { id: "a.schedule", pattern: "/admin", area: "admin", title: "Community Schedule", load: Q.loadAdminSchedule },
   { id: "a.session", pattern: "/admin/sessions/:id", area: "admin", title: "Session", load: Q.loadSessionEditor },
@@ -40,7 +42,8 @@ const RETIRED: [RegExp, string][] = [
   [/^\/app\/bookings/, "/my-sessions"],
   [/^\/app\/profile/, "/profile"],
   [/^\/(app|programs|about)(\/|$)/, "/schedule"],
-  [/^\/coach\/(calendar|players|messages)/, "/coach"],
+  [/^\/coach\/players/, "/coach/clients"],
+  [/^\/coach\/(calendar|messages)/, "/coach"],
   [/^\/admin\/sessions\/?$/, "/admin"],
   [/^\/admin\/(calendar|programs|schedule|requests|announcements|messages|notifications)/, "/admin"],
 ];

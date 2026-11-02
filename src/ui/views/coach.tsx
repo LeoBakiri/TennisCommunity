@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Submit, Tabs, Toggle } from "../kit";
+import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
 import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
-import type { loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
-import type { CoachCalendar, CommissionRule, Lesson, LessonKind } from "@/core/types";
-import { dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
+import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
+import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind } from "@/core/types";
+import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 import { commissionUnder, ruleFor, type Period } from "@/core/earnings";
+import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -170,19 +171,22 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
   const [kind, setKind] = useState<LessonKind>(l?.kind ?? p!.kind);
   const date = l ? dateKey(l.starts_at) : p!.date;
   const time = l ? timeKey(l.starts_at) : p!.time;
-  const duration = l ? Math.round((new Date(l.ends_at).getTime() - new Date(l.starts_at).getTime()) / 60000) : 60;
+  const duration = l ? Math.round((new Date(l.ends_at).getTime() - new Date(l.starts_at).getTime()) / 60000) : p!.duration;
   const semi = kind === "semi_private";
-  const [money, setMoney] = useState({ price: l?.price_cents == null ? "" : String(l.price_cents / 100), location: l?.location ?? p!.location, minutes: duration });
+  const [money, setMoney] = useState({ price: l ? (l.price_cents == null ? "" : String(l.price_cents / 100)) : p!.price, location: l?.location ?? p!.location, minutes: duration });
+  const [repeat, setRepeat] = useState(1);
+  const [day, setDay] = useState(date);
+  const cards = (l?.client_names ?? []).flatMap((n) => (data.cardIds[nameKey(n)] ? [{ name: n, id: data.cardIds[nameKey(n)] }] : []));
   return (
     <>
       <PageHeader
-        back={{ href: "/coach", label: "My Schedule" }}
+        back={data.back ? { href: data.back, label: "Client" } : { href: "/coach", label: "My Schedule" }}
         title={l ? LESSON_META[l.kind].label : "Add Lesson"}
         subtitle={l ? `${fmtDayLong(l.starts_at)} · ${fmtRange(l.starts_at, l.ends_at)}` : `${fmtKeyLong(date)} · ${fmtClock(time)}`}
       />
       <div className="max-w-2xl space-y-4">
         <Card>
-          <ActionForm action="saveLesson" hidden={{ id: l?.id ?? "", kind }}>
+          <ActionForm action="saveLesson" hidden={{ id: l?.id ?? "", kind, back: data.back, repeat_weeks: l ? 1 : repeat }}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink/[0.05] p-1 sm:col-span-2" role="radiogroup" aria-label="Lesson type">
                 {(["private", "semi_private"] as const).map((k) => (
@@ -192,15 +196,24 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
                 ))}
               </div>
               <Field label={semi ? "Players / clients" : "Player / client name"} hint={semi ? "Separate names with commas" : "Doesn't need to be a community member"} className="sm:col-span-2">
-                <input className="input" name="client_names" list="lesson-clients" defaultValue={l?.client_names.join(", ") ?? ""} required />
+                <input className="input" name="client_names" list="lesson-clients" defaultValue={l?.client_names.join(", ") ?? p!.client} required />
                 <datalist id="lesson-clients">
                   {data.clients.map((c) => (
                     <option key={c} value={c} />
                   ))}
                 </datalist>
+                {cards.length > 0 && (
+                  <span className="mt-1.5 flex flex-wrap gap-x-3 text-[12.5px]">
+                    {cards.map((c) => (
+                      <A key={c.id} href={`/coach/clients/${c.id}`} className="inline-flex items-center gap-1 font-medium text-brand hover:underline">
+                        <Icon name="user" size={13} /> {c.name}'s card
+                      </A>
+                    ))}
+                  </span>
+                )}
               </Field>
               <Field label="Date">
-                <input className="input" type="date" name="date" defaultValue={date} />
+                <input className="input" type="date" name="date" defaultValue={date} onChange={(e) => setDay(e.target.value)} />
               </Field>
               <Field label="Start time (Pacific)">
                 <TimeSelect name="time" value={time} />
@@ -213,15 +226,27 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
               </Field>
               <LocationCourt location={money.location} court={l?.court ?? null} wide places={data.places} onLocation={(v) => setMoney({ ...money, location: v })} />
               <LessonTakeHome lesson={l} rules={data.rules} draft={money} />
+              {!l && (
+                <Field label="Repeat" hint={repeat > 1 && /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${repeat} lessons, the last on ${fmtKeyLong(addDays(day, (repeat - 1) * 7))}. Weeks you're already busy are skipped.` : "Book the same time every week, up to six months ahead"} className="sm:col-span-2">
+                  <select className="input" value={repeat} onChange={(e) => setRepeat(Number(e.target.value))} aria-label="Repeat">
+                    <option value={1}>Just this once</option>
+                    {[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => (
+                      <option key={w} value={w}>
+                        Every week for {w} weeks
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <div className="sm:col-span-2">
-                <Toggle name="paid" defaultChecked={!!l?.paid_at} label="Paid" hint="Turn on once the player has paid you. Unpaid past lessons show under Owed to you in Earnings." />
+                <Toggle name="paid" defaultChecked={!!l?.paid_at} label="Paid" hint={repeat > 1 ? "Marks only the first lesson paid. Unpaid past lessons show under Owed to you in Earnings." : "Turn on once the player has paid you. Unpaid past lessons show under Owed to you in Earnings."} />
               </div>
-              <Field label="Notes" className="sm:col-span-2">
+              <Field label="Notes" hint="What you worked on and what's next. Shows on the client's card." className="sm:col-span-2">
                 <textarea className="input" name="notes" defaultValue={l?.notes ?? ""} />
               </Field>
             </div>
             <Submit className="mt-6" icon="check">
-              {l ? "Save lesson" : "Add lesson"}
+              {l ? "Save lesson" : repeat > 1 ? `Add ${repeat} lessons` : "Add lesson"}
             </Submit>
           </ActionForm>
         </Card>
@@ -689,6 +714,358 @@ export function CoachEarnings({ data }: { data: Earnings }) {
             )}
             <p className="mt-2 text-[12px] text-ink/45">Applied automatically by lesson location. Set by the admin.</p>
           </Card>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+// ───────────────────────── clients ─────────────────────────
+
+type Clients = D<typeof loadCoachClients>;
+type ClientData = D<typeof loadCoachClient>;
+
+const ago = (days: number) => (days <= 0 ? "today" : days === 1 ? "yesterday" : days < 14 ? `${days} days ago` : days < 60 ? `${Math.round(days / 7)} weeks ago` : `${Math.round(days / 30)} months ago`);
+const firstName = (name: string) => name.trim().split(/\s+/)[0];
+
+/** A friendly WhatsApp opener asking a client to book their next lesson. */
+const nudgeText = (name: string, again?: { date: string; time: string } | null) =>
+  `Hi ${firstName(name)}, want to get your next lesson on the calendar?${again ? ` I can do ${fmtKeyWeekday(again.date)} at ${fmtClock(again.time)} again.` : " Let me know what works for you."}`;
+
+function ContactButtons({ phone, email, nudge, labels }: { phone: string | null; email: string | null; nudge?: string; labels?: boolean }) {
+  const links = [
+    phone && { href: `tel:${phone}`, icon: "phone" as const, label: "Call" },
+    phone && { href: `${whatsappHref(phone)}${nudge ? `?text=${encodeURIComponent(nudge)}` : ""}`, icon: "message" as const, label: "WhatsApp", external: true },
+    phone && labels && { href: `sms:${phone}`, icon: "message" as const, label: "Text" },
+    email && { href: `mailto:${email}`, icon: "mail" as const, label: "Email" },
+  ].filter(Boolean) as { href: string; icon: "phone" | "message" | "mail"; label: string; external?: boolean }[];
+  if (!links.length) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap gap-1">
+      {links.map((l) => (
+        <a key={l.label} href={l.href} target={l.external ? "_blank" : undefined} rel={l.external ? "noreferrer" : undefined} className={btn(labels ? "outline" : "ghost", "sm")} aria-label={l.label} title={l.label}>
+          <Icon name={l.icon} size={15} />
+          {labels && l.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+const CLIENT_TAB_LABEL: Record<Clients["tab"], string> = { all: "All", booked: "Booked", rebook: "To rebook", lapsed: "Lapsed", owes: "Owe you", community: "Community players" };
+
+const CLIENT_EMPTY: Record<Clients["tab"], { title: string; body: string }> = {
+  all: { title: "No clients yet", body: "Everyone you add to a lesson gets a client card here. You can also add someone before their first lesson." },
+  booked: { title: "No one has a lesson booked", body: "Clients with an upcoming lesson show here." },
+  rebook: { title: "Everyone recent is booked", body: `Clients who had a lesson in the last ${REBOOK_DAYS} days but have nothing booked show here.` },
+  lapsed: { title: "No lapsed clients", body: `Clients whose last lesson was over ${REBOOK_DAYS} days ago, with nothing booked, show here.` },
+  owes: { title: "Nobody owes you", body: "Every past lesson is marked paid." },
+  community: { title: "No community players yet", body: "Players who came to your community sessions in the last six months show here, so you can offer them a private lesson." },
+};
+
+function clientLine(s: Clients["clients"][number]["summary"]) {
+  const when = s.next ? `Next ${fmtDay(s.next.starts_at)}, ${fmtTime(s.next.starts_at)}` : s.days_since !== null ? `Last lesson ${ago(s.days_since)}` : "No lessons yet";
+  return [when, s.lessons ? `${s.lessons} ${s.lessons === 1 ? "lesson" : "lessons"}` : "", s.every_days ? `about every ${s.every_days === 7 ? "week" : `${s.every_days} days`}` : ""].filter(Boolean).join(" · ");
+}
+
+export function CoachClients({ data }: { data: Clients }) {
+  const nav = useNav();
+  const base = "/coach/clients";
+  const t = data.totals;
+  const c = data.counts;
+  const empty = CLIENT_EMPTY[data.tab];
+  return (
+    <>
+      <PageHeader
+        title="Clients"
+        actions={
+          <>
+            <LinkButton href={`${base}/new`} variant="outline" icon="plus">
+              Add client
+            </LinkButton>
+            <LinkButton href="/coach/lessons/new" icon="plus">
+              Add Lesson
+            </LinkButton>
+          </>
+        }
+      />
+      <HeroPanel eyebrow="Your clients">
+        <h2 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
+          {c.rebook ? `${c.rebook} recent ${c.rebook === 1 ? "client has" : "clients have"} nothing booked.` : c.all ? "Every recent client is booked." : "Your client list starts here."}
+        </h2>
+        {c.rebook > 0 && (
+          <A href={withQuery(base, { tab: "rebook" })} className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paper/10 px-3 py-1.5 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
+            See who to message <Icon name="arrow" size={15} className="text-accent" />
+          </A>
+        )}
+        <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
+          <HeroStat value={t.active} label={t.active === 1 ? "active client" : "active clients"} />
+          <HeroStat value={t.booked_ahead} label="lessons booked ahead" />
+          <HeroStat value={t.lessons_30d} label="lessons, last 30 days" />
+          <HeroStat value={usd(t.owed)} label="owed to you" />
+        </dl>
+      </HeroPanel>
+      <form
+        className="mb-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          nav.push(withQuery(base, { tab: data.tab === "all" ? undefined : data.tab, q: String(new FormData(e.currentTarget).get("q") ?? "") || undefined }));
+        }}
+      >
+        <label className="relative block">
+          <Icon name="search" size={17} className="absolute top-1/2 left-3 -translate-y-1/2 text-ink/40" />
+          <input name="q" defaultValue={data.q} className="input !pl-10" placeholder="Search name, phone, email or level" />
+        </label>
+      </form>
+      <Tabs current={data.tab} items={(Object.keys(CLIENT_TAB_LABEL) as Clients["tab"][]).map((k) => ({ key: k, label: CLIENT_TAB_LABEL[k], href: withQuery(base, { tab: k === "all" ? undefined : k, q: data.q || undefined }), count: k === "all" ? undefined : c[k] }))} />
+      {data.tab === "community" ? (
+        data.community.length ? (
+          <div className="card divide-y divide-ink/[0.06]">
+            {data.community.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-3.5 md:px-5">
+                <Avatar name={p.full_name} size={38} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold">{p.full_name}</div>
+                  <div className="truncate text-[12.5px] text-ink/55">
+                    {p.sessions} {p.sessions === 1 ? "session" : "sessions"} with you · last {fmtDay(p.last)}
+                  </div>
+                </div>
+                <ContactButtons phone={p.phone} email={p.email} />
+                {p.client_id ? (
+                  <LinkButton href={`${base}/${p.client_id}`} variant="ghost" size="sm" icon="user">
+                    Client card
+                  </LinkButton>
+                ) : (
+                  <>
+                    <LinkButton href={withQuery(`${base}/new`, { member: p.id })} variant="outline" size="sm" icon="plus">
+                      Add as client
+                    </LinkButton>
+                    <LinkButton href={withQuery("/coach/lessons/new", { member: p.id })} size="sm">
+                      Book a lesson
+                    </LinkButton>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty icon="users" title={data.q ? "No one matches that search" : empty.title} body={data.q ? undefined : empty.body} />
+        )
+      ) : data.clients.length ? (
+        <div className="card divide-y divide-ink/[0.06]">
+          {data.clients.map(({ client: cl, summary: s }) => (
+            <div key={cl.id} className="flex items-center gap-3 px-4 py-3.5 md:px-5">
+              <Avatar name={cl.full_name} size={38} />
+              <A href={`${base}/${cl.id}`} className="min-w-0 flex-1 hover:underline">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-semibold">{cl.full_name}</span>
+                  {cl.level && <Badge className="shrink-0">{cl.level}</Badge>}
+                </div>
+                <div className="truncate text-[12.5px] text-ink/55">{clientLine(s)}</div>
+              </A>
+              {s.owed > 0 && <Badge tone="amber">Owes {usd(s.owed)}</Badge>}
+              <Badge tone={CLIENT_STATUS[s.status].tone} className="hidden sm:inline-flex">
+                {CLIENT_STATUS[s.status].label}
+              </Badge>
+              <div className="hidden md:block">
+                <ContactButtons phone={cl.phone} email={cl.email} nudge={s.status === "rebook" || s.status === "lapsed" ? nudgeText(cl.full_name) : undefined} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty
+          icon="users"
+          title={data.q ? "No one matches that search" : empty.title}
+          body={data.q ? undefined : empty.body}
+          action={
+            !data.q &&
+            data.tab === "all" && (
+              <LinkButton href={`${base}/new`} icon="plus" size="sm">
+                Add client
+              </LinkButton>
+            )
+          }
+        />
+      )}
+    </>
+  );
+}
+
+function ClientForm({ client, prefill }: { client: Client | null; prefill: { full_name: string; phone: string; email: string } | null }) {
+  return (
+    <ActionForm action="saveClient" hidden={{ id: client?.id ?? "" }}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Name" hint={client ? "Changing it also renames them on their lessons" : "As you'd write it on a lesson"} className="sm:col-span-2">
+          <input className="input" name="full_name" defaultValue={client?.full_name ?? prefill?.full_name ?? ""} required />
+        </Field>
+        <Field label="Mobile">
+          <input className="input" name="phone" type="tel" inputMode="tel" defaultValue={client?.phone ?? prefill?.phone ?? ""} placeholder="(619) 555-0123" />
+        </Field>
+        <Field label="Email">
+          <input className="input" name="email" type="email" defaultValue={client?.email ?? prefill?.email ?? ""} />
+        </Field>
+        <Field label="Level" hint="e.g. Beginner, 3.5, Junior high school team" className="sm:col-span-2">
+          <input className="input" name="level" defaultValue={client?.level ?? ""} />
+        </Field>
+        <Field label="Goals" className="sm:col-span-2">
+          <textarea className="input" name="goals" rows={2} defaultValue={client?.goals ?? ""} placeholder="What they want from lessons" />
+        </Field>
+        <Field label="Private notes" hint="Only you see these: injuries, preferences, how they like to pay" className="sm:col-span-2">
+          <textarea className="input" name="notes" rows={3} defaultValue={client?.notes ?? ""} />
+        </Field>
+      </div>
+      <Submit className="mt-5" size={client ? "sm" : "md"} icon="check">
+        {client ? "Save card" : "Add client"}
+      </Submit>
+    </ActionForm>
+  );
+}
+
+function ClientLessonRow({ r, clientId }: { r: ClientData["lessons"][number]; clientId: string }) {
+  const l = r.lesson;
+  const others = l.client_names.length > 1;
+  return (
+    <div className="px-4 py-3 md:px-5">
+      <div className="flex items-center gap-3">
+        <Dot color={LESSON_META[l.kind].color} className="shrink-0" />
+        <A href={withQuery(`/coach/lessons/${l.id}`, { back: `/coach/clients/${clientId}` })} className="min-w-0 flex-1 hover:underline">
+          <div className="truncate text-sm font-semibold">
+            {fmtDay(l.starts_at)} · {fmtRange(l.starts_at, l.ends_at)}
+          </div>
+          <div className="truncate text-[12.5px] text-ink/55">
+            {others ? `Semi-private with ${l.client_names.length} players` : LESSON_META[l.kind].label}
+            {l.location && ` · ${placeLabel(l)}`}
+          </div>
+        </A>
+        <div className="shrink-0 text-right text-sm font-semibold tabular-nums">{r.money.priced ? usd(r.money.gross) : <Badge tone="amber">No price</Badge>}</div>
+        <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{!r.done ? <Badge>Upcoming</Badge> : r.money.gross > 0 ? <PaidButton lessonId={l.id} paid={!!l.paid_at} /> : null}</div>
+      </div>
+      {l.notes && <p className="mt-2 ml-5 border-l-2 border-sage pl-3 text-[13px] whitespace-pre-line text-ink/70">{l.notes}</p>}
+    </div>
+  );
+}
+
+export function CoachClient({ data }: { data: ClientData }) {
+  const cl = data.client;
+  if (!cl) {
+    return (
+      <>
+        <PageHeader back={{ href: "/coach/clients", label: "Clients" }} title="Add client" subtitle="A card for someone you teach: how to reach them, their level and goals." />
+        <Card className="max-w-2xl">
+          <ClientForm client={null} prefill={data.prefill} />
+        </Card>
+      </>
+    );
+  }
+  const s = data.summary!;
+  const self = `/coach/clients/${cl.id}`;
+  const bookHref = withQuery("/coach/lessons/new", { client: cl.id, back: self, ...(data.again ?? {}) });
+  const upcoming = data.lessons.filter((r) => !r.done).reverse();
+  const history = data.lessons.filter((r) => r.done);
+  const phone = cl.phone ?? data.member?.phone ?? null;
+  const email = cl.email ?? data.member?.email ?? null;
+  const quiet = s.status === "rebook" || s.status === "lapsed";
+  return (
+    <>
+      <PageHeader
+        back={{ href: "/coach/clients", label: "Clients" }}
+        title={cl.full_name}
+        subtitle={[cl.level, s.first ? `Client since ${fmtDate(s.first)}` : "No lessons yet"].filter(Boolean).join(" · ")}
+        actions={
+          <LinkButton href={bookHref} icon={data.again ? "repeat" : "plus"}>
+            {data.again ? "Book again" : "Book a lesson"}
+          </LinkButton>
+        }
+      />
+      {quiet && (
+        <div className="mb-5">
+          <Notice tone="warn">
+            Nothing booked. {firstName(cl.full_name)}'s last lesson was {ago(s.days_since!)}
+            {data.again && `, ${fmtKeyWeekday(dateKey(data.lessons[0].lesson.starts_at))}s at ${fmtClock(data.again.time)}`}.{" "}
+            {phone ? (
+              <a href={`${whatsappHref(phone)}?text=${encodeURIComponent(nudgeText(cl.full_name, data.again))}`} target="_blank" rel="noreferrer" className="font-medium underline">
+                Message them on WhatsApp
+              </a>
+            ) : (
+              <A href={bookHref} className="font-medium underline">
+                Book the next one
+              </A>
+            )}
+          </Notice>
+        </div>
+      )}
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Lessons" icon="ball" value={s.lessons} hint={s.upcoming ? `${s.upcoming} more booked` : `${s.hours} hours on court`} />
+        <Stat label="Comes" icon="repeat" value={s.every_days ? (s.every_days === 7 ? "Weekly" : `Every ${s.every_days}d`) : "—"} hint={s.every_days ? "from their last lessons" : "after a few lessons"} />
+        <Stat label="Paid you" icon="card" value={usd(s.paid)} hint="all time, before commission" />
+        <Stat label="Owes you" icon="flag" value={usd(s.owed)} hint={s.owed_lessons ? `${s.owed_lessons} unpaid ${s.owed_lessons === 1 ? "lesson" : "lessons"}` : "all paid up"} />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+        <div className="space-y-6">
+          <div>
+            <SectionTitle action={<span className="text-sm text-ink/55">{upcoming.length || ""}</span>}>Booked</SectionTitle>
+            {upcoming.length ? (
+              <div className="card divide-y divide-ink/[0.06]">
+                {upcoming.map((r) => (
+                  <ClientLessonRow key={r.lesson.id} r={r} clientId={cl.id} />
+                ))}
+              </div>
+            ) : (
+              <Empty icon="calendar" title="No lesson booked" body={data.again ? `Book again repeats their last lesson: ${fmtKeyWeekday(data.again.date)} at ${fmtClock(data.again.time)}, every week if you like.` : undefined} action={<LinkButton href={bookHref} size="sm" icon="plus">{data.again ? "Book again" : "Book a lesson"}</LinkButton>} />
+            )}
+          </div>
+          <div>
+            <SectionTitle action={<span className="text-sm text-ink/55">{history.length ? `${history.length} ${history.length === 1 ? "lesson" : "lessons"}` : ""}</span>}>Lesson history and notes</SectionTitle>
+            {history.length ? (
+              <div className="card divide-y divide-ink/[0.06]">
+                {history.map((r) => (
+                  <ClientLessonRow key={r.lesson.id} r={r} clientId={cl.id} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-ink/50">No lessons yet. Notes you write on each lesson build up here as a progress log.</p>
+            )}
+          </div>
+        </div>
+        <aside className="space-y-4">
+          {(cl.goals || phone || email || data.member) && (
+            <Card>
+              {cl.goals && (
+                <>
+                  <SectionTitle>Goals</SectionTitle>
+                  <p className="mb-4 text-sm whitespace-pre-line text-ink/75">{cl.goals}</p>
+                </>
+              )}
+              <SectionTitle>Contact</SectionTitle>
+              {phone || email ? (
+                <>
+                  <div className="space-y-1 text-sm text-ink/70">
+                    {phone && <div>{phone}</div>}
+                    {email && <div className="break-all">{email}</div>}
+                  </div>
+                  <div className="mt-3">
+                    <ContactButtons phone={phone} email={email} nudge={quiet ? nudgeText(cl.full_name, data.again) : undefined} labels />
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-ink/55">No phone or email yet. Add them below.</p>
+              )}
+              {data.member && (
+                <p className="mt-3 flex items-center gap-2 text-[13px] text-ink/60">
+                  <SessionMark type="group" size={14} />
+                  {data.member.sessions ? `Also in the community: ${data.member.sessions} ${data.member.sessions === 1 ? "session" : "sessions"} with you in the last six months.` : "Also has a community account."}
+                </p>
+              )}
+            </Card>
+          )}
+          <Card>
+            <SectionTitle>Client card</SectionTitle>
+            <ClientForm client={cl} prefill={null} />
+          </Card>
+          <ActionButton action="deleteClient" input={{ client_id: cl.id }} variant="ghost" icon="trash" confirm={{ title: `Remove ${cl.full_name}?`, body: "Their card, contact details and private notes are deleted. Their lessons stay on your schedule and in Earnings.", label: "Remove", danger: true }}>
+            Remove client
+          </ActionButton>
         </aside>
       </div>
     </>

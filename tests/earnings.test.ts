@@ -53,7 +53,7 @@ function setup() {
   return { store, ctx, load, now };
 }
 
-const lessonInput = (extra: Record<string, unknown> = {}) => ({ id: "", kind: "private", client_names: "Rachel Green", date: addDays(dateKey(new Date()), 2), time: "08:00", duration_min: 60, location: "Balboa Tennis Club", price: "100", notes: "", ...extra });
+const lessonInput = (extra: Record<string, unknown> = {}) => ({ id: "", kind: "private", client_names: "Rachel Green", date: addDays(dateKey(new Date()), 2), time: "12:00", duration_min: 60, location: "Balboa Tennis Club", price: "100", notes: "", ...extra });
 
 test("saving a lesson stores the commission and keeps it when rates change", async () => {
   const { store, ctx } = setup();

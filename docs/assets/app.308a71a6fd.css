@@ -421,6 +421,9 @@
   .ml-1 {
     margin-left: var(--spacing);
   }
+  .ml-5 {
+    margin-left: calc(var(--spacing) * 5);
+  }
   .ml-auto {
     margin-left: auto;
   }
@@ -879,6 +882,10 @@
     border-left-style: var(--tw-border-style);
     border-left-width: 1px;
   }
+  .border-l-2 {
+    border-left-style: var(--tw-border-style);
+    border-left-width: 2px;
+  }
   .border-dashed {
     --tw-border-style: dashed;
     border-style: dashed;
@@ -948,6 +955,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--ink) 8%, transparent);
     }
+  }
+  .border-sage {
+    border-color: var(--sage);
   }
   .border-transparent {
     border-color: transparent;
@@ -1264,6 +1274,9 @@
   .pl-2\.5 {
     padding-left: calc(var(--spacing) * 2.5);
   }
+  .pl-3 {
+    padding-left: calc(var(--spacing) * 3);
+  }
   .pl-5 {
     padding-left: calc(var(--spacing) * 5);
   }
@@ -1403,6 +1416,9 @@
   }
   .break-words {
     overflow-wrap: break-word;
+  }
+  .break-all {
+    word-break: break-all;
   }
   .whitespace-nowrap {
     white-space: nowrap;
@@ -1814,6 +1830,9 @@
     }
     .sm\:hidden {
       display: none;
+    }
+    .sm\:inline-flex {
+      display: inline-flex;
     }
     .sm\:table-cell {
       display: table-cell;

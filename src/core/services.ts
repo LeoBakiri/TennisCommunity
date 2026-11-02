@@ -1,12 +1,13 @@
 // All state-changing operations. Every action validates its input with Zod
 // and checks the actor's permissions before touching the store.
 import { z, ZodError } from "zod";
-import type { ActionResult, Actor, Booking, BookingStatus, CommissionRule, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
-import { addDays, dateKey, timeKey, zonedToUtc } from "./time";
+import { addDays, dateKey, fmtDay, fmtTime, timeKey, zonedToUtc } from "./time";
 import { isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
+import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
 
 export class UserError extends Error {}
 
@@ -193,6 +194,38 @@ function lessonClients(kind: Lesson["kind"], raw: string): string[] {
   return clean;
 }
 
+/** A client card for every lesson name the coach doesn't have one for yet. */
+async function ensureClients(ctx: Ctx, coachId: string, names: string[]) {
+  const have = new Set((await ctx.store.list("clients", { eq: { coach_id: coachId } })).map((c) => nameKey(c.full_name)));
+  for (const name of names) {
+    if (have.has(nameKey(name))) continue;
+    have.add(nameKey(name));
+    const at = nowIso();
+    // Another tab may have just added the same name; the database keeps one card per name.
+    await ctx.store.insert("clients", { id: uid(), coach_id: coachId, full_name: name, phone: null, email: null, level: "", goals: "", notes: "", created_at: at, updated_at: at }).catch(() => undefined);
+  }
+}
+
+/** What the coach already has at that time: one of their lessons or a community session they coach. */
+async function clashFor(ctx: Ctx, coachId: string, slot: { starts_at: string; ends_at: string }, skipLessonId?: string) {
+  const day = { gte: { field: "starts_at" as const, value: new Date(new Date(slot.starts_at).getTime() - 86400000).toISOString() }, lt: { field: "starts_at" as const, value: slot.ends_at } };
+  const [lessons, sessions] = await Promise.all([ctx.store.list("lessons", { eq: { coach_id: coachId }, ...day }), ctx.store.list("sessions", { contains: { field: "coach_ids", value: coachId }, ...day })]);
+  const lesson = lessons.find((l) => l.id !== skipLessonId && overlaps(l, slot));
+  if (lesson) return `${lesson.client_names.join(", ")}'s lesson`;
+  const session = sessions.find((s) => s.session_type && s.status !== "cancelled" && overlaps(s, slot));
+  return session ? (session.session_type === "group" ? "a Group Session" : "a Performance Accelerator") : null;
+}
+
+const clientFields = {
+  id: text(80),
+  full_name: req("Name", 120),
+  phone: text(40),
+  email: text(200),
+  level: text(60),
+  goals: text(1000),
+  notes: text(4000),
+};
+
 export const actions: Record<string, Handler> = {
   // ── Player: account ──
   completeOnboarding: action(z.object(profileFields), async (ctx, input) => {
@@ -352,36 +385,65 @@ export const actions: Record<string, Handler> = {
       price: dollars,
       paid: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
       notes: text(4000),
+      repeat_weeks: z.preprocess((v) => (v === "" || v === undefined ? 1 : Number(v)), z.number().int().min(1).max(26)),
+      back: text(200),
     }),
     async (ctx, input) => {
       const u = staff(ctx);
-      const start = zonedToUtc(input.date, input.time);
-      const money = {
-        price_cents: input.price,
-        starts_at: start.toISOString(),
-        ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString(),
-        location: input.location,
-      };
+      const rules = await ctx.store.list("commission_rules");
+      const clients = lessonClients(input.kind, input.client_names);
       const prev = input.id ? await must(ctx.store.get("lessons", input.id), "Lesson") : null;
       if (prev && prev.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
-      // The commission stays as saved unless something it depends on changed, so new club rates don't rewrite old lessons.
-      const same = prev && prev.commission_cents !== null && prev.price_cents === money.price_cents && prev.location === money.location && prev.ends_at === money.ends_at && prev.starts_at === money.starts_at;
-      const fields = {
-        kind: input.kind,
-        client_names: lessonClients(input.kind, input.client_names),
-        ...money,
-        court: courtFor(input.location, input.court),
-        commission_cents: same ? prev.commission_cents : commissionFor(money, await ctx.store.list("commission_rules")),
-        paid_at: input.paid ? (prev?.paid_at ?? nowIso()) : null,
-        notes: input.notes,
-        updated_at: nowIso(),
+      // Pages that send the coach here can ask to come back after saving; anything else goes to the schedule.
+      const back = (week: string) => (/^\/coach\/clients\/[\w-]+$/.test(input.back) ? input.back : `/coach?week=${week}`);
+      const fieldsFor = (day: string) => {
+        const start = zonedToUtc(day, input.time);
+        const money = {
+          price_cents: input.price,
+          starts_at: start.toISOString(),
+          ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString(),
+          location: input.location,
+        };
+        // The commission stays as saved unless something it depends on changed, so new club rates don't rewrite old lessons.
+        const same = prev && prev.commission_cents !== null && prev.price_cents === money.price_cents && prev.location === money.location && prev.ends_at === money.ends_at && prev.starts_at === money.starts_at;
+        return {
+          kind: input.kind,
+          client_names: clients,
+          ...money,
+          court: courtFor(input.location, input.court),
+          commission_cents: same ? prev.commission_cents : commissionFor(money, rules),
+          paid_at: input.paid ? (prev?.paid_at ?? nowIso()) : null,
+          notes: input.notes,
+          updated_at: nowIso(),
+        };
       };
+      await ensureClients(ctx, u.id, clients);
       if (prev) {
+        const fields = fieldsFor(input.date);
+        // Only a new time is checked, so an old double booking can still have its notes or payment saved.
+        const moved = fields.starts_at !== prev.starts_at || fields.ends_at !== prev.ends_at;
+        const clash = moved ? await clashFor(ctx, u.id, fields, prev.id) : null;
+        if (clash) throw new UserError(`That time overlaps ${clash}. Pick another time.`);
         await ctx.store.update("lessons", prev.id, fields);
-        return { ok: true, message: "Lesson saved.", redirect: `/coach?week=${input.date}` };
+        return { ok: true, message: "Lesson saved.", redirect: back(input.date) };
       }
-      await ctx.store.insert("lessons", { id: uid(), coach_id: u.id, created_at: nowIso(), ...fields });
-      return { ok: true, message: "Lesson added.", redirect: `/coach?week=${input.date}` };
+      // Booking ahead: the same lesson every week. Weeks that clash are skipped and named.
+      const skipped: string[] = [];
+      let added = 0;
+      for (const day of weeklyDates(input.date, input.repeat_weeks)) {
+        const fields = fieldsFor(day);
+        const clash = await clashFor(ctx, u.id, fields);
+        if (clash) {
+          if (input.repeat_weeks === 1) throw new UserError(`That time overlaps ${clash}. Pick another time.`);
+          skipped.push(fmtDay(fields.starts_at));
+          continue;
+        }
+        await ctx.store.insert("lessons", { id: uid(), coach_id: u.id, created_at: nowIso(), ...fields, paid_at: added === 0 ? fields.paid_at : null });
+        added++;
+      }
+      if (!added) throw new UserError(`Every week clashes with something else at ${fmtTime(fieldsFor(input.date).starts_at)}. Pick another time.`);
+      const message = input.repeat_weeks === 1 ? "Lesson added." : `${added} weekly lessons added.${skipped.length ? ` Skipped ${skipped.join(", ")}: you're busy then.` : ""}`;
+      return { ok: true, message, redirect: back(input.date) };
     },
   ),
 
@@ -399,6 +461,39 @@ export const actions: Record<string, Handler> = {
     if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
     await ctx.store.update("lessons", l.id, { paid_at: input.paid === "yes" ? nowIso() : null });
     return { ok: true, message: input.paid === "yes" ? "Marked paid." : "Marked unpaid." };
+  }),
+
+  // ── Coach: clients ──
+  saveClient: action(z.object(clientFields), async (ctx, input) => {
+    const u = staff(ctx);
+    const contact = cleanContact(input);
+    const mine = await ctx.store.list("clients", { eq: { coach_id: u.id } });
+    const prev = input.id ? mine.find((c) => c.id === input.id) : null;
+    if (input.id && !prev) throw new UserError("Client not found.");
+    const name = input.full_name.replace(/\s+/g, " ");
+    if (mine.some((c) => c.id !== prev?.id && sameName(c.full_name, name))) throw new UserError(`You already have a client called ${name}.`);
+    const fields = { full_name: name, ...contact, level: input.level, goals: input.goals, notes: input.notes, updated_at: nowIso() };
+    if (!prev) {
+      const id = uid();
+      await ctx.store.insert("clients", { id, coach_id: u.id, created_at: nowIso(), ...fields } satisfies Client);
+      return { ok: true, message: `${name} added.`, redirect: `/coach/clients/${id}` };
+    }
+    // A new name carries over to their lessons, so their history follows them.
+    if (prev.full_name !== name) {
+      for (const l of await ctx.store.list("lessons", { eq: { coach_id: u.id } })) {
+        if (hasClient(l, prev.full_name)) await ctx.store.update("lessons", l.id, { client_names: l.client_names.map((n) => (sameName(n, prev.full_name) ? name : n)), updated_at: nowIso() });
+      }
+    }
+    await ctx.store.update("clients", prev.id, fields);
+    return { ok: true, message: "Client saved." };
+  }),
+
+  deleteClient: action(z.object({ client_id: id }), async (ctx, input) => {
+    const u = staff(ctx);
+    const c = await must(ctx.store.get("clients", input.client_id), "Client");
+    if (c.coach_id !== u.id) throw new UserError("Only the client's coach can remove them.");
+    await ctx.store.remove("clients", c.id);
+    return { ok: true, message: `${c.full_name} removed from your clients. Their lessons stay on your schedule.`, redirect: "/coach/clients" };
   }),
 
   // ── Admin: community schedule ──
@@ -600,6 +695,7 @@ export const actions: Record<string, Handler> = {
       }
       for (const b of bookings) await ctx.store.remove("bookings", b.id);
       for (const l of await ctx.store.list("lessons", { eq: { coach_id: p.id } })) await ctx.store.remove("lessons", l.id);
+      for (const c of await ctx.store.list("clients", { eq: { coach_id: p.id } })) await ctx.store.remove("clients", c.id);
       for (const s of await ctx.store.list("sessions", { contains: { field: "coach_ids", value: p.id } })) {
         await ctx.store.update("sessions", s.id, { coach_ids: s.coach_ids.filter((c) => c !== p.id) });
       }
@@ -662,7 +758,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "deleteLesson", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "deleteLesson", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

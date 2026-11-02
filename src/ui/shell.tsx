@@ -193,6 +193,7 @@ function navFor(area: PortalArea): NavItem[] {
   if (area === "coach")
     return [
       { href: "/coach", label: "My Schedule", icon: "calendar" },
+      { href: "/coach/clients", label: "Clients", icon: "users" },
       { href: "/coach/earnings", label: "Earnings", icon: "chart" },
     ];
   return [
