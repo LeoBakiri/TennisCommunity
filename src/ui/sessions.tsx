@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { A, useAction, useToast, withQuery } from "./nav";
-import { ballBurst, Icon, SessionMark, TennisBall } from "./icons";
+import { ballBurst, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
@@ -87,12 +87,15 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
           </div>
         </div>
         {isFull && (
-          <div className="mt-4 flex items-center gap-3 rounded-xl bg-[#E1EAF0] p-3 text-sm text-[#2D5068]">
-            <TennisBall size={26} className="ball-bounce shrink-0" />
+          <div className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] p-3.5 text-sm text-[#7A3E12]">
             <span>
-              <span className="block font-semibold">{s.waitlist === 0 ? "You'd be first in line" : `You'd be #${s.waitlist + 1} in line`}</span>
-              The moment a spot opens, the first player in line moves in automatically. No need to check back.
+              <span className="flex items-center gap-1 text-[10.5px] font-bold tracking-wider text-[#B5672C] uppercase">
+                <Icon name="clock" size={12} strokeWidth={2.4} /> Waitlist
+              </span>
+              <span className="mt-0.5 block font-semibold">{s.waitlist === 0 ? "You'd be next in" : `You'd be #${s.waitlist + 1} on the waitlist`}</span>
+              <span className="text-[#7A3E12]/70">The moment a spot opens, the next player moves in automatically. No need to check back.</span>
             </span>
+            <span className="font-display text-[34px] leading-none font-semibold text-[#B5672C] tabular-nums">#{s.waitlist + 1}</span>
           </div>
         )}
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -163,7 +166,7 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   if (place !== null) {
     const behind = Math.max(0, s.waitlist - place);
     if (place === 1) return { heat: "line" as const, title: "You're next in", sub: behind ? `First open spot is yours · ${behind} behind you` : "First open spot is yours" };
-    return { heat: "line" as const, title: `#${place} in line`, sub: `${plural(place - 1, "player")} ahead of you` };
+    return { heat: "line" as const, title: `${plural(place - 1, "player")} ahead of you`, sub: "You move in automatically" };
   }
   const others = s.booked - (imIn ? 1 : 0);
   const heat = left === 0 ? ("full" as const) : left <= 2 && s.booked > 0 ? ("low" as const) : ("open" as const);
@@ -174,7 +177,7 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
 }
 
-const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]", line: "text-[#2D5068]" };
+const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]", line: "text-[#7A3E12]" };
 const HEAT_FILL = { low: "#B5672C", full: "#B9574A" };
 
 function SeatMeter({ s }: { s: SessionView }) {
@@ -206,34 +209,35 @@ function SeatMeter({ s }: { s: SessionView }) {
           <div className="h-full rounded-full" style={{ width: `${(taken / s.capacity) * 100}%`, background: fill }} />
         </div>
       )}
-      {heat === "line" && <WaitLine place={s.my_booking!.waitlist_position ?? 1} total={Math.max(s.waitlist, s.my_booking!.waitlist_position ?? 1)} />}
-      <div className="min-w-0 sm:text-right">
-        <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
-        <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
-      </div>
+      {heat === "line" ? (
+        <>
+          <div className="text-sm leading-tight font-semibold text-[#8E3326] sm:text-right">
+            Session full <span className="text-xs font-normal text-ink/55">· {s.waitlist} on the waitlist</span>
+          </div>
+          <WaitTicket place={s.my_booking!.waitlist_position ?? 1} title={title} sub={sub} />
+        </>
+      ) : (
+        <div className="min-w-0 sm:text-right">
+          <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
+          <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
+        </div>
+      )}
     </>
   );
 }
 
-/** The line to get in, front first: the players ahead, you as a tennis ball (bouncing when you're next), and whoever is behind. */
-function WaitLine({ place, total }: { place: number; total: number }) {
-  const ahead = place - 1;
-  const behind = Math.max(0, total - place);
-  const dot = "h-3.5 w-3.5 shrink-0 rounded-full";
+/** A waiting player's place, as an orange waitlist ticket. */
+function WaitTicket({ place, title, sub }: { place: number; title: string; sub: string }) {
   return (
-    <div className="flex w-full items-center gap-1 sm:w-auto sm:justify-end" aria-hidden="true">
-      <span className="mr-1 text-[10.5px] font-semibold tracking-wide text-ink/40 uppercase">Line</span>
-      {ahead > 3 && <span className="text-[11px] text-ink/45 tabular-nums">+{ahead - 3}</span>}
-      {Array.from({ length: Math.min(ahead, 3) }, (_, i) => (
-        <span key={`a${i}`} className={cx(dot, "bg-ink/25")} />
-      ))}
-      <span className="relative mx-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-[#E1EAF0] ring-2 ring-[#2D5068]/30">
-        <TennisBall size={20} className={place === 1 ? "ball-bounce" : undefined} />
-      </span>
-      {Array.from({ length: Math.min(behind, 3) }, (_, i) => (
-        <span key={`b${i}`} className={cx(dot, "border-[1.5px] border-dashed border-ink/20")} />
-      ))}
-      {behind > 3 && <span className="text-[11px] text-ink/45 tabular-nums">+{behind - 3}</span>}
+    <div className="flex w-full items-center justify-between gap-4 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] py-2 pr-3 pl-3.5 sm:w-auto">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1 text-[10.5px] font-bold tracking-wider text-[#B5672C] uppercase">
+          <Icon name="clock" size={12} strokeWidth={2.4} /> Waitlist
+        </div>
+        <div className="mt-0.5 text-sm leading-tight font-semibold text-[#7A3E12]">{title}</div>
+        <div className="mt-0.5 text-xs text-[#7A3E12]/65">{sub}</div>
+      </div>
+      <div className="font-display text-[34px] leading-none font-semibold tracking-tight text-[#B5672C] tabular-nums">#{place}</div>
     </div>
   );
 }
@@ -279,12 +283,13 @@ function usePromotedCelebration(booking: SessionView["my_booking"], ref: RefObje
 export function SessionCard({ s, signedIn, window, showDay, skip }: { s: SessionView; signedIn: boolean; window: number; showDay?: boolean; skip?: SessionView }) {
   const mine = s.my_booking;
   const imIn = mine?.status === "confirmed";
+  const waiting = mine?.status === "waitlisted";
   const hoursAway = (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
   const ref = useRef<HTMLElement>(null);
   const promoted = usePromotedCelebration(mine, ref);
   return (
-    <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}>
-      {imIn && <span className="absolute inset-y-0 left-0 w-1" style={{ background: sessionColor(s) }} />}
+    <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : waiting ? { background: "color-mix(in oklab, #B5672C 5%, white)" } : undefined}>
+      {(imIn || waiting) && <span className="absolute inset-y-0 left-0 w-1" style={{ background: imIn ? sessionColor(s) : "#B5672C" }} />}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold" style={{ color: sessionColor(s) }}>
@@ -294,7 +299,12 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
                 <Icon name="check" size={12} strokeWidth={2.6} /> {promoted ? "Off the waitlist. You're in!" : <>You&apos;re in</>}
               </span>
             )}
-            {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
+          {waiting && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#B5672C] px-2 py-0.5 text-[11.5px] text-white">
+              <Icon name="clock" size={12} strokeWidth={2.6} /> On the waitlist
+            </span>
+          )}
+          {hoursAway > 0 && hoursAway < 12 && <Badge tone="amber">Starts {relativeFromNow(s.starts_at)}</Badge>}
           </div>
           {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
           <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">

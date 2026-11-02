@@ -133,7 +133,7 @@ export function Dot({ color, className }: { color: string; className?: string })
   return <span className={cx("inline-block h-2 w-2 shrink-0 rounded-full", className)} style={{ background: color }} />;
 }
 
-type Tone = "neutral" | "green" | "amber" | "red" | "blue" | "accent" | "dark";
+type Tone = "neutral" | "green" | "amber" | "red" | "blue" | "orange" | "accent" | "dark";
 export function Badge({ tone = "neutral", children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   const tones: Record<Tone, string> = {
     neutral: "bg-ink/[0.06] text-ink/70",
@@ -141,6 +141,7 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
     amber: "bg-[#F6EBD3] text-[#8A5A10]",
     red: "bg-[#F5E1DC] text-[#8E3326]",
     blue: "bg-[#E1EAF0] text-[#2D5068]",
+    orange: "bg-[#FBEEE2] text-[#9A4F1C]",
     accent: "bg-accent text-ink",
     dark: "bg-ink text-paper",
   };
@@ -150,7 +151,7 @@ export function Badge({ tone = "neutral", children, className }: { tone?: Tone; 
 export function BookingBadge({ status, position }: { status: BookingStatus; position?: number | null }) {
   const map: Record<BookingStatus, [Tone, string]> = {
     confirmed: ["green", "Booked"],
-    waitlisted: ["blue", position === 1 ? "Next in line" : position ? `#${position} in line` : "In line"],
+    waitlisted: ["orange", position === 1 ? "Next in line" : position ? `#${position} in line` : "In line"],
     cancelled: ["neutral", "Cancelled"],
   };
   const [tone, label] = map[status];
