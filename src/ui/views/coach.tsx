@@ -3,11 +3,11 @@ import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Submit } from "../kit";
 import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
-import { TimeSelect } from "./admin";
+import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { CoachCalendar, LessonKind } from "@/core/types";
 import { dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtKeyLong, fmtRange, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
-import { LESSON_META, SESSION_META, sessionTitle } from "@/core/util";
+import { LESSON_META, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -196,9 +196,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
               <Field label="Price (USD)" hint="Optional">
                 <input className="input" name="price" inputMode="decimal" defaultValue={l?.price_cents == null ? "" : l.price_cents / 100} />
               </Field>
-              <Field label="Location" className="sm:col-span-2">
-                <input className="input" name="location" defaultValue={l?.location ?? p!.location} />
-              </Field>
+              <LocationCourt location={l?.location ?? p!.location} court={l?.court ?? null} wide />
               <Field label="Notes" className="sm:col-span-2">
                 <textarea className="input" name="notes" defaultValue={l?.notes ?? ""} />
               </Field>
@@ -245,7 +243,7 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
       <PageHeader
         back={{ href: "/coach", label: "My Schedule" }}
         title={sessionTitle(s)}
-        subtitle={`${fmtDayLong(s.starts_at)} · ${fmtRange(s.starts_at, s.ends_at)} · ${s.location}`}
+        subtitle={`${fmtDayLong(s.starts_at)} · ${fmtRange(s.starts_at, s.ends_at)} · ${placeLabel(s)}`}
         actions={
           <>
             {data.isAdmin && (

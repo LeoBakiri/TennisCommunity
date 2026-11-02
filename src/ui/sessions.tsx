@@ -4,7 +4,7 @@ import { ballBurst, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
-import { fmtMoney, sessionTitle, SESSION_META } from "@/core/util";
+import { fmtMoney, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
   if (s.price_cents === null) return "Price TBA";
@@ -79,7 +79,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
               <Icon name="calendar" size={15} /> {fmtDayLong(s.starts_at)}, {fmtRange(s.starts_at, s.ends_at)}
             </div>
             <div className="flex items-center gap-2">
-              <Icon name="pin" size={15} /> {s.location}
+              <Icon name="pin" size={15} /> {placeLabel(s)}
             </div>
             <div className="flex items-center gap-2">
               <Icon name="card" size={15} /> {priceLabel(s)}
@@ -224,7 +224,7 @@ export function SessionCard({ s, signedIn, window, showDay }: { s: SessionView; 
         {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
         <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
           <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
-          <div>{s.location}</div>
+          <div>{placeLabel(s)}</div>
           <div>
             {s.coaches.length > 0 && `${s.coaches.map((c) => c.full_name.split(" ")[0]).join(" & ")} · `}
             {priceLabel(s)}
@@ -390,7 +390,7 @@ export function WeekGrid({
 const gcalStamp = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
 /** A Google Calendar "add event" link, filled in from the session. Nothing is sent until the player opens it. */
-export function calendarHref(s: Pick<SessionView, "session_type" | "title" | "starts_at" | "ends_at" | "location" | "description">) {
-  const q = new URLSearchParams({ action: "TEMPLATE", text: sessionTitle(s), dates: `${gcalStamp(s.starts_at)}/${gcalStamp(s.ends_at)}`, location: s.location, details: s.description });
+export function calendarHref(s: Pick<SessionView, "session_type" | "title" | "starts_at" | "ends_at" | "location" | "court" | "description">) {
+  const q = new URLSearchParams({ action: "TEMPLATE", text: sessionTitle(s), dates: `${gcalStamp(s.starts_at)}/${gcalStamp(s.ends_at)}`, location: placeLabel(s), details: s.description });
   return `https://calendar.google.com/calendar/render?${q}`;
 }

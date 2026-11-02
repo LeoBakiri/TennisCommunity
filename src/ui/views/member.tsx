@@ -7,7 +7,7 @@ import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
 import { addDays, fmtDate, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
-import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
+import { lastMilestone, nextMilestone, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType } from "@/core/types";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -292,7 +292,7 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
                 <SessionMark type={r.session.session_type} /> {sessionTitle(r.session)}
               </div>
               <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
-              <div className="text-sm text-ink/60">{r.session.location}</div>
+              <div className="text-sm text-ink/60">{placeLabel(r.session)}</div>
             </div>
             <div className="flex items-center gap-2">
               {r.booking.status === "confirmed" && (

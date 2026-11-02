@@ -98,6 +98,7 @@ export function demoSeed(now = new Date()): DB {
       capacity: pa ? DEFAULT_SETTINGS.default_pa_capacity : DEFAULT_SETTINGS.default_group_capacity,
       price_cents: 4000,
       location: BALBOA,
+      court: null,
       status: "published",
       description: "",
       internal_notes: "",
@@ -129,7 +130,7 @@ export function demoSeed(now = new Date()): DB {
 
   const lesson = (coach_id: string, kind: Lesson["kind"], client_names: string[], day: string, time: string, price: number, notes = "") => {
     const start = zonedToUtc(day, time);
-    lessons.push({ id: lid(), coach_id, kind, client_names, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600000).toISOString(), location: BALBOA, price_cents: price, notes, created_at: created, updated_at: created });
+    lessons.push({ id: lid(), coach_id, kind, client_names, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3600000).toISOString(), location: BALBOA, court: null, price_cents: price, notes, created_at: created, updated_at: created });
   };
 
   // Three weeks: last week (history), this week, next week.

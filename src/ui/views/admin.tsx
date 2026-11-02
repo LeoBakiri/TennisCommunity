@@ -7,7 +7,7 @@ import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, timeKey } from "@/core/time";
-import { SESSION_META, sessionTitle } from "@/core/util";
+import { COURTS, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -16,6 +16,31 @@ const TIMES = Array.from({ length: 64 }, (_, i) => {
   const m = String((i % 4) * 15).padStart(2, "0");
   return `${String(h).padStart(2, "0")}:${m}`;
 });
+
+/** Location, plus a court picker once the location is Balboa. */
+export function LocationCourt({ location, court, wide }: { location: string; court: number | null; wide?: boolean }) {
+  const [where, setWhere] = useState(location);
+  const balboa = isBalboa(where);
+  return (
+    <>
+      <Field label="Location" className={wide && !balboa ? "sm:col-span-2" : undefined}>
+        <input className="input" name="location" value={where} onChange={(e) => setWhere(e.target.value)} />
+      </Field>
+      {balboa && (
+        <Field label="Court">
+          <select className="input" name="court" defaultValue={court ?? ""}>
+            <option value="">Not set yet</option>
+            {COURTS.map((n) => (
+              <option key={n} value={n}>
+                Court {n}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+    </>
+  );
+}
 
 export function TimeSelect({ name, value }: { name: string; value: string }) {
   const opts = TIMES.includes(value) ? TIMES : [value, ...TIMES];
@@ -244,9 +269,7 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
         <Field label="Price per player (USD)" hint="Blank for “Price TBA”, 0 for free">
           <input className="input" name="price" inputMode="decimal" defaultValue={dollarsField(s ? s.price_cents : defaults.price_cents)} />
         </Field>
-        <Field label="Location">
-          <input className="input" name="location" defaultValue={s?.location ?? data.defaults.location} />
-        </Field>
+        <LocationCourt location={s?.location ?? data.defaults.location} court={s?.court ?? null} />
         <fieldset className="sm:col-span-2">
           <legend className="label">Coach</legend>
           <div className="flex flex-wrap gap-2">

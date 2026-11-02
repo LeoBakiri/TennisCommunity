@@ -12,6 +12,7 @@ export interface SessionRow {
   ends_at: string;
   coach_ids: string[];
   location: string;
+  court?: number | null;
   status: string;
   description: string;
   capacity: number;
@@ -25,6 +26,7 @@ export interface LessonRow {
   starts_at: string;
   ends_at: string;
   location: string;
+  court?: number | null;
   price_cents: number | null;
   notes: string;
 }
@@ -82,9 +84,9 @@ const CALENDAR_ID = "primary";
 const SESSION_LABEL = { group: "Group Session", performance_accelerator: "Performance Accelerator" };
 const LESSON_LABEL = { private: "Private Lesson", semi_private: "Semi-Private Lesson" };
 
-function baseEvent(type: SourceType, id: string, row: { starts_at: string; ends_at: string; location: string }) {
+function baseEvent(type: SourceType, id: string, row: { starts_at: string; ends_at: string; location: string; court?: number | null }) {
   return {
-    location: row.location,
+    location: row.court ? `${row.location} · Court ${row.court}` : row.location,
     status: "confirmed" as const,
     start: { dateTime: row.starts_at, timeZone: TIME_ZONE },
     end: { dateTime: row.ends_at, timeZone: TIME_ZONE },

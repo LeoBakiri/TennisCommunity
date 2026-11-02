@@ -65,6 +65,7 @@ create table if not exists public.sessions (
   capacity int not null check (capacity > 0),
   price_cents int,
   location text not null default '',
+  court int check (court between 1 and 4),
   status text not null default 'draft' check (status in ('draft','published','cancelled')),
   visibility text not null default 'public' check (visibility in ('public','private')),
   description text not null default '',
@@ -105,6 +106,7 @@ create table if not exists public.lessons (
   starts_at timestamptz not null,
   ends_at timestamptz not null,
   location text not null default '',
+  court int check (court between 1 and 4),
   price_cents int check (price_cents is null or price_cents >= 0),
   notes text not null default '',
   created_at timestamptz not null default now(),
@@ -493,9 +495,9 @@ declare
 begin
   -- Nested, not joined with AND: these columns exist only on sessions, and AND wouldn't protect lessons.
   if tg_table_name = 'sessions' and tg_op = 'UPDATE' then
-    if row(new.session_type, new.title, new.starts_at, new.ends_at, new.coach_ids, new.location, new.status, new.description)
+    if row(new.session_type, new.title, new.starts_at, new.ends_at, new.coach_ids, new.location, new.court, new.status, new.description)
        is not distinct from
-       row(old.session_type, old.title, old.starts_at, old.ends_at, old.coach_ids, old.location, old.status, old.description) then
+       row(old.session_type, old.title, old.starts_at, old.ends_at, old.coach_ids, old.location, old.court, old.status, old.description) then
       return null;
     end if;
   end if;

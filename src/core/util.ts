@@ -21,6 +21,11 @@ export const LESSON_META: Record<LessonKind, { label: string; color: string }> =
   semi_private: { label: "Semi-Private Lesson", color: "#B5672C" },
 };
 
+// Balboa has numbered courts; other locations don't get a court picker.
+export const COURTS = [1, 2, 3, 4] as const;
+export const isBalboa = (location: string) => /balboa/i.test(location);
+export const placeLabel = (p: { location: string; court?: number | null }) => (p.court ? `${p.location} · Court ${p.court}` : p.location);
+
 export const sessionTitle = (s: { session_type: SessionType | null; title: string }) => {
   const label = s.session_type ? SESSION_META[s.session_type].label : "Session";
   return s.session_type === "performance_accelerator" && s.title ? `${label}: ${s.title}` : label;

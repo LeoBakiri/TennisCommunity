@@ -28,7 +28,7 @@ async function freshSession(store: MemoryStore, capacity: number, startsInHours 
   const s: Session = {
     id: crypto.randomUUID(), session_type: "group", title: "",
     starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 90 * 60000).toISOString(),
-    coach_ids: [DEMO_IDS.leo], capacity, price_cents: 4000, location: "Court 1",
+    coach_ids: [DEMO_IDS.leo], capacity, price_cents: 4000, location: "Court 1", court: null,
     status: "published", description: "", internal_notes: "", created_at: new Date().toISOString(),
   };
   await store.insert("sessions", s);
@@ -288,4 +288,34 @@ test("removing a coach takes them off sessions and deletes their lessons", async
   assert.equal((await runAction(await ctxFor(DEMO_IDS.leo), "adminRemoveMember", { user_id: DEMO_IDS.kaan })).ok, true);
   assert.deepEqual((await store.get("sessions", s.id))?.coach_ids, [DEMO_IDS.leo]);
   assert.equal((await store.list("lessons", { eq: { coach_id: DEMO_IDS.kaan } })).length, 0);
+});
+
+test("Balboa sessions and lessons keep a court; other places drop it", async () => {
+  const { store, ctxFor } = setup();
+  const leo = await ctxFor(DEMO_IDS.leo);
+  const base = { session_type: "group", date: addDays(dateKey(new Date()), 4), time: "18:00", duration_min: 60, capacity: 8, price: "40", coach_ids: [DEMO_IDS.leo], status: "published", description: "", internal_notes: "" };
+  const id = (r: Awaited<ReturnType<typeof runAction>>) => (r as { redirect: string }).redirect.split("/").pop()!;
+  const balboa = id(await runAction(leo, "saveSession", { ...base, location: "", court: "3" }));
+  assert.equal((await store.get("sessions", balboa))!.court, 3);
+  const park = id(await runAction(leo, "saveSession", { ...base, location: "Morley Field", court: "3" }));
+  assert.equal((await store.get("sessions", park))!.court, null);
+  assert.equal((await runAction(leo, "saveSession", { ...base, location: "", court: "5" })).ok, false);
+
+  assert.ok((await runAction(leo, "saveLesson", { ...lessonInput, court: "2" })).ok);
+  assert.equal((await store.list("lessons")).find((l) => l.client_names.join() === "Rachel Green" && l.court === 2)?.location, "Balboa");
+});
+
+test("an admin can change a session's court", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 4);
+  const leo = await ctxFor(DEMO_IDS.leo);
+  const form = (court: string) => ({
+    id: s.id, session_type: "group", date: dateKey(s.starts_at), time: new Date(s.starts_at).toLocaleTimeString("en-GB", { timeZone: "America/Los_Angeles", hour: "2-digit", minute: "2-digit" }),
+    duration_min: 90, capacity: 4, price: "40", location: "Balboa Tennis Club, San Diego", court, coach_ids: [DEMO_IDS.leo], status: "published", description: "", internal_notes: "",
+  });
+  assert.ok((await runAction(leo, "saveSession", form("1"))).ok);
+  assert.ok((await runAction(leo, "saveSession", form("2"))).ok);
+  assert.equal((await store.get("sessions", s.id))!.court, 2);
+  assert.ok((await runAction(leo, "saveSession", form(""))).ok);
+  assert.equal((await store.get("sessions", s.id))!.court, null);
 });

@@ -56,6 +56,7 @@ export interface Session {
   capacity: number;
   price_cents: number | null;
   location: string;
+  court: number | null; // Balboa court 1–4, when set
   status: SessionStatus;
   description: string; // notes visible to players
   internal_notes: string; // session notes visible to coaches only
@@ -86,6 +87,7 @@ export interface Lesson {
   starts_at: string;
   ends_at: string;
   location: string;
+  court: number | null; // Balboa court 1–4, when set
   price_cents: number | null;
   notes: string;
   created_at: string;

@@ -4,7 +4,7 @@ import { z, ZodError } from "zod";
 import type { ActionResult, Actor, Booking, BookingStatus, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, timeKey, zonedToUtc } from "./time";
-import { isEmail, normalizePhone, nowIso, uid } from "./util";
+import { isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 
 export class UserError extends Error {}
@@ -70,6 +70,10 @@ const date = z.string({ required_error: "Choose a date" }).regex(/^\d{4}-\d{2}-\
 const time = z.string({ required_error: "Choose a time" }).regex(/^\d{2}:\d{2}$/, "Choose a time");
 const id = z.string().min(1);
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+const court = z.preprocess((v) => (v === "" || v === undefined || v === null ? null : Number(v)), z.number().int().min(1, "Choose court 1–4").max(4, "Choose court 1–4").nullable());
+/** Courts only exist at Balboa; any other location clears it. */
+const courtFor = (location: string, c: number | null) => (isBalboa(location) ? c : null);
 
 const sessionTypes = z.enum(["group", "performance_accelerator"]);
 
@@ -282,6 +286,7 @@ export const actions: Record<string, Handler> = {
       time,
       duration_min: int(15, 600, "Duration"),
       location: text(200),
+      court,
       price: dollars,
       notes: text(4000),
     }),
@@ -294,6 +299,7 @@ export const actions: Record<string, Handler> = {
         starts_at: start.toISOString(),
         ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString(),
         location: input.location,
+        court: courtFor(input.location, input.court),
         price_cents: input.price,
         notes: input.notes,
         updated_at: nowIso(),
@@ -329,6 +335,7 @@ export const actions: Record<string, Handler> = {
       capacity: int(1, 200, "Capacity"),
       price: dollars,
       location: text(200),
+      court,
       coach_ids: ids,
       status: z.enum(["draft", "published"]).default("draft"),
       description: text(2000),
@@ -339,6 +346,7 @@ export const actions: Record<string, Handler> = {
       admin(ctx);
       const settings = await getSettings(ctx.store);
       const start = zonedToUtc(input.date, input.time);
+      const location = input.location || settings.default_location;
       const fields = {
         session_type: input.session_type as SessionType,
         title: input.session_type === "performance_accelerator" ? input.title : "",
@@ -347,7 +355,8 @@ export const actions: Record<string, Handler> = {
         coach_ids: input.coach_ids,
         capacity: input.capacity,
         price_cents: input.price,
-        location: input.location || settings.default_location,
+        location,
+        court: courtFor(location, input.court),
         status: input.status,
         description: input.description,
         internal_notes: input.internal_notes,

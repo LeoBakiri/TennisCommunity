@@ -3,7 +3,7 @@ import type { Actor, Booking, Lesson, Profile, Session, SessionType } from "./ty
 import type { Store } from "./store";
 import { addDays, dateKey, isDateKey, startOfWeek, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, LESSON_META, lessonTitle, SESSION_META, sessionTitle } from "./util";
+import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
@@ -186,7 +186,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     }),
     ...lessons.map((l) => {
       const meta = LESSON_META[l.kind];
-      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: l.location, cancelled: false };
+      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false };
     }),
   ].sort(by((i) => i.starts_at));
   const active = items.filter((i) => !i.cancelled);
