@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
-import { priceLabel } from "../sessions";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
+import { priceLabel, whenWord } from "../sessions";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
-import { dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtRange, timeKey } from "@/core/time";
+import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, timeKey } from "@/core/time";
 import { SESSION_META, sessionTitle } from "@/core/util";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -34,12 +34,80 @@ const dollarsField = (cents: number | null | undefined) => (cents == null ? "" :
 
 // ───────────────────────── community schedule ─────────────────────────
 
+function WeekPulse({ pulse }: { pulse: D<typeof loadAdminSchedule>["pulse"] }) {
+  const pct = pulse.capacity ? Math.round((pulse.booked / pulse.capacity) * 100) : 0;
+  const tallest = Math.max(1, ...pulse.days.map((d) => d.capacity));
+  return (
+    <HeroPanel eyebrow="Next 7 days">
+      <h2 className="mt-2 max-w-lg font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
+        {pulse.sessions ? `${pulse.booked} ${pulse.booked === 1 ? "player" : "players"} on court across ${pulse.sessions} ${pulse.sessions === 1 ? "session" : "sessions"}.` : "Nothing posted for the week yet."}
+      </h2>
+      <div className="mt-6 grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
+          <HeroStat value={`${pct}%`} label="spots filled">
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+            </div>
+          </HeroStat>
+          <HeroStat value={Math.max(0, pulse.capacity - pulse.booked)} label="spots open" />
+          <HeroStat value={pulse.waitlist} label="on waitlists" />
+          <HeroStat value={pulse.players} label={pulse.new_players ? `players · ${pulse.new_players} new this week` : "players"} />
+        </dl>
+        <div className="flex items-end gap-1.5 sm:gap-2" aria-label="Spots filled by day">
+          {pulse.days.map((d, i) => (
+            <div key={d.day} className="flex w-8 flex-col items-center gap-1 sm:w-9" title={`${fmtKeyLong(d.day)}: ${d.booked}/${d.capacity} booked`}>
+              <div className="flex h-20 w-full items-end">
+                {d.capacity > 0 ? (
+                  <div className="relative w-full overflow-hidden rounded-md bg-paper/15" style={{ height: `${(d.capacity / tallest) * 100}%` }}>
+                    <div className="seat-taken absolute inset-x-0 bottom-0 rounded-md bg-accent" style={{ height: `${(d.booked / d.capacity) * 100}%`, animationDelay: `${i * 50}ms` }} />
+                  </div>
+                ) : (
+                  <div className="h-1 w-full rounded-full bg-paper/15" />
+                )}
+              </div>
+              <span className="text-[10px] font-medium text-paper/60 uppercase">{i === 0 ? "Today" : fmtKeyWeekday(d.day)}</span>
+              <span className="-mt-1 text-[11px] font-semibold tabular-nums">{fmtKeyNum(d.day)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </HeroPanel>
+  );
+}
+
+function NeedsAttention({ items, today }: { items: D<typeof loadAdminSchedule>["pulse"]["attention"]; today: string }) {
+  if (!items.length) return null;
+  return (
+    <section className="mb-6">
+      <SectionTitle>Needs a look</SectionTitle>
+      <div className="card divide-y divide-ink/[0.06]">
+        {items.map(({ session: s, tone, text }) => (
+          <A key={s.id} href={`/admin/sessions/${s.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-sage/20 md:px-5">
+            <SessionMark type={s.session_type} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">{sessionTitle(s)}</span>
+              <span className="block text-[13px] text-ink/55 capitalize">
+                {whenWord(s.starts_at, today)} · {fmtRange(s.starts_at, s.ends_at)}
+              </span>
+            </span>
+            <Badge tone={tone}>{text}</Badge>
+            <Icon name="right" size={16} className="shrink-0 text-ink/30" />
+          </A>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
   const nav = useNav();
+  const today = data.pulse.days[0].day;
   const tabHref = (tab: string) => withQuery("/admin", { tab: tab === "upcoming" ? "" : tab });
   return (
     <>
       <PageHeader title="Community Schedule" subtitle="Group Sessions and Performance Accelerators." actions={<LinkButton href="/admin/sessions/new" icon="plus">New session</LinkButton>} />
+      <WeekPulse pulse={data.pulse} />
+      <NeedsAttention items={data.pulse.attention} today={today} />
       <Tabs
         current={data.tab}
         items={[
@@ -72,7 +140,10 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                     {s.title && <div className="mt-0.5 pl-5 text-xs text-ink/55">{s.title}</div>}
                   </td>
                   <td className="whitespace-nowrap">
-                    <div>{fmtDay(s.starts_at)}</div>
+                    <div className="flex items-center gap-1.5">
+                      {fmtDay(s.starts_at)}
+                      {dateKey(s.starts_at) === today ? <Badge tone="accent">Today</Badge> : dateKey(s.starts_at) === addDays(today, 1) ? <Badge>Tomorrow</Badge> : null}
+                    </div>
                     <div className="text-xs text-ink/50">{fmtRange(s.starts_at, s.ends_at)}</div>
                   </td>
                   <td className="hidden text-ink/70 md:table-cell">{s.coaches.map((c) => c.full_name.split(" ")[0]).join(", ") || <Badge tone="amber">No coach</Badge>}</td>

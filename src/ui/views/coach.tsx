@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useAction, useNav, withQuery } from "../nav";
+import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Submit } from "../kit";
-import { WeekGrid, WeekNav } from "../sessions";
+import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Submit } from "../kit";
+import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
 import { TimeSelect } from "./admin";
 import type { loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { CoachCalendar, LessonKind } from "@/core/types";
-import { dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtKeyLong, fmtRange, timeKey } from "@/core/time";
+import { dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtKeyLong, fmtRange, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { LESSON_META, SESSION_META, sessionTitle } from "@/core/util";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -76,14 +76,50 @@ const LEGEND = [
   { ...LESSON_META.semi_private, mark: <Dot color={LESSON_META.semi_private.color} /> },
 ];
 
+function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
+  const s = data.summary;
+  const p = data.players;
+  const thisWeek = data.monday === startOfWeek(data.today);
+  const next = thisWeek ? data.next : null;
+  const onNow = next && next.starts_at <= data.nowIso;
+  return (
+    <HeroPanel eyebrow={`Hi ${data.first_name}`}>
+      <h2 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
+        {!thisWeek ? `Week of ${fmtWeekRange(data.monday)}` : onNow ? "You're on court now." : next ? `Next up ${whenWord(next.starts_at, data.today)}.` : "Nothing else on this week."}
+      </h2>
+      {next && (
+        <A href={next.href} className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-paper/10 py-1.5 pr-3 pl-2 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper">
+            {next.session_type ? <SessionMark type={next.session_type} size={14} /> : <Dot color={next.color} />}
+          </span>
+          <span className="truncate">
+            {next.title} · {fmtRange(next.starts_at, next.ends_at)}
+          </span>
+          {(onNow || countdown(next.starts_at)) && <span className="shrink-0 text-accent">{onNow ? "now" : countdown(next.starts_at)}</span>}
+        </A>
+      )}
+      <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
+        <HeroStat value={s.community} label={s.community === 1 ? "community session" : "community sessions"} />
+        <HeroStat value={s.lessons} label={s.lessons === 1 ? "lesson" : "lessons"} />
+        <HeroStat value={s.hours} label="hours on court" />
+        <HeroStat value={p.booked} label={`players booked${p.waitlist ? ` · ${p.waitlist} waiting` : ""}`}>
+          {p.capacity > 0 && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (p.booked / p.capacity) * 100)}%` }} />
+            </div>
+          )}
+        </HeroStat>
+      </dl>
+    </HeroPanel>
+  );
+}
+
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
-  const s = data.summary;
   return (
     <>
       <PageHeader
         title="My Schedule"
-        subtitle={`${s.community} community ${s.community === 1 ? "session" : "sessions"}, ${s.lessons} ${s.lessons === 1 ? "lesson" : "lessons"}, ${s.hours} hours this week.`}
         actions={
           <>
             <LinkButton href={addHref("private")} icon="plus">
@@ -95,6 +131,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
           </>
         }
       />
+      <CoachHero data={data} />
       <GoogleCalendarCard calendar={data.calendar} live={data.live} />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <WeekNav monday={data.monday} base="/coach" />

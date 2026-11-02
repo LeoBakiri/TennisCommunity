@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { A } from "../nav";
 import { Icon, SessionMark, TennisBall } from "../icons";
-import { ActionForm, Badge, BookingBadge, btn, Card, cx, Empty, LinkButton, PageHeader, SectionTitle, Submit } from "../kit";
-import { calendarHref, CancelButton, SessionCard } from "../sessions";
+import { ActionForm, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, SectionTitle, Submit } from "../kit";
+import { calendarHref, CancelButton, countdown, SessionCard, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtDate, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, relativeFromNow } from "@/core/time";
+import { addDays, fmtDate, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
 import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType } from "@/core/types";
 
@@ -15,14 +15,6 @@ type ScheduleData = D<typeof loadSchedule>;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** "today", "tomorrow", "Thursday" or "Nov 14", from a player's point of view. */
-function whenWord(iso: string, today: string) {
-  const d = dateKey(iso);
-  if (d === today) return "today";
-  if (d === addDays(today, 1)) return "tomorrow";
-  if (d < addDays(today, 7)) return fmtKeyLong(d).split(",")[0];
-  return fmtKeyLong(d).split(", ")[1] ?? fmtKeyLong(d);
-}
 
 // ───────────────────────── schedule ─────────────────────────
 
@@ -64,13 +56,9 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
   const t = data.totals;
   const me = data.me;
   return (
-    <section className="court-lines relative mb-6 overflow-hidden rounded-2xl bg-brand p-6 text-paper shadow-sm md:p-8">
-      <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full bg-accent/20 blur-3xl" />
-      <TennisBall size={84} className="ball-bounce absolute top-6 right-6 hidden opacity-90 sm:block" />
-      <div className="relative">
+    <HeroPanel eyebrow={me ? `Hi ${me.first_name}` : meta.settings.brand_name}>
         {me ? (
           <>
-            <div className="text-[13px] font-semibold tracking-wider text-accent uppercase">Hi {me.first_name}</div>
             {me.next ? (
               <>
                 <h1 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.4rem]">
@@ -83,7 +71,7 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
                   <span className="truncate">
                     {sessionTitle(me.next)} · {fmtRange(me.next.starts_at, me.next.ends_at)}
                   </span>
-                  <span className="shrink-0 text-accent">{relativeFromNow(me.next.starts_at)}</span>
+                  {countdown(me.next.starts_at) && <span className="shrink-0 text-accent">{countdown(me.next.starts_at)}</span>}
                 </A>
               </>
             ) : (
@@ -98,7 +86,6 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
           </>
         ) : (
           <>
-            <div className="text-[13px] font-semibold tracking-wider text-accent uppercase">{meta.settings.brand_name}</div>
             <h1 className="mt-2 max-w-md font-display text-[2rem] leading-[1.1] font-semibold tracking-tight md:text-[2.6rem]">Get on court this week.</h1>
             <p className="mt-3 max-w-md text-paper/70">Pick a session, book in two taps, and if it&apos;s full the waitlist moves you in when a spot opens.</p>
             {t.sessions > 0 && (
@@ -108,11 +95,7 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
                   [t.booked, t.booked === 1 ? "player in" : "players in"],
                   [t.open, t.open === 1 ? "spot open" : "spots open"],
                 ].map(([n, label]) => (
-                  <div key={label} className="rounded-xl bg-paper/[0.08] px-3 py-2.5 ring-1 ring-paper/10">
-                    <dt className="sr-only">{label}</dt>
-                    <dd className="font-display text-2xl leading-none font-semibold tabular-nums">{n}</dd>
-                    <dd className="mt-1 text-[12px] text-paper/65">{label}</dd>
-                  </div>
+                  <HeroStat key={label} value={n} label={String(label)} />
                 ))}
               </dl>
             )}
@@ -126,8 +109,7 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
             </div>
           </>
         )}
-      </div>
-    </section>
+    </HeroPanel>
   );
 }
 

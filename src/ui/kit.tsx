@@ -1,7 +1,7 @@
 // Design-system primitives shared by the public site and every portal.
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { A, useAction } from "./nav";
-import { Icon, type IconName } from "./icons";
+import { Icon, TennisBall, type IconName } from "./icons";
 import type { ActionResult, BookingStatus } from "@/core/types";
 import { initials } from "@/core/util";
 
@@ -24,6 +24,32 @@ export function PageHeader({ title, subtitle, eyebrow, actions, back }: { title:
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
+  );
+}
+
+/** The green court-lines banner that opens the player, coach and admin home screens. */
+export function HeroPanel({ eyebrow, children, className }: { eyebrow: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={cx("court-lines relative mb-6 overflow-hidden rounded-2xl bg-brand p-6 text-paper shadow-sm md:p-8", className)}>
+      <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full bg-accent/20 blur-3xl" />
+      <TennisBall size={84} className="ball-bounce absolute top-6 right-6 hidden opacity-90 sm:block" />
+      <div className="relative">
+        <div className="text-[13px] font-semibold tracking-wider text-accent uppercase">{eyebrow}</div>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** A number on the hero banner. */
+export function HeroStat({ value, label, children }: { value: ReactNode; label: string; children?: ReactNode }) {
+  return (
+    <div className="rounded-xl bg-paper/[0.08] px-3 py-2.5 ring-1 ring-paper/10">
+      <dt className="sr-only">{label}</dt>
+      <dd className="font-display text-2xl leading-none font-semibold tabular-nums">{value}</dd>
+      <dd className="mt-1 text-[12px] text-paper/65">{label}</dd>
+      {children}
+    </div>
   );
 }
 

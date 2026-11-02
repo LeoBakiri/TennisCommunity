@@ -190,7 +190,12 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     }),
   ].sort(by((i) => i.starts_at));
   const active = items.filter((i) => !i.cancelled);
+  const now = ctx.now.toISOString();
+  const live = sessions.filter((s) => s.status !== "cancelled");
   return {
+    first_name: u.full_name.split(" ")[0],
+    next: active.find((i) => i.ends_at > now) ?? null,
+    players: { booked: live.reduce((n, s) => n + s.booked, 0), capacity: live.reduce((n, s) => n + s.capacity, 0), waitlist: live.reduce((n, s) => n + s.waitlist, 0) },
     monday,
     days: weekDays(monday),
     today: dateKey(ctx.now),
@@ -256,13 +261,51 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
     tab === "draft" ? s.status === "draft" : tab === "cancelled" ? s.status === "cancelled" : tab === "past" ? s.status === "published" && s.starts_at <= now : s.status === "published" && s.starts_at > now,
   );
   const list = tab === "past" ? filtered.reverse().slice(0, 60) : filtered.slice(0, 80);
+  const today = dateKey(ctx.now);
+  const weekEnd = startIso(addDays(today, 7));
+  const [sessions, soon] = await Promise.all([
+    enrich(ctx.store, list, L, null),
+    enrich(ctx.store, all.filter((s) => s.status === "published" && s.starts_at > now && s.starts_at < weekEnd), L, null),
+  ]);
   return {
     tab,
-    sessions: await enrich(ctx.store, list, L, null),
+    sessions,
+    pulse: weekPulse(soon, L.profiles, today, ctx.now),
     counts: {
       upcoming: all.filter((s) => s.status === "published" && s.starts_at > now).length,
       draft: all.filter((s) => s.status === "draft").length,
     },
+  };
+}
+
+/** The next seven days at a glance, and the sessions that need a decision. */
+function weekPulse(soon: SessionView[], profiles: Profile[], today: string, now: Date) {
+  const sum = (f: (s: SessionView) => number) => soon.reduce((n, s) => n + f(s), 0);
+  const in48h = new Date(now.getTime() + 48 * 3600000).toISOString();
+  const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+  const attention = soon.flatMap((s) => {
+    const why = !s.coach_ids.length
+      ? { tone: "amber" as const, text: "No coach assigned" }
+      : s.starts_at < in48h && s.booked <= 1 && s.capacity > 1
+        ? { tone: "red" as const, text: s.booked ? "Only 1 player so far" : "No players yet" }
+        : s.spots_left === 0 && s.waitlist > 0
+          ? { tone: "green" as const, text: `Full with ${s.waitlist} waiting. Room for another?` }
+          : null;
+    return why ? [{ session: s, ...why }] : [];
+  });
+  return {
+    sessions: soon.length,
+    booked: sum((s) => s.booked),
+    capacity: sum((s) => s.capacity),
+    waitlist: sum((s) => s.waitlist),
+    days: Array.from({ length: 7 }, (_, i) => {
+      const day = addDays(today, i);
+      const list = soon.filter((s) => dateKey(s.starts_at) === day);
+      return { day, sessions: list.length, booked: list.reduce((n, s) => n + Math.min(s.booked, s.capacity), 0), capacity: list.reduce((n, s) => n + s.capacity, 0) };
+    }),
+    players: profiles.filter((p) => p.role === "member" && p.status === "active").length,
+    new_players: profiles.filter((p) => p.role === "member" && p.created_at >= weekAgo).length,
+    attention,
   };
 }
 

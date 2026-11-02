@@ -14,6 +14,21 @@ export function priceLabel(s: Pick<SessionView, "price_cents">) {
 export const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
 const sessionLabel = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].label;
 
+/** "today", "tomorrow", "Thursday" or "Nov 14", counted from today. */
+export function whenWord(iso: string, today: string) {
+  const d = dateKey(iso);
+  if (d === today) return "today";
+  if (d === addDays(today, 1)) return "tomorrow";
+  if (d < addDays(today, 7)) return fmtKeyLong(d).split(",")[0];
+  return fmtKeyLong(d).split(", ")[1] ?? fmtKeyLong(d);
+}
+
+/** "in 3 hr" for anything within a day and a half; further out, the day name says enough. */
+export function countdown(iso: string) {
+  const ms = new Date(iso).getTime() - Date.now();
+  return ms > 0 && ms < 36 * 3600000 ? relativeFromNow(iso) : null;
+}
+
 // ───────────────────────── week navigation ─────────────────────────
 
 export function WeekNav({ monday, base }: { monday: string; base: string }) {
