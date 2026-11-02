@@ -259,6 +259,9 @@
   .right-0 {
     right: 0px;
   }
+  .right-1\.5 {
+    right: calc(var(--spacing) * 1.5);
+  }
   .right-2 {
     right: calc(var(--spacing) * 2);
   }
@@ -267,6 +270,9 @@
   }
   .bottom-0 {
     bottom: 0px;
+  }
+  .bottom-1 {
+    bottom: var(--spacing);
   }
   .bottom-20 {
     bottom: calc(var(--spacing) * 20);
@@ -1353,6 +1359,9 @@
   }
   .opacity-50 {
     opacity: 50%;
+  }
+  .opacity-\[0\.14\] {
+    opacity: 0.14;
   }
   .shadow-2xl {
     --tw-shadow: 0 25px 50px -12px var(--tw-shadow-color, rgb(0 0 0 / 0.25));

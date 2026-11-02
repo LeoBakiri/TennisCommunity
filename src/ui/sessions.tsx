@@ -265,7 +265,10 @@ export function WeekGrid({
                     <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", s.cancelled && "opacity-50")}>
                       <span className="h-9 w-1 shrink-0 rounded-full" style={{ background: s.color }} />
                       <span className="min-w-0 flex-1">
-                        <span className={cx("block truncate text-[15px] font-semibold", s.cancelled && "line-through")}>{s.title}</span>
+                        <span className={cx("flex items-center gap-1.5 text-[15px] font-semibold", s.cancelled && "line-through")}>
+                          {s.session_type && <SessionMark type={s.session_type} size={14} />}
+                          <span className="truncate">{s.title}</span>
+                        </span>
                         <span className="block truncate text-[13px] text-ink/55">
                           {fmtRange(s.starts_at, s.ends_at)} · {s.label}
                         </span>
@@ -330,7 +333,11 @@ export function WeekGrid({
                         >
                           <span className="absolute inset-0" style={{ background: s.color, opacity: 0.15 }} />
                           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: s.color }} />
-                          <span className={cx("relative block truncate font-semibold text-ink", s.cancelled && "line-through")}>{s.title}</span>
+                          {s.session_type && h > 56 && <SessionMark type={s.session_type} size={44} className="absolute right-1.5 bottom-1 opacity-[0.14]" />}
+                          <span className={cx("relative flex items-center gap-1 font-semibold text-ink", s.cancelled && "line-through")}>
+                            {s.session_type && <SessionMark type={s.session_type} size={12} />}
+                            <span className="truncate">{s.title}</span>
+                          </span>
                           <span className="relative block truncate text-ink/60">{fmtRange(s.starts_at, s.ends_at)}</span>
                           {h > 56 && <span className="relative mt-1 block truncate text-ink/60">{s.cancelled ? <Badge>Cancelled</Badge> : s.detail}</span>}
                         </A>

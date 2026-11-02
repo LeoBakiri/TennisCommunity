@@ -1,5 +1,5 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Lesson, Profile, Session } from "./types";
+import type { Actor, Booking, Lesson, Profile, Session, SessionType } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, isDateKey, startOfWeek, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
@@ -32,6 +32,7 @@ export interface ScheduleItem {
   title: string;
   label: string;
   color: string;
+  session_type?: SessionType; // community sessions only; lessons have none
   starts_at: string;
   ends_at: string;
   href: string;
@@ -152,7 +153,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
   const items: ScheduleItem[] = [
     ...sessions.map((s) => {
       const meta = SESSION_META[s.session_type!];
-      return { id: s.id, title: s.title || meta.label, label: meta.label, color: meta.color, starts_at: s.starts_at, ends_at: s.ends_at, href: `/coach/sessions/${s.id}`, detail: `${s.booked}/${s.capacity} booked${s.waitlist ? ` · ${s.waitlist} waiting` : ""}`, cancelled: s.status === "cancelled" };
+      return { id: s.id, title: s.title || meta.label, label: meta.label, color: meta.color, session_type: s.session_type!, starts_at: s.starts_at, ends_at: s.ends_at, href: `/coach/sessions/${s.id}`, detail: `${s.booked}/${s.capacity} booked${s.waitlist ? ` · ${s.waitlist} waiting` : ""}`, cancelled: s.status === "cancelled" };
     }),
     ...lessons.map((l) => {
       const meta = LESSON_META[l.kind];
