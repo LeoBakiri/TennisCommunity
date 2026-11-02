@@ -538,7 +538,7 @@ function Frame({ area, meta, children }: { area: string; meta: FrameMeta; childr
     );
   }
   if (area === "auth") return <>{children}</>;
-  if (meta.user?.role === "admin") {
+  if (meta.user?.role === "admin" || meta.user?.role === "coach") {
     return (
       <PortalShell area="member" meta={meta}>
         {children}

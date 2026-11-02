@@ -211,7 +211,7 @@ const PORTALS: { area: Area; label: string; href: string; roles: Role[] }[] = [
   { area: "admin", label: "Admin", href: "/admin", roles: ["admin"] },
 ];
 
-// Admins get player pages inside this shell too, so the switcher stays put.
+// Coaches and admins get player pages inside this shell too, so the switcher stays put.
 type PortalArea = "member" | "coach" | "admin";
 
 const HOME: Record<PortalArea, string> = { member: "/schedule", coach: "/coach", admin: "/admin" };
