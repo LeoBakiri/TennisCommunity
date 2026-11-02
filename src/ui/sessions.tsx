@@ -169,10 +169,15 @@ function OfferSpotButton({ bookingId, session, window }: { bookingId: string; se
               {sessionLabel(session)} · {fmtDayRange(session.starts_at, session.ends_at)}
             </p>
             <Notice tone="warn">It's less than {window} hours to the session, so you can't cancel.</Notice>
-            <p>
-              We'll offer your spot to {session.waitlist > 0 ? `the ${plural(session.waitlist, "player")} on the waitlist` : "the waitlist"} and anyone else who wants it. If someone takes it, you won't be charged. If
-              nobody takes it, you keep your spot and pay as normal.
-            </p>
+            <p>We'll offer your spot to {session.waitlist > 0 ? `the ${plural(session.waitlist, "player")} on the waitlist` : "the waitlist"} and anyone else who wants it. Until then, you're still booked.</p>
+            <ul className="space-y-1.5">
+              <li>
+                <span className="font-semibold text-ink">Someone takes it:</span> they play instead of you, and you don't pay.
+              </li>
+              <li>
+                <span className="font-semibold text-ink">Nobody takes it:</span> you're still booked and you pay for the session.
+              </li>
+            </ul>
           </div>
         ),
         label: "Offer my spot",
