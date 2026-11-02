@@ -188,7 +188,8 @@ export function PlayerShell({ meta, children }: { meta: FrameMeta; children: Rea
 
 type NavItem = { href: string; label: string; icon: IconName };
 
-function navFor(area: Area): NavItem[] {
+function navFor(area: PortalArea): NavItem[] {
+  if (area === "member") return PLAYER_TABS;
   if (area === "coach") return [{ href: "/coach", label: "My Schedule", icon: "calendar" }];
   return [
     { href: "/admin", label: "Community Schedule", icon: "calendar" },
@@ -206,7 +207,13 @@ const PORTALS: { area: Area; label: string; href: string; roles: Role[] }[] = [
   { area: "admin", label: "Admin", href: "/admin", roles: ["admin"] },
 ];
 
-const THEME: Record<"coach" | "admin", { side: string; muted: string; active: string; hover: string; label: string; light: boolean }> = {
+// Admins get player pages inside this shell too, so the switcher stays put.
+type PortalArea = "member" | "coach" | "admin";
+
+const HOME: Record<PortalArea, string> = { member: "/schedule", coach: "/coach", admin: "/admin" };
+
+const THEME: Record<PortalArea, { side: string; muted: string; active: string; hover: string; label: string; light: boolean }> = {
+  member: { side: "bg-sage/80 border-r border-ink/[0.07]", muted: "text-ink/55", active: "bg-card text-brand shadow-sm", hover: "hover:bg-card/60", label: "Player", light: false },
   coach: { side: "bg-sage/80 border-r border-ink/[0.07]", muted: "text-ink/55", active: "bg-card text-brand shadow-sm", hover: "hover:bg-card/60", label: "Coach", light: false },
   admin: { side: "bg-brand", muted: "text-paper/55", active: "bg-paper/12 text-paper", hover: "hover:bg-paper/[0.07]", label: "Admin", light: true },
 };
@@ -216,8 +223,9 @@ function isActive(path: string, href: string, all: NavItem[]) {
   return match?.href === href;
 }
 
-export function PortalShell({ area, meta, children }: { area: "coach" | "admin"; meta: FrameMeta; children: ReactNode }) {
-  const { path, auth } = useNav();
+export function PortalShell({ area, meta, children }: { area: PortalArea; meta: FrameMeta; children: ReactNode }) {
+  const { path: rawPath, auth } = useNav();
+  const path = rawPath === "/" ? "/schedule" : rawPath;
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
   const items = navFor(area);
@@ -289,7 +297,7 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
         {/* Desktop sidebar */}
         <aside className={cx("sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col gap-5 overflow-y-auto px-4 py-5 md:flex", t.side)}>
           <div className="flex items-center justify-between px-1">
-            <A href={area === "coach" ? "/coach" : "/admin"} aria-label={t.label}>
+            <A href={HOME[area]} aria-label={t.label}>
               <Logo s={s} light={t.light} />
             </A>
           </div>
@@ -307,7 +315,7 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
 
         {/* Mobile top bar */}
         <div className={cx("sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:hidden", area === "admin" ? "bg-brand text-paper" : "border-b border-ink/[0.07] bg-paper/90 backdrop-blur")}>
-          <A href={area === "coach" ? "/coach" : "/admin"}>
+          <A href={HOME[area]}>
             <Logo s={s} light={area === "admin"} compact />
           </A>
           <span className={cx("text-[11px] font-semibold tracking-[0.12em] uppercase", area === "admin" ? "text-paper/70" : "text-ink/50")}>{t.label}</span>
@@ -334,7 +342,7 @@ export function PortalShell({ area, meta, children }: { area: "coach" | "admin";
         )}
 
         <main className={cx("min-w-0 flex-1 md:pb-12", items.length > 1 ? "pb-28" : "pb-12")}>
-          <div className="mx-auto max-w-[1180px] px-4 pt-6 md:px-8 md:pt-9 fade-in" key={path}>
+          <div className={cx("mx-auto px-4 pt-6 md:px-8 md:pt-9 fade-in", area === "member" ? "max-w-3xl" : "max-w-[1180px]")} key={path}>
             {children}
           </div>
         </main>

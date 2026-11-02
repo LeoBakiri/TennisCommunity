@@ -538,6 +538,13 @@ function Frame({ area, meta, children }: { area: string; meta: FrameMeta; childr
     );
   }
   if (area === "auth") return <>{children}</>;
+  if (meta.user?.role === "admin") {
+    return (
+      <PortalShell area="member" meta={meta}>
+        {children}
+      </PortalShell>
+    );
+  }
   return <PlayerShell meta={meta}>{children}</PlayerShell>;
 }
 
