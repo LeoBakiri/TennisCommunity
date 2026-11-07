@@ -28,12 +28,13 @@ export function PageHeader({ title, subtitle, eyebrow, actions, back }: { title:
 }
 
 /** The green court-lines banner that opens the player, coach and admin home screens. */
-export function HeroPanel({ eyebrow, children, className }: { eyebrow: ReactNode; children: ReactNode; className?: string }) {
+/** `compact` is a short banner for pages where the content below should show without scrolling. */
+export function HeroPanel({ eyebrow, children, className, compact }: { eyebrow: ReactNode; children: ReactNode; className?: string; compact?: boolean }) {
   return (
-    <section className={cx("court-lines relative mb-6 overflow-hidden rounded-2xl bg-brand p-6 text-paper shadow-sm md:p-8", className)}>
+    <section className={cx("court-lines relative overflow-hidden rounded-2xl bg-brand text-paper shadow-sm", compact ? "mb-5 p-5 md:px-7" : "mb-6 p-6 md:p-8", className)}>
       <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full bg-accent/20 blur-3xl" />
-      <TennisBall size={84} className="ball-bounce absolute top-6 right-6 hidden opacity-90 sm:block" />
-      <div className="relative">
+      <TennisBall size={compact ? 56 : 84} className={cx("ball-bounce absolute right-6 hidden opacity-90 sm:block", compact ? "top-5" : "top-6")} />
+      <div className={cx("relative", compact && "sm:pr-20")}>
         <div className="text-[13px] font-semibold tracking-wider text-accent uppercase">{eyebrow}</div>
         {children}
       </div>

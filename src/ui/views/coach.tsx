@@ -85,39 +85,47 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
   const next = thisWeek ? data.next : null;
   const onNow = next && next.starts_at <= data.nowIso;
   return (
-    <HeroPanel eyebrow={`Hi ${data.first_name}`}>
-      <h2 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
-        {!thisWeek ? `Week of ${fmtWeekRange(data.monday)}` : onNow ? "You're on court now." : next ? `Next up ${whenWord(next.starts_at, data.today)}.` : "Nothing else on this week."}
-      </h2>
-      {next && (
-        <A href={next.href} className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-paper/10 py-1.5 pr-3 pl-2 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper">
-            {next.session_type ? <SessionMark type={next.session_type} size={14} /> : <Dot color={next.color} />}
-          </span>
-          <span className="truncate">
-            {next.title} · {fmtRange(next.starts_at, next.ends_at)}
-          </span>
-          {(onNow || countdown(next.starts_at)) && <span className="shrink-0 text-accent">{onNow ? "now" : countdown(next.starts_at)}</span>}
-        </A>
-      )}
-      <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
-        <HeroStat value={s.community} label={s.community === 1 ? "community session" : "community sessions"} />
-        <HeroStat value={s.lessons} label={s.lessons === 1 ? "lesson" : "lessons"} />
-        <HeroStat value={s.hours} label="hours on court" />
-        <HeroStat value={p.booked} label={`players booked${p.waitlist ? ` · ${p.waitlist} waiting` : ""}`}>
-          {p.capacity > 0 && (
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
-              <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (p.booked / p.capacity) * 100)}%` }} />
-            </div>
+    <HeroPanel eyebrow={`Hi ${data.first_name}`} compact>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h2 className="mt-1 font-display text-2xl leading-tight font-semibold tracking-tight md:text-[1.75rem]">
+            {!thisWeek ? `Week of ${fmtWeekRange(data.monday)}` : onNow ? "You're on court now." : next ? `Next up ${whenWord(next.starts_at, data.today)}.` : "Nothing else on this week."}
+          </h2>
+          {next && (
+            <A href={next.href} className="mt-2.5 inline-flex max-w-full items-center gap-2 rounded-full bg-paper/10 py-1.5 pr-3 pl-2 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper">
+                {next.session_type ? <SessionMark type={next.session_type} size={14} /> : <Dot color={next.color} />}
+              </span>
+              <span className="truncate">
+                {next.title} · {fmtRange(next.starts_at, next.ends_at)}
+              </span>
+              {(onNow || countdown(next.starts_at)) && <span className="shrink-0 text-accent">{onNow ? "now" : countdown(next.starts_at)}</span>}
+            </A>
           )}
-        </HeroStat>
-      </dl>
+        </div>
+        <dl className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[30rem]">
+          <HeroStat value={s.community} label={s.community === 1 ? "community session" : "community sessions"} />
+          <HeroStat value={s.lessons} label={s.lessons === 1 ? "lesson" : "lessons"} />
+          <HeroStat value={s.hours} label="hours on court" />
+          <HeroStat value={p.booked} label={`players booked${p.waitlist ? ` · ${p.waitlist} waiting` : ""}`}>
+            {p.capacity > 0 && (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
+                <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (p.booked / p.capacity) * 100)}%` }} />
+              </div>
+            )}
+          </HeroStat>
+        </dl>
+      </div>
     </HeroPanel>
   );
 }
 
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
+  const nav = useNav();
+  const calendarCard = <GoogleCalendarCard calendar={data.calendar} live={data.live} />;
+  // Up top only when it needs the coach; once syncing fine it sits under the week so the calendar shows first.
+  const calendarUp = !data.calendar || data.calendar.status === "needs_reconnect" || !!CONNECT_RESULT[nav.search.google];
   return (
     <>
       <PageHeader
@@ -129,7 +137,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
         }
       />
       <CoachHero data={data} />
-      <GoogleCalendarCard calendar={data.calendar} live={data.live} />
+      {calendarUp && calendarCard}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <WeekNav monday={data.monday} base="/coach" />
         <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-ink/60">
@@ -141,6 +149,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
         </div>
       </div>
       <WeekGrid days={data.days} today={data.today} items={data.items} newHref={(d, t) => addHref("private", d, t)} nowIso={data.nowIso} />
+      {!calendarUp && <div className="mt-5">{calendarCard}</div>}
     </>
   );
 }
