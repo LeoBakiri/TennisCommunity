@@ -1,6 +1,6 @@
 // Dependency-free Supabase client: PostgREST for data, GoTrue for auth.
 // Security is enforced in the database with Row Level Security (see supabase/schema.sql).
-import type { Query, SessionStats, Store } from "@/core/store";
+import type { Query, SessionStats, StaffName, Store } from "@/core/store";
 import type { Row, Table } from "@/core/types";
 import { UserError } from "@/core/services";
 
@@ -229,6 +229,10 @@ export class SupabaseStore implements Store {
     for (const id of ids) out[id] = { booked: 0, waitlist: 0, offered: 0 };
     for (const r of rows ?? []) out[r.session_id] = { booked: Number(r.booked), waitlist: Number(r.waitlist), offered: Number(r.offered ?? 0) };
     return out;
+  }
+
+  async staffNames(): Promise<StaffName[]> {
+    return (await this.rpc<StaffName[]>("staff_names", {})) ?? [];
   }
 
   async invoke<T = unknown>(fn: string, body: Record<string, unknown>): Promise<T> {

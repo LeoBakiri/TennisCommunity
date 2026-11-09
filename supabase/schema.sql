@@ -284,9 +284,9 @@ alter table public.calendar_sync_queue enable row level security;
 create policy settings_read on public.settings for select using (true);
 create policy settings_write on public.settings for all using (public.is_admin()) with check (public.is_admin());
 
--- profiles: yourself, staff see everyone, everyone sees coach profiles
+-- profiles: yourself, and staff see everyone; everyone else gets coach names from staff_names()
 create policy profiles_read on public.profiles for select
-  using (id = auth.uid() or public.is_staff() or role in ('coach','admin'));
+  using (id = auth.uid() or public.is_staff());
 create policy profiles_insert on public.profiles for insert to authenticated
   with check (id = auth.uid() or public.is_admin());
 create policy profiles_update on public.profiles for update to authenticated
@@ -351,6 +351,13 @@ language sql stable security definer set search_path = public as $$
   from unnest(ids) as s(id)
   left join public.bookings b on b.session_id = s.id
   group by s.id
+$$;
+
+-- Coach names for the public schedule, without their contact details.
+create or replace function public.staff_names()
+returns table (id uuid, full_name text, role text)
+language sql stable security definer set search_path = public as $$
+  select id, full_name, role from public.profiles where role in ('coach','admin')
 $$;
 
 -- Transaction-safe booking with capacity and waitlist handling.
@@ -516,6 +523,7 @@ end $$;
 revoke execute on function public.admin_remove_member(uuid) from anon, public;
 grant execute on function public.admin_remove_member(uuid) to authenticated;
 grant execute on function public.session_stats(uuid[]) to anon, authenticated;
+grant execute on function public.staff_names() to anon, authenticated;
 grant execute on function public.book_session(uuid, uuid, text) to authenticated;
 grant execute on function public.cancel_booking(uuid, text, boolean) to authenticated;
 grant execute on function public.set_session_notes(uuid, text) to authenticated;

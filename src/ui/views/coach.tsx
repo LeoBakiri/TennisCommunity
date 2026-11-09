@@ -86,7 +86,7 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
   const onNow = next && next.starts_at <= data.nowIso;
   return (
     <HeroPanel eyebrow={`Hi ${data.first_name}`} compact>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
           <h2 className="mt-1 font-display text-2xl leading-tight font-semibold tracking-tight md:text-[1.75rem]">
             {!thisWeek ? `Week of ${fmtWeekRange(data.monday)}` : onNow ? "You're on court now." : next ? `Next up ${whenWord(next.starts_at, data.today)}.` : "Nothing else on this week."}
@@ -103,7 +103,7 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
             </A>
           )}
         </div>
-        <dl className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[30rem]">
+        <dl className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 xl:w-[30rem]">
           <HeroStat value={s.community} label={s.community === 1 ? "community session" : "community sessions"} />
           <HeroStat value={s.lessons} label={s.lessons === 1 ? "lesson" : "lessons"} />
           <HeroStat value={s.hours} label="hours on court" />

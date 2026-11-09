@@ -46,8 +46,12 @@ export interface ScheduleItem {
 const person = (p: Profile): Person => ({ id: p.id, full_name: p.full_name, role: p.role });
 
 async function profileMap(store: Store) {
-  const profiles = await store.list("profiles");
-  return { profiles, profile: new Map(profiles.map((p) => [p.id, p])) };
+  // Players only see their own profile, so coach names come separately, without contact details.
+  const [rows, staff] = await Promise.all([store.list("profiles"), store.staffNames().catch(() => [])]);
+  const profile = new Map(rows.map((p) => [p.id, p]));
+  for (const s of staff)
+    if (!profile.has(s.id)) profile.set(s.id, { ...s, email: null, phone: null, emergency_contact: "", status: "active", onboarded: true, created_at: "" });
+  return { profiles: [...profile.values()], profile };
 }
 type Lookups = Awaited<ReturnType<typeof profileMap>>;
 

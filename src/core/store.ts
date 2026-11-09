@@ -1,4 +1,4 @@
-import type { DB, Row, Table } from "./types";
+import type { DB, Profile, Row, Table } from "./types";
 
 export interface Query<T> {
   eq?: Partial<T>;
@@ -26,11 +26,15 @@ export interface Store {
   exclusive<T>(key: string, fn: () => Promise<T>): Promise<T>;
   /** Seat counts per session, visible to everyone (bookings themselves are private). */
   sessionStats(ids: string[]): Promise<Record<string, SessionStats>>;
+  /** Coach and admin names, visible to everyone (their contact details are not). */
+  staffNames(): Promise<StaffName[]>;
   /** Database-side transactional procedures (Supabase only). */
   rpc?<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
   /** Server-side functions, such as the Google Calendar sync (Supabase only). */
   invoke?<T = unknown>(fn: string, body: Record<string, unknown>): Promise<T>;
 }
+
+export type StaffName = Pick<Profile, "id" | "full_name" | "role">;
 
 export interface SessionStats {
   booked: number;
@@ -147,6 +151,11 @@ export class MemoryStore implements Store {
     const db = await this.data();
     const set = new Set(ids);
     return statsFromBookings(ids, db.bookings.filter((b) => set.has(b.session_id)));
+  }
+
+  async staffNames(): Promise<StaffName[]> {
+    const db = await this.data();
+    return db.profiles.filter((p) => p.role !== "member").map(({ id, full_name, role }) => ({ id, full_name, role }));
   }
 
   exclusive<T>(_key: string, fn: () => Promise<T>): Promise<T> {

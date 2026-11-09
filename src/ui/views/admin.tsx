@@ -87,7 +87,7 @@ function WeekPulse({ pulse }: { pulse: D<typeof loadAdminSchedule>["pulse"] }) {
   const money = (cents: number) => fmtMoney(cents, { free: "$0" });
   return (
     <HeroPanel eyebrow="Next 7 days">
-      <h2 className="mt-2 max-w-lg font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.2rem]">
+      <h2 className="mt-2 max-w-lg font-display text-3xl leading-tight font-semibold tracking-tight sm:pr-24 md:text-[2.2rem]">
         {pulse.sessions ? `${plural(pulse.booked, "player")} booked across ${plural(pulse.sessions, "session")}.` : "Nothing posted for the week yet."}
       </h2>
       {next && (
@@ -98,8 +98,8 @@ function WeekPulse({ pulse }: { pulse: D<typeof loadAdminSchedule>["pulse"] }) {
           <Icon name="right" size={14} className="shrink-0" />
         </A>
       )}
-      <div className="mt-6 grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
-        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_auto] xl:items-end">
+        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <HeroStat value={`${pct}%`} label={`filled · ${open} open${pulse.waitlist ? ` · ${pulse.waitlist} waiting` : ""}`}>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/15">
               <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
