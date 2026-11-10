@@ -789,6 +789,9 @@
     margin-block-start: calc(calc(var(--spacing) * 6) * var(--tw-space-y-reverse));
     margin-block-end: calc(calc(var(--spacing) * 6) * calc(1 - var(--tw-space-y-reverse)));
   }
+  .gap-x-2 {
+    column-gap: calc(var(--spacing) * 2);
+  }
   .gap-x-3 {
     column-gap: calc(var(--spacing) * 3);
   }
@@ -1253,6 +1256,9 @@
   .py-16 {
     padding-block: calc(var(--spacing) * 16);
   }
+  .py-px {
+    padding-block: 1px;
+  }
   .pt-1 {
     padding-top: var(--spacing);
   }
@@ -1615,6 +1621,9 @@
   }
   .underline {
     text-decoration-line: underline;
+  }
+  .underline-offset-2 {
+    text-underline-offset: 2px;
   }
   .opacity-40 {
     opacity: 40%;

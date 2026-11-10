@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
+import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
 import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
@@ -296,7 +296,12 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
       <PageHeader
         back={{ href: "/coach", label: "My Schedule" }}
         title={sessionTitle(s)}
-        subtitle={`${fmtDayLong(s.starts_at)} · ${fmtRange(s.starts_at, s.ends_at)} · ${placeLabel(s)}`}
+        subtitle={
+          <>
+            {fmtDayLong(s.starts_at)} · {fmtRange(s.starts_at, s.ends_at)}
+            <Place p={s} className="mt-1" />
+          </>
+        }
         actions={
           <>
             {data.isAdmin && (

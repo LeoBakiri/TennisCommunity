@@ -116,6 +116,25 @@ export function Tabs({ items, current }: { items: { key: string; label: string; 
 
 // ───────────────────────── atoms ─────────────────────────
 
+/** Where a session happens: venue (opens Google Maps), city, and a court chip. */
+export function Place({ p, className }: { p: { location: string; court?: number | null }; className?: string }) {
+  if (!p.location) return null;
+  const [venue, ...rest] = p.location.split(",").map((x) => x.trim());
+  const area = rest.filter(Boolean).join(", ");
+  return (
+    <span className={cx("flex flex-wrap items-center gap-x-2 gap-y-1", className)}>
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <Icon name="pin" size={15} className="shrink-0 text-ink/45" />
+        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.location)}`} target="_blank" rel="noreferrer" className="font-medium text-ink/80 underline-offset-2 hover:underline" title="Open in Google Maps">
+          {venue}
+        </a>
+        {area && <span className="text-ink/50">· {area}</span>}
+      </span>
+      {p.court && <span className="rounded-full bg-ink/[0.07] px-2 py-px text-[11.5px] font-semibold text-ink/75">Court {p.court}</span>}
+    </span>
+  );
+}
+
 const AVATAR_TONES = ["#1F3A2E", "#4F6B4A", "#2F5D62", "#7A8F3A", "#B5672C", "#5B4B6E", "#8A5A44"];
 export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   const tone = AVATAR_TONES[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_TONES.length];

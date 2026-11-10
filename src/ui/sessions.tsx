@@ -1,7 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { A, useAction, useToast, withQuery } from "./nav";
 import { ballBurst, Icon, SessionMark } from "./icons";
-import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Spinner } from "./kit";
+import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Place, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
 import { fmtMoney, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
@@ -78,9 +78,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             <div className="flex items-center gap-2">
               <Icon name="calendar" size={15} /> {fmtDayLong(s.starts_at)}, {fmtRange(s.starts_at, s.ends_at)}
             </div>
-            <div className="flex items-center gap-2">
-              <Icon name="pin" size={15} /> {placeLabel(s)}
-            </div>
+            <Place p={s} />
             <div className="flex items-center gap-2">
               <Icon name="card" size={15} /> {priceLabel(s)}
             </div>
@@ -377,7 +375,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
           {s.title && <h3 className="mt-1 text-[17px] leading-snug font-semibold">{s.title}</h3>}
           <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
             <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
-            <div>{placeLabel(s)}</div>
+            <Place p={s} />
             <div>
               {s.coaches.length > 0 && `${s.coaches.map((c) => c.full_name.split(" ")[0]).join(" & ")} · `}
               {priceLabel(s)}
