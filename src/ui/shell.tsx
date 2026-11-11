@@ -13,12 +13,27 @@ export interface FrameMeta {
 }
 
 export function Logo({ s, light, compact }: { s: Settings; light?: boolean; compact?: boolean }) {
+  // "El Patio Tennis" → "El Patio" over a small-caps "TENNIS"; one-word names stay on one line.
+  const name = s.brand_name.trim();
+  const cut = name.lastIndexOf(" ");
   return (
     <span className="flex items-center gap-2.5">
-      <span className={cx("flex h-9 w-9 items-center justify-center rounded-[10px] text-[13px] font-bold tracking-tight", light ? "bg-accent text-ink" : "bg-brand text-accent")}>
-        {s.logo_mark}
+      <span className={cx("relative flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded-[11px] font-display text-[14px] font-bold tracking-tight", light ? "bg-accent text-ink" : "bg-brand text-accent")}>
+        {/* Tennis-ball seams behind the letters. */}
+        <svg aria-hidden="true" viewBox="0 0 38 38" fill="none" stroke="currentColor" strokeWidth="1.6" className={cx("absolute inset-0 h-full w-full", light ? "text-brand/30" : "text-accent/35")}>
+          <path d="M-3 9C9 11 14 24 9 41M41 29C29 27 24 14 29-3" />
+        </svg>
+        <span className="relative">{s.logo_mark}</span>
       </span>
-      {!compact && <span className={cx("font-display text-[15px] leading-tight font-semibold tracking-tight", light ? "text-paper" : "text-ink")}>{s.brand_name}</span>}
+      {!compact &&
+        (cut > 0 ? (
+          <span className="flex flex-col">
+            <span className={cx("font-display text-[16px] leading-none font-bold tracking-tight", light ? "text-paper" : "text-ink")}>{name.slice(0, cut)}</span>
+            <span className={cx("mt-1 font-display text-[10px] leading-none font-semibold tracking-[0.22em] uppercase", light ? "text-accent" : "text-brand/60")}>{name.slice(cut + 1)}</span>
+          </span>
+        ) : (
+          <span className={cx("font-display text-[16px] leading-tight font-bold tracking-tight", light ? "text-paper" : "text-ink")}>{name}</span>
+        ))}
     </span>
   );
 }
