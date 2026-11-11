@@ -147,6 +147,14 @@ export interface CoachCalendar {
   connected_at: string;
 }
 
+/** A player's CourtReserve calendar link. Only its owner can read it: it opens their club bookings. */
+export interface CalendarFeed {
+  id: string; // the player's profile id
+  url: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DB {
   settings: Settings[];
   profiles: Profile[];
@@ -157,6 +165,7 @@ export interface DB {
   commission_rules: CommissionRule[];
   clients: Client[];
   feedback: Feedback[];
+  calendar_feeds: CalendarFeed[];
 }
 
 export type Table = keyof DB;

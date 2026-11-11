@@ -1,15 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { A, useAction } from "../nav";
 import { ballBurst, Icon, SessionMark, TennisBall, type IconName } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Submit } from "../kit";
 import { calendarHref, countdown, courtNote, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
-import type { BookingRow, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
+import type { BookingRow, ClubFeed, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
 import { addDays, fmtDate, fmtDateTime, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
 import { levelName, MAX_SKILL_LEVEL, MY_GAME_LAUNCHED, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
-import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
+import { by, lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType, Skill } from "@/core/types";
+import { FEED_DAYS, type ClubEvent } from "@/core/ical";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 type ScheduleData = D<typeof loadSchedule>;
@@ -296,13 +297,31 @@ function CourtLine({ s }: { s: SessionView }) {
   return note ? <div className="mt-1 text-xs font-medium text-[#8A5A10]">{note}</div> : null;
 }
 
-function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow[]; window: number }) {
-  if (!rows.length) return null;
+/** A clinic or private from the player's CourtReserve calendar. It's managed in CourtReserve, so there's nothing to do here. */
+function ClubRow({ e }: { e: ClubEvent }) {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 font-semibold">
+          <Icon name="calendar" size={16} className="shrink-0 text-ink/45" /> {e.title}
+        </div>
+        <div className="mt-0.5 text-sm text-ink/60">{e.all_day ? fmtDay(e.starts_at) : fmtDayRange(e.starts_at, e.ends_at)}</div>
+        <Place p={e} className="mt-1 text-sm" />
+      </div>
+      <Badge className="self-start sm:self-center">CourtReserve</Badge>
+    </div>
+  );
+}
+
+function BookingGroup({ title, rows, window, club = [] }: { title: string; rows: BookingRow[]; window: number; club?: ClubEvent[] }) {
+  if (!rows.length && !club.length) return null;
+  // El Patio bookings and CourtReserve events in one list, by start time.
+  const items: { at: string; r?: BookingRow; e?: ClubEvent }[] = [...rows.map((r) => ({ at: r.session.starts_at, r })), ...club.map((e) => ({ at: e.starts_at, e }))].sort(by((i) => i.at));
   return (
     <section>
       <SectionTitle>{title}</SectionTitle>
       <div className="card divide-y divide-ink/[0.06]">
-        {rows.map((r) => (
+        {items.map(({ r, e }) => !r ? <ClubRow key={`club:${e!.uid}`} e={e!} /> : (
           <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
             <div className="min-w-0">
               <div className="flex items-center gap-2 font-semibold">
@@ -324,6 +343,56 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
         ))}
       </div>
     </section>
+  );
+}
+
+/** Players paste their CourtReserve calendar link once; their club bookings then show in Upcoming. */
+function ClubCalendar({ club }: { club: ClubFeed }) {
+  if (club.connected) {
+    return (
+      <div className="space-y-3">
+        {club.error && <Notice tone="warn">{club.error}</Notice>}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-sage/50 px-4 py-2.5 text-sm">
+          <span className="flex min-w-0 items-start gap-2 text-ink/70">
+            <Icon name="check" size={16} className="mt-0.5 shrink-0 text-brand" />
+            <span>
+              CourtReserve connected
+              {!club.error && <span className="text-ink/50"> · {club.events.length ? plural(club.events.length, "booking") : "nothing booked"} in the next {FEED_DAYS} days</span>}
+            </span>
+          </span>
+          <ActionButton action="disconnectCourtReserve" input={{}} variant="ghost" confirm={{ title: "Disconnect CourtReserve?", body: "Your CourtReserve bookings stop showing here. Nothing changes in CourtReserve.", label: "Disconnect", danger: true }}>
+            Disconnect
+          </ActionButton>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="card p-4 md:px-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sage text-brand">
+          <Icon name="calendar" size={17} />
+        </span>
+        <div className="min-w-0 flex-1 text-sm">
+          <div className="font-semibold">Connect your CourtReserve calendar</div>
+          <div className="text-ink/55">Your clinics and privates from CourtReserve show up here, next to your El Patio sessions.</div>
+          <ActionForm action="connectCourtReserve" className="mt-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input name="url" className="input min-w-0 flex-1" placeholder="https://app.courtreserve.com/Online/PublicIcal/…" inputMode="url" autoComplete="off" autoCapitalize="off" spellCheck={false} aria-label="CourtReserve calendar link" />
+              <Submit size="md" className="shrink-0">Connect</Submit>
+            </div>
+          </ActionForm>
+          <details className="mt-3 text-ink/60">
+            <summary className="cursor-pointer font-medium text-ink/75">Where do I find my link?</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Sign in to CourtReserve and open your calendar.</li>
+              <li>Choose the option to subscribe or sync your calendar, and copy the link it gives you.</li>
+              <li>Paste it above. Only you can see it here.</li>
+            </ol>
+          </details>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -353,15 +422,16 @@ function MyStats({ data }: { data: D<typeof loadMySessions> }) {
 }
 
 export function MySessions({ data }: { data: D<typeof loadMySessions> }) {
-  const empty = !data.confirmed.length && !data.waitlisted.length;
+  const empty = !data.confirmed.length && !data.waitlisted.length && !data.club.events.length;
   return (
     <>
       <PageHeader title="My Sessions" />
       <div className="space-y-6">
         <MyStats data={data} />
         {empty && <Empty icon="calendar" title="Nothing booked yet" action={<LinkButton href="/schedule">See the schedule</LinkButton>} />}
-        <BookingGroup title="Upcoming" rows={data.confirmed} window={data.window} />
+        <BookingGroup title="Upcoming" rows={data.confirmed} window={data.window} club={data.club.events} />
         <BookingGroup title="Waitlist" rows={data.waitlisted} window={data.window} />
+        <ClubCalendar club={data.club} />
         {data.history.length > 0 && (
           <details className="card p-4 md:px-5">
             <summary className="cursor-pointer text-sm font-semibold">History</summary>

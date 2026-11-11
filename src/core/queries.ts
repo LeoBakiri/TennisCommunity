@@ -6,6 +6,8 @@ import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } fr
 import { by, courtPlan, decideBy, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
+import { FEED_FN, parseIcs, upcomingClubEvents, type ClubEvent } from "./ical";
+import { demoClubFeed } from "./seed";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
@@ -215,9 +217,28 @@ export async function loadMyGame(ctx: LoadCtx) {
 
 export type BookingRow = { booking: Booking; session: SessionView };
 
+export interface ClubFeed {
+  connected: boolean;
+  events: ClubEvent[];
+  error: string | null;
+}
+
+/** The player's CourtReserve events. A slow or broken feed never stops the page from loading. */
+async function loadClubFeed(ctx: LoadCtx, userId: string): Promise<ClubFeed> {
+  // Before the calendar_feeds migration runs, the table is missing: treat that as not connected.
+  const feed = await ctx.store.get("calendar_feeds", userId).catch(() => null);
+  if (!feed) return { connected: false, events: [], error: null };
+  try {
+    const ics = ctx.store.invoke ? (await ctx.store.invoke<{ ics: string }>(FEED_FN, {})).ics : demoClubFeed(ctx.now);
+    return { connected: true, events: upcomingClubEvents(parseIcs(ics), ctx.now), error: null };
+  } catch {
+    return { connected: true, events: [], error: "Couldn't reach CourtReserve just now. Try again in a minute." };
+  }
+}
+
 export async function loadMySessions(ctx: LoadCtx) {
   const u = ctx.actor.user!;
-  const [L, bookings, settings] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings", { eq: { user_id: u.id } }), getSettings(ctx.store)]);
+  const [L, bookings, settings, club] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings", { eq: { user_id: u.id } }), getSettings(ctx.store), loadClubFeed(ctx, u.id)]);
   const sessions = (await ctx.store.list("sessions", { in: { field: "id", values: bookings.map((b) => b.session_id) } })).filter(isCommunity);
   const views = new Map((await enrich(ctx.store, sessions, L, u.id)).map((s) => [s.id, s]));
   const rows: BookingRow[] = bookings.flatMap((b) => {
@@ -236,6 +257,7 @@ export async function loadMySessions(ctx: LoadCtx) {
       .slice(0, 30),
     stats,
     window: settings.cancellation_window_hours,
+    club,
   };
 }
 
