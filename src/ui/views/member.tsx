@@ -7,7 +7,7 @@ import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
 import { addDays, fmtDate, fmtDateTime, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
-import { levelName, MAX_SKILL_LEVEL, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
+import { levelName, MAX_SKILL_LEVEL, MY_GAME_LAUNCHED, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
 import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType, Skill } from "@/core/types";
 
@@ -48,9 +48,11 @@ function Progress({ played, streak, game }: { played: number; streak: number; ga
       )}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
         <p className="text-[13px] text-paper/65">{played === 0 ? "Book one below and your tally starts here." : `${togo} more to reach ${goal}.`}</p>
-        <A href="/my-game" className="inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline">
-          Level {game.level} · {game.into_level}/{POINTS_PER_LEVEL} points <Icon name="right" size={14} />
-        </A>
+        {MY_GAME_LAUNCHED && (
+          <A href="/my-game" className="inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline">
+            Level {game.level} · {game.into_level}/{POINTS_PER_LEVEL} points <Icon name="right" size={14} />
+          </A>
+        )}
       </div>
     </div>
   );
@@ -87,7 +89,7 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
               </>
             )}
             <Progress played={me.played} streak={me.streak_weeks} game={me} />
-            {meta.user && <LevelUp game={me} userId={meta.user.id} />}
+            {MY_GAME_LAUNCHED && meta.user && <LevelUp game={me} userId={meta.user.id} />}
           </>
         ) : (
           <>

@@ -12,6 +12,7 @@ import { isEmail, normalizePhone, uid } from "@/core/util";
 import { NavProvider, ToastHost, type LinkProps, type NavApi } from "@/ui/nav";
 import { PlayerShell, PortalShell, type FrameMeta } from "@/ui/shell";
 import { Empty, LinkButton } from "@/ui/kit";
+import { MY_GAME_LAUNCHED } from "@/core/progress";
 import { VIEWS } from "./registry";
 import { SupabaseAuth, SupabaseStore, type SupaConfig } from "./supabase";
 
@@ -235,7 +236,7 @@ function likelyPages(view: ViewScreen): string[] {
     return [`/coach?week=${addDays(monday, 7)}`, `/coach?week=${addDays(monday, -7)}`, "/coach"];
   }
   if (view.area === "coach") return ["/coach"];
-  return view.meta.user ? ["/schedule", "/my-sessions", "/my-game"] : [];
+  return view.meta.user ? ["/schedule", "/my-sessions", ...(MY_GAME_LAUNCHED ? ["/my-game"] : [])] : [];
 }
 
 function prefetchWhenIdle(view: ViewScreen) {

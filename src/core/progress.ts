@@ -2,6 +2,12 @@
 import type { Feedback, SessionType, Skill } from "./types";
 import { addDays, dateKey, startOfWeek, timeKey } from "./time";
 
+/**
+ * My Game is on standby until the club launches it. While this is false, players and coaches
+ * don't see it anywhere (no tab, no level on Schedule, no skill taps); admins can still open /my-game to preview.
+ */
+export const MY_GAME_LAUNCHED = false;
+
 export const SKILLS: { key: Skill; label: string }[] = [
   { key: "forehand", label: "Forehand" },
   { key: "backhand", label: "Backhand" },

@@ -2,6 +2,7 @@
 import * as Q from "./queries";
 import type { LoadCtx } from "./queries";
 import type { Actor } from "./types";
+import { MY_GAME_LAUNCHED } from "./progress";
 
 export type Area = "public" | "auth" | "member" | "coach" | "admin";
 
@@ -92,6 +93,7 @@ export function guard(area: Area, actor: Actor, path: string): string | null {
   if (!actor.auth_id) return `/login?next=${next}`;
   if (!u || !u.onboarded) return `/onboarding?next=${next}`;
   if (area === "coach" && u.role !== "coach" && u.role !== "admin") return "/schedule";
+  if (!MY_GAME_LAUNCHED && /^\/my-game(\/|$)/.test(path) && u.role !== "admin") return "/schedule";
   if (area === "admin" && u.role !== "admin") return u.role === "coach" ? "/coach" : "/schedule";
   return null;
 }

@@ -4,7 +4,8 @@ import { leaderboardFrom, MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import { loadCoachSession, loadMyGame } from "../src/core/queries";
-import { levelFor, progress, shortName, streakWeeks, type Played } from "../src/core/progress";
+import { levelFor, MY_GAME_LAUNCHED, progress, shortName, streakWeeks, type Played } from "../src/core/progress";
+import { guard } from "../src/core/routes";
 import { addDays, dateKey, startOfWeek, zonedToUtc } from "../src/core/time";
 import type { Actor } from "../src/core/types";
 
@@ -162,4 +163,18 @@ test("players set their weekly goal and can leave the leaderboard", async () => 
   const p = (await store.get("profiles", DEMO_IDS.sam))!;
   assert.equal(p.weekly_goal, 2);
   assert.equal(p.leaderboard_hidden, true);
+});
+
+test("while My Game is on standby, only admins can open it", async () => {
+  const { ctxFor } = setup();
+  const sam = (await ctxFor(DEMO_IDS.sam)).actor;
+  const leo = (await ctxFor(DEMO_IDS.leo)).actor;
+  if (MY_GAME_LAUNCHED) {
+    assert.equal(guard("member", sam, "/my-game"), null);
+  } else {
+    assert.equal(guard("member", sam, "/my-game"), "/schedule");
+    assert.equal(guard("member", sam, "/my-sessions"), null);
+  }
+  assert.equal(leo.user?.role, "admin");
+  assert.equal(guard("member", leo, "/my-game"), null);
 });

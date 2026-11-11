@@ -10,7 +10,7 @@ import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, f
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 import { commissionUnder, ruleFor, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
-import { POINTS, SKILLS } from "@/core/progress";
+import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -412,7 +412,7 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
                         <span className="sr-only">Contact details</span>
                       </button>
                     </div>
-                    {data.feedback && r.booking.attended === true && r.player && <SkillTaps bookingId={r.booking.id} name={r.player.full_name} saved={data.feedback[r.player.id]} />}
+                    {MY_GAME_LAUNCHED && data.feedback && r.booking.attended === true && r.player && <SkillTaps bookingId={r.booking.id} name={r.player.full_name} saved={data.feedback[r.player.id]} />}
                     {open === r.booking.id && r.player && (
                       <div className="fade-in mt-3 space-y-1.5 rounded-xl bg-paper p-4 text-sm">
                         {r.player.phone && (
