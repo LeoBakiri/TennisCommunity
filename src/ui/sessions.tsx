@@ -123,7 +123,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
                 bookedTakeover({
                   ...takeoverDetails(s),
                   title: waiting ? "You're on the waitlist" : "You're booked",
-                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : headsUp ? `${courtPlan(s).minimum - s.booked - 1} more needed for 2 courts. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.` : "See you on court!",
+                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : headsUp ? `${courtPlan(s).minimum - s.booked - 1} more needed. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.` : "See you on court!",
                 });
               }
             }}
@@ -290,25 +290,19 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
 }
 
 /** Two-court sessions say so, and until they have enough players, how many more they need. */
+/** Only while a two-court session is short of its minimum; the dots already show the two courts. */
 export function courtNote(s: Pick<SessionView, "session_type" | "capacity" | "booked" | "status" | "decided_at" | "starts_at">, now = Date.now()) {
-  const { courts, minimum } = courtPlan(s);
-  if (courts < 2) return null;
-  const label = `${courts} courts`;
-  if (!needsDecision(s)) return { settled: true as const, text: `${label} · going ahead` };
+  if (!needsDecision(s)) return null;
   const by = decideBy(s.starts_at);
-  const late = new Date(by).getTime() <= now;
-  return { settled: false as const, text: late ? `${label} · coach is confirming` : `${label} · needs ${minimum - s.booked} more by ${shortWhen(by)}` };
+  return new Date(by).getTime() <= now ? "Coach is confirming" : `${courtPlan(s).minimum - s.booked} more needed by ${shortWhen(by)}`;
 }
 /** "Sat 6 AM": close enough to read at a glance, since the session itself is within days. */
 const shortWhen = (iso: string) => `${fmtWeekday(iso)} ${fmtTime(iso)}`;
 
-/** Booking a two-court session that's still short: what happens if it stays short. */
+/** Booking a two-court session that your spot won't fill to its minimum. */
 export function courtHeadsUp(s: SessionView) {
-  if (!needsDecision(s)) return null;
-  const { minimum, size } = courtPlan(s);
-  const after = s.booked + 1;
-  if (after >= minimum) return null;
-  return `Runs on 2 courts once ${minimum} sign up (${after} with you). If it's short, your coach decides by ${shortWhen(decideBy(s.starts_at))}: run it anyway, move to one court of ${size}, or cancel.`;
+  if (!needsDecision(s) || s.booked + 1 >= courtPlan(s).minimum) return null;
+  return `Needs ${courtPlan(s).minimum} players to run on 2 courts. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.`;
 }
 
 const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
@@ -324,7 +318,7 @@ function SeatMeter({ s }: { s: SessionView }) {
   const twoCourts = courts === 2;
   const large = s.capacity <= 8 || twoCourts;
   const note = courtNote(s);
-  const short = note ? !note.settled : false; // still under the minimum: those empty seats get an amber ring
+  const short = !!note; // still under the minimum: those empty seats get an amber ring
   const seat = (i: number) => {
     const isTaken = i < taken;
     const size = twoCourts ? "h-5 w-5 sm:h-[22px] sm:w-[22px]" : large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
@@ -359,7 +353,7 @@ function SeatMeter({ s }: { s: SessionView }) {
       <div className="min-w-0 sm:text-right">
         <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
         <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
-        {note && <div className={cx("mt-0.5 text-xs", note.settled ? "text-ink/45" : "font-medium text-[#8A5A10]")}>{note.text}</div>}
+        {note && <div className="mt-0.5 text-xs font-medium text-[#8A5A10]">{note}</div>}
       </div>
     </>
   );

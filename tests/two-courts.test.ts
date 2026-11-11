@@ -15,17 +15,17 @@ test("a session bigger than one court runs on two, with a minimum", () => {
   assert.deepEqual(courtPlan({ session_type: "performance_accelerator", capacity: 8 }), { size: 4, courts: 2, minimum: 6 });
 });
 
-test("players see how many more a two-court session needs", () => {
+test("players see how many more a two-court session needs, and nothing once it has them", () => {
   const at = (hours: number) => new Date(Date.now() + hours * 3600000).toISOString();
   const s = (booked: number, extra: { session_type?: SessionType; capacity?: number; decided_at?: string | null; starts_at?: string } = {}) => ({
     session_type: "group" as SessionType, capacity: 12, booked, status: "published" as const, decided_at: null, starts_at: at(48), ...extra,
   });
   assert.equal(courtNote(s(2, { capacity: 6 })), null);
-  assert.match(courtNote(s(2))!.text, /^2 courts · needs 8 more by (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}(:\d\d)? (AM|PM)$/);
-  assert.equal(courtNote(s(10))!.text, "2 courts · going ahead");
-  assert.match(courtNote(s(3, { session_type: "performance_accelerator", capacity: 8 }))!.text, /needs 3 more by /);
-  assert.equal(courtNote(s(2, { decided_at: at(-1) }))!.text, "2 courts · going ahead");
-  assert.equal(courtNote(s(2, { starts_at: at(6) }))!.text, "2 courts · coach is confirming");
+  assert.match(courtNote(s(2))!, /^8 more needed by (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}(:\d\d)? (AM|PM)$/);
+  assert.equal(courtNote(s(10)), null);
+  assert.match(courtNote(s(3, { session_type: "performance_accelerator", capacity: 8 }))!, /^3 more needed by /);
+  assert.equal(courtNote(s(2, { decided_at: at(-1) })), null);
+  assert.equal(courtNote(s(2, { starts_at: at(6) })), "Coach is confirming");
 });
 
 function setup() {
@@ -99,7 +99,7 @@ test("only the session's coaches can decide", async () => {
 
 test("booking a short two-court session says what happens if it stays short", () => {
   const view = (booked: number) => ({ session_type: "group", capacity: 12, booked, status: "published", decided_at: null, starts_at: new Date(Date.now() + 48 * 3600000).toISOString() }) as unknown as SessionView;
-  assert.match(courtHeadsUp(view(2))!, /^Runs on 2 courts once 10 sign up \(3 with you\)\. If it's short, your coach decides by .+: run it anyway, move to one court of 6, or cancel\.$/);
+  assert.match(courtHeadsUp(view(2))!, /^Needs 10 players to run on 2 courts\. Your coach confirms by .+\.$/);
   assert.equal(courtHeadsUp(view(9)), null); // the 10th player tips it over
   assert.equal(courtHeadsUp({ ...view(2), decided_at: new Date().toISOString() } as SessionView), null);
 });

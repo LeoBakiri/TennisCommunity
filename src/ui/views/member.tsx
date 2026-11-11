@@ -293,8 +293,7 @@ export function ScheduleView({ data, meta }: { data: ScheduleData; meta: FrameMe
 /** Only while a two-court session is still short, so a booked player knows it isn't settled. */
 function CourtLine({ s }: { s: SessionView }) {
   const note = courtNote(s);
-  if (!note || note.settled || s.status !== "published") return null;
-  return <div className="mt-1 text-xs font-medium text-[#8A5A10]">{note.text}</div>;
+  return note ? <div className="mt-1 text-xs font-medium text-[#8A5A10]">{note}</div> : null;
 }
 
 function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow[]; window: number }) {
