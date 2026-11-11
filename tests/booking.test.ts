@@ -6,7 +6,7 @@ import { runAction, type Ctx } from "../src/core/services";
 import type { Actor, DB, Session } from "../src/core/types";
 import { addDays, dateKey } from "../src/core/time";
 import { matchRoute, guard, retiredRedirect } from "../src/core/routes";
-import { loadAdminCoaches, loadCoachSchedule, loadSchedule } from "../src/core/queries";
+import { loadAdminCoaches, loadAdminMember, loadCoachSchedule, loadSchedule } from "../src/core/queries";
 
 function setup() {
   const now = new Date();
@@ -402,4 +402,36 @@ test("an admin can change a session's court", async () => {
   assert.equal((await store.get("sessions", s.id))!.court, 2);
   assert.ok((await runAction(leo, "saveSession", form(""))).ok);
   assert.equal((await store.get("sessions", s.id))!.court, null);
+});
+
+test("booking says where the player landed, so the confirmation can't show a stale guess", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 1);
+  const [a, b] = memberIds(demoSeed());
+  const first = await runAction(await ctxFor(a), "bookSession", { session_id: s.id });
+  assert.deepEqual(first.ok && first.data, { status: "confirmed", waitlist_position: null });
+  const second = await runAction(await ctxFor(b), "bookSession", { session_id: s.id });
+  assert.deepEqual(second.ok && second.data, { status: "waitlisted", waitlist_position: 1 });
+});
+
+test("a coach removing a player isn't told they left the waitlist", async () => {
+  const { store, ctxFor } = setup();
+  const s = await freshSession(store, 1);
+  const [a, b] = memberIds(demoSeed());
+  for (const uid of [a, b]) await runAction(await ctxFor(uid), "bookSession", { session_id: s.id });
+  const waiting = (await store.list("bookings", { eq: { session_id: s.id, status: "waitlisted" } }))[0];
+  const r = await runAction(await ctxFor(DEMO_IDS.leo), "cancelBooking", { booking_id: waiting.id });
+  assert.equal(r.ok && r.message, "Taken off the waitlist.");
+});
+
+test("admin member history shows the live booking after a cancel and rebook", async () => {
+  const { store, ctxFor, load } = setup();
+  const s = await freshSession(store, 4);
+  const [a] = memberIds(demoSeed());
+  await runAction(await ctxFor(a), "bookSession", { session_id: s.id });
+  const first = (await store.list("bookings", { eq: { session_id: s.id } }))[0];
+  await runAction(await ctxFor(a), "cancelBooking", { booking_id: first.id });
+  await runAction(await ctxFor(a), "bookSession", { session_id: s.id });
+  const data = await loadAdminMember(await load(DEMO_IDS.leo, { id: a }));
+  assert.equal(data.history.find((r) => r.session.id === s.id)?.booking.status, "confirmed");
 });

@@ -84,7 +84,11 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
               <>
                 <h1 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.4rem]">Ready for your next hit?</h1>
                 <p className="mt-2 max-w-md text-paper/70">
-                  {t.open > 0 ? `${plural(t.open, "spot")} open across ${plural(t.sessions, "session")}. Grab one before they go.` : "Every session is full right now. Join a waitlist and you'll move in if a spot opens."}
+                  {t.open > 0
+                    ? `${plural(t.open, "spot")} open across ${plural(t.sessions, "session")}. Grab one before they go.`
+                    : t.sessions > 0
+                      ? "Every session is full right now. Join a waitlist and you'll move in if a spot opens."
+                      : "No sessions are posted right now. New ones are added every week."}
                 </p>
               </>
             )}

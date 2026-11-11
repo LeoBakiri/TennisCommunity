@@ -726,7 +726,8 @@ export async function loadAdminMember(ctx: LoadCtx) {
   const sessions = (await ctx.store.list("sessions", { in: { field: "id", values: bookings.map((b) => b.session_id) } })).filter(isCommunity);
   const views = await enrich(ctx.store, sessions, L, null);
   const history = views.flatMap((session) => {
-    const booking = bookings.find((b) => b.session_id === session.id);
+    // A player who cancelled and booked again has two rows; the live one is what counts.
+    const booking = bookings.find((b) => b.session_id === session.id && isActive(b)) ?? bookings.find((b) => b.session_id === session.id);
     return booking ? [{ session, booking }] : [];
   });
   return {

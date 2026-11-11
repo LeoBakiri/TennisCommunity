@@ -273,7 +273,9 @@ export const actions: Record<string, Handler> = {
       return placeBooking(ctx, session, u);
     };
     const b = await book();
-    return b.status === "waitlisted" ? { ok: true, message: b.waitlist_position === 1 ? "You're next in line. The first spot that opens is yours." : `You're #${b.waitlist_position} in line. We'll move you in the moment a spot opens.` } : { ok: true, message: "You're booked!" };
+    // The page shows what really happened, which can differ from what it showed before the tap.
+    const data = { status: b.status, waitlist_position: b.waitlist_position };
+    return b.status === "waitlisted" ? { ok: true, data, message: b.waitlist_position === 1 ? "You're next in line. The first spot that opens is yours." : `You're #${b.waitlist_position} in line. We'll move you in the moment a spot opens.` } : { ok: true, data, message: "You're booked!" };
   }),
 
   cancelBooking: action(z.object({ booking_id: id, reason: text(300) }), async (ctx, input) => {
@@ -289,7 +291,9 @@ export const actions: Record<string, Handler> = {
     if (!staffCancel && b.status === "confirmed" && hoursLeft < window) {
       throw new UserError(`It's less than ${window} hours to the session, so you can't cancel. Offer your spot instead.`);
     }
-    await cancelAndPromote(ctx, b, session, input.reason || (staffCancel && b.user_id !== u.id ? "Cancelled by coach" : "Cancelled by player"), false);
+    const forSomeoneElse = b.user_id !== u.id;
+    await cancelAndPromote(ctx, b, session, input.reason || (forSomeoneElse ? "Cancelled by coach" : "Cancelled by player"), false);
+    if (forSomeoneElse) return { ok: true, message: b.status === "waitlisted" ? "Taken off the waitlist." : "Player removed. The waitlist moves up." };
     return { ok: true, message: b.status === "waitlisted" ? "You've left the waitlist." : "Booking cancelled." };
   }),
 
@@ -620,6 +624,7 @@ export const actions: Record<string, Handler> = {
         await ctx.store.update("bookings", b.id, {
           status: "cancelled",
           cancelled_at: nowIso(),
+          updated_at: nowIso(),
           cancel_reason: input.reason || "Session cancelled by coach",
           waitlist_position: null,
         });

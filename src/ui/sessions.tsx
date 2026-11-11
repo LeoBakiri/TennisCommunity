@@ -109,10 +109,14 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
               const r = await run("bookSession", { session_id: s.id });
               if (r.ok) {
                 setOpen(false);
+                // Someone may have booked or left since the page loaded, so go by where the player actually landed.
+                const placed = r.data as { status: string; waitlist_position: number | null } | undefined;
+                const waiting = placed ? placed.status === "waitlisted" : isFull;
+                const position = placed?.waitlist_position ?? s.waitlist + 1;
                 bookedTakeover({
                   ...takeoverDetails(s),
-                  title: isFull ? "You're on the waitlist" : "You're booked",
-                  note: isFull ? `#${s.waitlist + 1} in line. We'll move you in if a spot opens.` : "See you on court!",
+                  title: waiting ? "You're on the waitlist" : "You're booked",
+                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : "See you on court!",
                 });
               }
             }}
