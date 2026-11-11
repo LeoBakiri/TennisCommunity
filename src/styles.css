@@ -287,6 +287,91 @@
   .ball-bounce {
     animation: ball-bounce 2.8s cubic-bezier(0.5, 0, 0.5, 1) infinite;
   }
+  .booked-takeover {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--brand);
+    color: #fff;
+    text-align: center;
+    cursor: pointer;
+    animation: booked-drop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .booked-takeover.is-leaving {
+    animation: booked-lift 0.42s cubic-bezier(0.55, 0, 0.75, 0) both;
+  }
+  .booked-inner > * {
+    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .booked-inner h2 {
+    margin-top: 22px;
+    font-family: var(--font-display);
+    font-size: clamp(34px, 9vw, 52px);
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    animation-delay: 0.55s;
+  }
+  .booked-detail {
+    margin-top: 10px;
+    font-size: 16px;
+    color: rgb(255 255 255 / 0.75);
+    animation-delay: 0.65s;
+  }
+  .booked-note {
+    margin-top: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    animation-delay: 0.72s;
+  }
+  .booked-hint {
+    display: block;
+    margin-top: 36px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.4);
+    animation-delay: 1.2s;
+  }
+  .booked-check {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    animation-delay: 0.2s;
+  }
+  .booked-check svg {
+    position: relative;
+    fill: none;
+    stroke: var(--accent);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .booked-ring {
+    stroke-width: 4;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transform: rotate(-90deg);
+    transform-origin: center;
+    animation: booked-draw 0.5s cubic-bezier(0.65, 0, 0.35, 1) 0.3s forwards;
+  }
+  .booked-tick {
+    stroke-width: 6;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: booked-draw 0.3s cubic-bezier(0.65, 0, 0.35, 1) 0.7s forwards;
+  }
+  .booked-ripple {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    opacity: 0;
+    animation: booked-ripple 0.9s ease-out 0.75s;
+  }
   .ball-burst {
     pointer-events: none;
     position: fixed;
@@ -324,6 +409,32 @@
   100% {
     opacity: 0;
     transform: translate(var(--dx), calc(var(--dy) + 120px)) scale(1) rotate(var(--spin));
+  }
+}
+
+@keyframes booked-drop {
+  from {
+    transform: translateY(-100%);
+  }
+}
+@keyframes booked-lift {
+  to {
+    transform: translateY(-100%);
+  }
+}
+@keyframes booked-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes booked-ripple {
+  from {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.2);
   }
 }
 

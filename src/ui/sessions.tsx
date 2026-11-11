@@ -1,6 +1,6 @@
-import { type RefObject, useEffect, useRef, useState } from "react";
-import { A, useAction, useToast, withQuery } from "./nav";
-import { ballBurst, Icon, SessionMark } from "./icons";
+import { useEffect, useRef, useState } from "react";
+import { A, useAction, withQuery } from "./nav";
+import { bookedTakeover, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Place, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
@@ -104,12 +104,15 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             className={btn("primary")}
             disabled={pending}
             data-autofocus
-            onClick={async (e) => {
-              const box = e.currentTarget.getBoundingClientRect();
+            onClick={async () => {
               const r = await run("bookSession", { session_id: s.id });
               if (r.ok) {
                 setOpen(false);
-                ballBurst({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
+                bookedTakeover({
+                  title: isFull ? "You're on the waitlist" : "You're booked",
+                  detail: `${sessionLabel(s)} · ${fmtDayLong(s.starts_at)}, ${fmtRange(s.starts_at, s.ends_at)}`,
+                  note: isFull ? `#${s.waitlist + 1} in line. We'll move you in if a spot opens.` : "See you on court!",
+                });
               }
             }}
           >
@@ -327,8 +330,8 @@ export function skipTheLine(s: SessionView, all: SessionView[]) {
 const SEEN_WAITING = "waitlist-seen";
 
 /** Remembers which bookings this browser saw on a waitlist, so the move in can be celebrated once. */
-function usePromotedCelebration(booking: SessionView["my_booking"], ref: RefObject<HTMLElement | null>) {
-  const toast = useToast();
+function usePromotedCelebration(s: SessionView) {
+  const booking = s.my_booking;
   const [promoted, setPromoted] = useState(false);
   useEffect(() => {
     if (!booking) return;
@@ -339,9 +342,10 @@ function usePromotedCelebration(booking: SessionView["my_booking"], ref: RefObje
       } else if (booking.status === "confirmed" && seen.includes(booking.id)) {
         localStorage.setItem(SEEN_WAITING, JSON.stringify(seen.filter((x) => x !== booking.id)));
         setPromoted(true);
-        toast("A spot opened and you're in. See you on court!");
-        const box = ref.current?.getBoundingClientRect();
-        if (box) setTimeout(() => ballBurst({ x: box.right - 80, y: box.top + box.height / 2 }), 250);
+        setTimeout(
+          () => bookedTakeover({ title: "A spot opened. You're in!", detail: `${sessionLabel(s)} · ${fmtDayLong(s.starts_at)}, ${fmtRange(s.starts_at, s.ends_at)}`, note: "See you on court!" }),
+          250,
+        );
       }
     } catch {
       // Storage can be blocked; the card still shows "You're in".
@@ -357,7 +361,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
   const imIn = mine?.status === "confirmed";
   const hoursAway = (new Date(s.starts_at).getTime() - Date.now()) / 3600000;
   const ref = useRef<HTMLElement>(null);
-  const promoted = usePromotedCelebration(mine, ref);
+  const promoted = usePromotedCelebration(s);
   return (
     <article ref={ref} className="relative px-4 py-4 md:px-5" style={imIn ? { background: `color-mix(in oklab, ${sessionColor(s)} 7%, white)` } : undefined}>
       {imIn && <span className="absolute inset-y-0 left-0 w-1" style={{ background: sessionColor(s) }} />}

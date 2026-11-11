@@ -124,6 +124,38 @@ export function TennisBall({ size = 24, empty, className = "" }: { size?: number
   );
 }
 
+/**
+ * The moment a booking lands: a brand-green panel drops over the whole screen, a check draws itself,
+ * and the details rise in. It lifts away on its own after a few seconds, or sooner on a tap or Escape.
+ */
+export function bookedTakeover({ title, detail, note }: { title: string; detail: string; note?: string }) {
+  if (typeof document === "undefined") return;
+  document.querySelector(".booked-takeover")?.remove();
+  const layer = document.createElement("div");
+  layer.className = "booked-takeover";
+  layer.setAttribute("role", "status");
+  layer.innerHTML = `<div class="booked-inner"><div class="booked-check"><span class="booked-ripple"></span><svg viewBox="0 0 80 80" width="88" height="88"><circle class="booked-ring" cx="40" cy="40" r="36" pathLength="1"/><path class="booked-tick" d="M25 41.5l10 10 20-22" pathLength="1"/></svg></div><h2></h2><p class="booked-detail"></p><p class="booked-note"></p><span class="booked-hint">Tap anywhere to close</span></div>`;
+  layer.querySelector("h2")!.textContent = title;
+  layer.querySelector(".booked-detail")!.textContent = detail;
+  const noteEl = layer.querySelector<HTMLElement>(".booked-note")!;
+  if (note) noteEl.textContent = note;
+  else noteEl.remove();
+  document.body.appendChild(layer);
+  navigator.vibrate?.(25);
+  let gone = false;
+  const close = () => {
+    if (gone) return;
+    gone = true;
+    window.removeEventListener("keydown", onKey);
+    layer.classList.add("is-leaving");
+    setTimeout(() => layer.remove(), 450);
+  };
+  const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+  layer.addEventListener("click", close);
+  window.addEventListener("keydown", onKey);
+  setTimeout(close, 3200);
+}
+
 /** A quick burst of tennis balls from a point on screen, for the moment a booking lands. */
 export function ballBurst(from: { x: number; y: number }) {
   if (typeof document === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
