@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { A, useAction, withQuery } from "./nav";
 import { bookedTakeover, Icon, SessionMark } from "./icons";
-import { ActionButton, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner } from "./kit";
+import { ActionButton, ActionForm, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner, Submit } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
+import { addDays, dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow, timeKey } from "@/core/time";
 import { courtPlan, decideBy, fmtMoney, needsDecision, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
@@ -136,7 +136,7 @@ export function BookButton({ s, signedIn, window }: { s: SessionView; signedIn: 
                 bookedTakeover({
                   ...takeoverDetails(s),
                   title: waiting ? "You're on the waitlist" : "You're booked",
-                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : headsUp ? `${courtPlan(s).minimum - s.booked - 1} more needed. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.` : "See you on court!",
+                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : headsUp ? `${courtPlan(s).minimum - s.booked - 1} more needed. Your coach confirms by ${shortWhen(decideBy(s))}.` : "See you on court!",
                 });
               }
             }}
@@ -304,9 +304,9 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
 
 /** Two-court sessions say so, and until they have enough players, how many more they need. */
 /** Only while a two-court session is short of its minimum; the dots already show the two courts. */
-export function courtNote(s: Pick<SessionView, "session_type" | "capacity" | "booked" | "status" | "decided_at" | "starts_at">, now = Date.now()) {
+export function courtNote(s: Pick<SessionView, "session_type" | "capacity" | "booked" | "status" | "decided_at" | "decide_by" | "starts_at">, now = Date.now()) {
   if (!needsDecision(s)) return null;
-  const by = decideBy(s.starts_at);
+  const by = decideBy(s);
   return new Date(by).getTime() <= now ? "Coach is confirming" : `${courtPlan(s).minimum - s.booked} more needed by ${shortWhen(by)}`;
 }
 /** "Sat 6 AM": close enough to read at a glance, since the session itself is within days. */
@@ -315,7 +315,7 @@ const shortWhen = (iso: string) => `${fmtWeekday(iso)} ${fmtTime(iso)}`;
 /** Booking a two-court session that your spot won't fill to its minimum. */
 export function courtHeadsUp(s: SessionView) {
   if (!needsDecision(s) || s.booked + 1 >= courtPlan(s).minimum) return null;
-  return `Needs ${courtPlan(s).minimum} players to run on 2 courts. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.`;
+  return `Needs ${courtPlan(s).minimum} players to run on 2 courts. Your coach confirms by ${shortWhen(decideBy(s))}.`;
 }
 
 const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
@@ -372,13 +372,37 @@ function SeatMeter({ s }: { s: SessionView }) {
   );
 }
 
+/** The decide-by line, with a way to move it. Players see whatever time is set here. */
+function DecideBy({ s, by, late }: { s: SessionView; by: string; late: boolean }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <ActionForm action="setDecideBy" hidden={{ session_id: s.id }} onDone={(r) => r.ok && setEditing(false)} className="mt-2 flex flex-wrap items-center gap-2">
+        <input className="input w-auto bg-white py-1.5 text-sm" type="datetime-local" name="at" step={900} defaultValue={`${dateKey(by)}T${timeKey(by)}`} max={`${dateKey(s.starts_at)}T${timeKey(s.starts_at)}`} aria-label="Decide by" />
+        <Submit size="sm">Save</Submit>
+        <button type="button" className={btn("ghost", "sm")} onClick={() => setEditing(false)}>
+          Keep time
+        </button>
+      </ActionForm>
+    );
+  }
+  return (
+    <p className="mt-0.5 text-sm">
+      {late ? "The decide-by time has passed. Decide now so players know." : `Decide by ${fmtDateTime(by)}${s.decide_by ? "" : ", 12 hours before"}. Players see this time.`}{" "}
+      <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setEditing(true)}>
+        Change
+      </button>
+    </p>
+  );
+}
+
 const listNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]);
 
 /** Coaches and admins: a two-court session under its minimum needs a call by 12 hours before. */
 export function DecisionCard({ s, booked = [] }: { s: SessionView; booked?: { name: string; at: string }[] }) {
   if (!needsDecision(s) || new Date(s.starts_at).getTime() <= Date.now()) return null;
   const { size, minimum } = courtPlan(s);
-  const by = decideBy(s.starts_at);
+  const by = decideBy(s);
   const late = new Date(by).getTime() <= Date.now();
   const bumped = Math.max(0, s.booked - size);
   // Same order as the move itself: the earliest sign-ups keep their spots.
@@ -392,9 +416,7 @@ export function DecisionCard({ s, booked = [] }: { s: SessionView; booked?: { na
           <h3 className="font-semibold">
             {s.booked} of {minimum} signed up for two courts
           </h3>
-          <p className="mt-0.5 text-sm">
-            {late ? "It's past the 12-hour mark. Decide now so players know." : `Decide by ${fmtDateTime(by)}, 12 hours before. Players see it's waiting on enough sign-ups.`}
-          </p>
+          <DecideBy s={s} by={by} late={late} />
         </div>
       </div>
       <div className="mt-3.5 flex flex-wrap gap-2">

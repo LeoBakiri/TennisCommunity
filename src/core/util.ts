@@ -35,7 +35,8 @@ export function courtPlan(s: { session_type: SessionType | null; capacity: numbe
 export function needsDecision(s: { session_type: SessionType | null; capacity: number; booked: number; status: string; decided_at?: string | null }) {
   return s.status === "published" && !s.decided_at && s.booked < courtPlan(s).minimum;
 }
-export const decideBy = (startsAt: string) => new Date(new Date(startsAt).getTime() - DECIDE_HOURS * 3600000).toISOString();
+/** 12 hours before the start, unless a coach moved it. */
+export const decideBy = (s: { starts_at: string; decide_by?: string | null }) => s.decide_by ?? new Date(new Date(s.starts_at).getTime() - DECIDE_HOURS * 3600000).toISOString();
 
 // Balboa has numbered courts; other locations don't get a court picker.
 export const COURTS = [1, 2, 3, 4] as const;

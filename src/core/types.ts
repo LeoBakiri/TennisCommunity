@@ -64,6 +64,7 @@ export interface Session {
   description: string; // notes visible to players
   internal_notes: string; // session notes visible to coaches only
   decided_at?: string | null; // a coach confirmed a two-court session that was under its minimum
+  decide_by?: string | null; // when a short two-court session will be decided; null means 12 hours before
   created_at: string;
 }
 

@@ -438,6 +438,20 @@ export const actions: Record<string, Handler> = {
     return { ok: true, message: "Notes saved." };
   }),
 
+  // Move when a short two-court session gets decided, so players see the new time.
+  setDecideBy: action(z.object({ session_id: id, at: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Choose a date and time") }), async (ctx, input) => {
+    const u = staff(ctx);
+    const s = await must(ctx.store.get("sessions", input.session_id), "Session");
+    if (!coachesSession(u, s)) throw new UserError("You can only change your own sessions.");
+    const [day, hhmm] = input.at.split("T");
+    const at = zonedToUtc(day, hhmm);
+    if (at.getTime() <= ctx.now.getTime()) throw new UserError("Pick a time that hasn't passed yet.");
+    if (at.toISOString() >= s.starts_at) throw new UserError("Pick a time before the session starts.");
+    if (ctx.store.rpc) await ctx.store.rpc("set_decide_by", { p_session_id: s.id, p_at: at.toISOString() });
+    else await ctx.store.update("sessions", s.id, { decide_by: at.toISOString() });
+    return { ok: true, message: `Players now see it's decided by ${fmtDay(at)} at ${fmtTime(at)}.` };
+  }),
+
   // A two-court session under its minimum: run it anyway, drop to one court, or cancel it.
   decideSession: action(z.object({ session_id: id, choice: z.enum(["run", "one_court", "cancel"]) }), async (ctx, input) => {
     const u = staff(ctx);

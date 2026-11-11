@@ -5,6 +5,7 @@ import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import type { Actor, Session, SessionType } from "../src/core/types";
 import { courtPlan, needsDecision } from "../src/core/util";
+import { dateKey, timeKey, zonedToUtc } from "../src/core/time";
 import { courtHeadsUp, courtNote } from "../src/ui/sessions";
 import { loadCoachSchedule, type SessionView } from "../src/core/queries";
 
@@ -116,4 +117,21 @@ test("the coach's home lists their short two-court sessions, whatever week is on
   assert.ok((await load("2027-03-01")).to_decide.some((d) => d.id === s.id));
   await runAction(await ctxFor(DEMO_IDS.kaan), "decideSession", { session_id: s.id, choice: "run" });
   assert.equal((await load()).to_decide.some((d) => d.id === s.id), false);
+});
+
+test("a coach can move the decide-by time, and players see the new one", async () => {
+  const { store, ctxFor } = setup();
+  const { s, members } = await twoCourts(store, ctxFor, 3);
+  const before = courtNote({ ...(await store.get("sessions", s.id))!, booked: 3 })!;
+  const r = await runAction(await ctxFor(DEMO_IDS.kaan), "setDecideBy", { session_id: s.id, at: "2099-01-01T09:00" });
+  assert.equal(r.ok, false); // after the session starts
+  const start = new Date(s.starts_at);
+  const twoHoursBefore = new Date(start.getTime() - 2 * 3600000);
+  const at = `${dateKey(twoHoursBefore)}T${timeKey(twoHoursBefore)}`;
+  assert.equal((await runAction(await ctxFor(members[0]), "setDecideBy", { session_id: s.id, at })).ok, false); // players can't
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.kaan), "setDecideBy", { session_id: s.id, at })).ok, true);
+  const after = (await store.get("sessions", s.id))!;
+  assert.equal(after.decide_by, zonedToUtc(dateKey(twoHoursBefore), timeKey(twoHoursBefore)).toISOString());
+  assert.notEqual(courtNote({ ...after, booked: 3 }), before);
+  assert.match(courtNote({ ...after, booked: 3 })!, /^7 more needed by /);
 });

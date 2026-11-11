@@ -673,6 +673,9 @@
   .w-\[260px\] {
     width: 260px;
   }
+  .w-auto {
+    width: auto;
+  }
   .w-full {
     width: 100%;
   }
@@ -1304,6 +1307,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--sage) 80%, transparent);
     }
+  }
+  .bg-white {
+    background-color: var(--color-white);
   }
   .bg-white\/60 {
     background-color: color-mix(in srgb, #fff 60%, transparent);

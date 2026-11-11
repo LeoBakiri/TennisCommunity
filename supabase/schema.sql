@@ -73,6 +73,7 @@ create table if not exists public.sessions (
   description text not null default '',
   internal_notes text not null default '',
   decided_at timestamptz, -- a coach confirmed a two-court session that was under its minimum
+  decide_by timestamptz, -- when a short two-court session gets decided; null means 12 hours before
   created_at timestamptz not null default now(),
   check (ends_at > starts_at)
 );
@@ -695,3 +696,20 @@ end $$;
 
 grant execute on function public.decide_session(uuid, text) to authenticated;
 revoke execute on function public.decide_session(uuid, text) from anon, public;
+
+create or replace function public.set_decide_by(p_session_id uuid, p_at timestamptz) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  s public.sessions;
+begin
+  if auth.uid() is null then raise exception 'Please sign in first.'; end if;
+  if not public.coaches_session(p_session_id) then raise exception 'You can only change your own sessions.'; end if;
+  select * into s from public.sessions where id = p_session_id;
+  if not found then raise exception 'Session not found.'; end if;
+  if p_at <= now() then raise exception 'Pick a time that hasn''t passed yet.'; end if;
+  if p_at >= s.starts_at then raise exception 'Pick a time before the session starts.'; end if;
+  update public.sessions set decide_by = p_at where id = p_session_id;
+end $$;
+
+grant execute on function public.set_decide_by(uuid, timestamptz) to authenticated;
+revoke execute on function public.set_decide_by(uuid, timestamptz) from anon, public;

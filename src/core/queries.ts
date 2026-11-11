@@ -324,7 +324,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     },
     calendar: calendars[0] ?? null,
     live: ctx.store.kind === "supabase",
-    to_decide: twoCourt.filter(needsDecision).map((s) => ({ id: s.id, title: sessionTitle(s), session_type: s.session_type!, starts_at: s.starts_at, booked: s.booked, minimum: courtPlan(s).minimum, decide_by: decideBy(s.starts_at) })),
+    to_decide: twoCourt.filter(needsDecision).map((s) => ({ id: s.id, title: sessionTitle(s), session_type: s.session_type!, starts_at: s.starts_at, booked: s.booked, minimum: courtPlan(s).minimum, decide_by: decideBy(s) })),
   };
 }
 
@@ -621,7 +621,7 @@ function weekPulse(soon: SessionView[], today: string, now: Date, recent: { play
     const why = !s.coach_ids.length
       ? { tone: "amber" as const, text: "No coach assigned" }
       : needsDecision(s) && s.starts_at < in48h
-        ? { tone: "red" as const, text: `${s.booked} of ${courtPlan(s).minimum} for two courts. Decide by ${fmtDateTime(decideBy(s.starts_at))}` }
+        ? { tone: "red" as const, text: `${s.booked} of ${courtPlan(s).minimum} for two courts. Decide by ${fmtDateTime(decideBy(s))}` }
       : s.starts_at < in48h && s.booked <= 1 && s.capacity > 1
         ? { tone: "red" as const, text: s.booked ? "Only 1 player so far" : "No players yet" }
         : s.spots_left === 0 && s.waitlist > 0
