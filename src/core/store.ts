@@ -1,4 +1,5 @@
 import type { DB, Profile, Row, Table } from "./types";
+import { shortName } from "./progress";
 
 export interface Query<T> {
   eq?: Partial<T>;
@@ -28,6 +29,8 @@ export interface Store {
   sessionStats(ids: string[]): Promise<Record<string, SessionStats>>;
   /** Coach and admin names, visible to everyone (their contact details are not). */
   staffNames(): Promise<StaffName[]>;
+  /** Community sessions each player has played so far in a time range, by short name only (bookings are private). */
+  leaderboard(fromIso: string, toIso: string): Promise<LeaderRow[]>;
   /** Database-side transactional procedures (Supabase only). */
   rpc?<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
   /** Server-side functions, such as the Google Calendar sync (Supabase only). */
@@ -35,6 +38,31 @@ export interface Store {
 }
 
 export type StaffName = Pick<Profile, "id" | "full_name" | "role">;
+
+export interface LeaderRow {
+  user_id: string;
+  name: string; // first name and last initial
+  played: number;
+  reached_at: string; // their latest session in the range: on a tie, whoever got there first ranks higher
+}
+
+/** Rank players by sessions played, the way the database's leaderboard() does. */
+export function leaderboardFrom(db: Pick<DB, "bookings" | "sessions" | "profiles">, fromIso: string, toIso: string, nowIso = new Date().toISOString()): LeaderRow[] {
+  const sessions = new Map(db.sessions.map((s) => [s.id, s]));
+  const players = new Map(db.profiles.filter((p) => p.role === "member" && p.status === "active" && !p.leaderboard_hidden).map((p) => [p.id, p]));
+  const rows = new Map<string, LeaderRow>();
+  for (const b of db.bookings) {
+    const s = sessions.get(b.session_id);
+    const p = players.get(b.user_id);
+    if (!s || !p || b.status !== "confirmed" || b.attended === false || !s.session_type || s.status === "cancelled") continue;
+    if (s.starts_at < fromIso || s.starts_at >= toIso || s.starts_at > nowIso) continue;
+    const r = rows.get(p.id) ?? { user_id: p.id, name: shortName(p.full_name), played: 0, reached_at: s.starts_at };
+    r.played++;
+    if (s.starts_at > r.reached_at) r.reached_at = s.starts_at;
+    rows.set(p.id, r);
+  }
+  return [...rows.values()].sort((a, b) => b.played - a.played || (a.reached_at < b.reached_at ? -1 : 1)).slice(0, 50);
+}
 
 export interface SessionStats {
   booked: number;
@@ -156,6 +184,10 @@ export class MemoryStore implements Store {
   async staffNames(): Promise<StaffName[]> {
     const db = await this.data();
     return db.profiles.filter((p) => p.role !== "member").map(({ id, full_name, role }) => ({ id, full_name, role }));
+  }
+
+  async leaderboard(fromIso: string, toIso: string): Promise<LeaderRow[]> {
+    return leaderboardFrom(await this.data(), fromIso, toIso);
   }
 
   exclusive<T>(_key: string, fn: () => Promise<T>): Promise<T> {

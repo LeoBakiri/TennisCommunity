@@ -78,6 +78,7 @@ export function DemoBar({ meta }: { meta: FrameMeta }) {
 const PLAYER_TABS: { href: string; label: string; icon: IconName }[] = [
   { href: "/schedule", label: "Schedule", icon: "calendar" },
   { href: "/my-sessions", label: "My Sessions", icon: "list" },
+  { href: "/my-game", label: "My Game", icon: "chart" },
 ];
 
 function UserMenu({ meta }: { meta: FrameMeta }) {
@@ -169,7 +170,7 @@ export function PlayerShell({ meta, children }: { meta: FrameMeta; children: Rea
         </div>
       </footer>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink/[0.08] bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden" aria-label="Primary">
-        <ul className="grid grid-cols-2">
+        <ul className="grid grid-cols-3">
           {PLAYER_TABS.map((t) => (
             <li key={t.href}>
               <A href={t.href} aria-current={active(t.href) ? "page" : undefined} className={cx("flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium", active(t.href) ? "text-brand" : "text-ink/50")}>

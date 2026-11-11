@@ -6,6 +6,7 @@ export type SessionType = "group" | "performance_accelerator";
 export type LessonKind = "private" | "semi_private";
 export type SessionStatus = "draft" | "published" | "cancelled";
 export type BookingStatus = "confirmed" | "waitlisted" | "cancelled";
+export type Skill = "serve" | "forehand" | "backhand" | "volley" | "movement" | "match_play";
 
 export interface Settings {
   id: string; // always "default"
@@ -42,6 +43,8 @@ export interface Profile {
   emergency_contact: string;
   status: "active" | "inactive";
   onboarded: boolean;
+  weekly_goal?: number; // sessions a week the player aims for, 1–3; missing until the My Game migration runs
+  leaderboard_hidden?: boolean;
   created_at: string;
 }
 
@@ -111,6 +114,18 @@ export interface Client {
   updated_at: string;
 }
 
+/** What a coach noticed about one player after a community session. Each skill listed moved up a level. */
+export interface Feedback {
+  id: string;
+  session_id: string;
+  user_id: string; // the player
+  coach_id: string;
+  skills: Skill[];
+  tip: string; // shown to the player as their focus
+  created_at: string;
+  updated_at: string;
+}
+
 /** What a club takes from lessons taught at its courts. Coaches can read these; only admins change them. */
 export interface CommissionRule {
   id: string;
@@ -140,6 +155,7 @@ export interface DB {
   coach_calendars: CoachCalendar[];
   commission_rules: CommissionRule[];
   clients: Client[];
+  feedback: Feedback[];
 }
 
 export type Table = keyof DB;

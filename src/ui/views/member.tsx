@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { A } from "../nav";
-import { Icon, SessionMark, TennisBall } from "../icons";
-import { ActionForm, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
+import { useEffect, useState, type ReactNode } from "react";
+import { A, useAction } from "../nav";
+import { ballBurst, Icon, SessionMark, TennisBall, type IconName } from "../icons";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
 import { calendarHref, countdown, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
-import type { BookingRow, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
-import { addDays, fmtDate, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
+import type { BookingRow, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
+import { addDays, fmtDate, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
+import { POINTS, POINTS_PER_LEVEL, skillLabel, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
 import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType } from "@/core/types";
 
@@ -18,7 +19,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // ───────────────────────── schedule ─────────────────────────
 
-function Progress({ played, streak }: { played: number; streak: number }) {
+function Progress({ played, streak, game }: { played: number; streak: number; game: GameProgress }) {
   const goal = nextMilestone(played);
   const prev = lastMilestone(played);
   const togo = goal - played;
@@ -45,9 +46,12 @@ function Progress({ played, streak }: { played: number; streak: number }) {
           <div className="h-full rounded-full bg-accent" style={{ width: `${((played - prev) / (goal - prev)) * 100}%` }} />
         </div>
       )}
-      <p className="mt-2 text-[13px] text-paper/65">
-        {played === 0 ? "Book one below and your tally starts here." : `${togo} more to reach ${goal}.`}
-      </p>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+        <p className="text-[13px] text-paper/65">{played === 0 ? "Book one below and your tally starts here." : `${togo} more to reach ${goal}.`}</p>
+        <A href="/my-game" className="inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline">
+          Level {game.level} · {game.into_level}/{POINTS_PER_LEVEL} points <Icon name="right" size={14} />
+        </A>
+      </div>
     </div>
   );
 }
@@ -82,7 +86,8 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
                 </p>
               </>
             )}
-            <Progress played={me.played} streak={me.streak_weeks} />
+            <Progress played={me.played} streak={me.streak_weeks} game={me} />
+            {meta.user && <LevelUp game={me} userId={meta.user.id} />}
           </>
         ) : (
           <>
@@ -381,5 +386,387 @@ export function ProfileView({ data }: { data: D<typeof loadProfile> }) {
         </ActionForm>
       </Card>
     </>
+  );
+}
+
+// ───────────────────────── my game ─────────────────────────
+
+type GameData = D<typeof loadMyGame>;
+
+/** How full this week's goal is, as a small ring. */
+function GoalRing({ done, goal, size = 22 }: { done: number; goal: number; size?: number }) {
+  const r = 14;
+  const len = 2 * Math.PI * r;
+  const part = Math.min(1, done / goal);
+  return (
+    <svg width={size} height={size} viewBox="0 0 36 36" aria-hidden="true" className="shrink-0">
+      <circle cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeOpacity={0.18} strokeWidth="5" />
+      {part > 0 && <circle cx="18" cy="18" r={r} fill="none" stroke="var(--accent)" strokeWidth="5" strokeLinecap="round" strokeDasharray={`${len * part} ${len}`} transform="rotate(-90 18 18)" />}
+    </svg>
+  );
+}
+
+function PointsBar({ game }: { game: GameProgress }) {
+  return (
+    <div className="mt-4 max-w-md">
+      <div className="mb-1.5 flex justify-between gap-3 text-[12.5px] text-paper/70">
+        <span>
+          <b className="font-semibold text-paper">{game.into_level}</b> / {POINTS_PER_LEVEL} points
+        </span>
+        <span>
+          {game.sessions_to_next} {game.sessions_to_next === 1 ? "session" : "sessions"} to Level {game.level + 1}
+        </span>
+      </div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-paper/15">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${(game.into_level / POINTS_PER_LEVEL) * 100}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function GameHero({ data }: { data: GameData }) {
+  const g = data.me;
+  return (
+    <HeroPanel eyebrow={`Hi ${data.first_name} · Level ${g.level}`}>
+      <h1 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.4rem]">{g.level_name}</h1>
+      <PointsBar game={g} />
+      <dl className="mt-5 grid max-w-md grid-cols-3 gap-2">
+        <HeroStat value={g.played} label={g.played === 1 ? "session played" : "sessions played"} />
+        <HeroStat
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              {g.streak_weeks >= 2 && <Icon name="spark" size={17} className="text-accent" />}
+              {g.streak_weeks}
+            </span>
+          }
+          label="week streak"
+        />
+        <HeroStat
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              <GoalRing done={g.this_week} goal={g.goal} />
+              {Math.min(g.this_week, g.goal)}/{g.goal}
+            </span>
+          }
+          label="this week's goal"
+        />
+      </dl>
+      {g.streak_weeks > 0 && (
+        <p className="mt-3 text-[12.5px] text-paper/60">
+          {g.freeze_left ? "Miss a week this month and your streak still holds: one freeze a month is on us." : "You've used this month's streak freeze. Play next week to keep it going."}
+        </p>
+      )}
+    </HeroPanel>
+  );
+}
+
+function WeeklyGoal({ game }: { game: GameProgress }) {
+  const { run, pending } = useAction();
+  const done = game.this_week >= game.goal;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-semibold">Weekly goal</h2>
+          <p className="mt-0.5 text-sm text-ink/60">
+            {done ? `Done for this week. That's +${POINTS.goal} point.` : `${game.goal - game.this_week} more this week for +${POINTS.goal} point.`}
+          </p>
+        </div>
+        <div className="inline-flex overflow-hidden rounded-full border border-ink/12" role="group" aria-label="Sessions a week">
+          {WEEKLY_GOALS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              disabled={pending}
+              aria-pressed={game.goal === n}
+              onClick={() => game.goal !== n && run("setWeeklyGoal", { goal: n })}
+              className={cx("px-3.5 py-1.5 text-[13px] font-medium", n > 1 && "border-l border-ink/12", game.goal === n ? "bg-brand text-paper" : "bg-card text-ink/65 hover:bg-paper")}
+            >
+              {n} a week
+            </button>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Skills({ game }: { game: GameProgress }) {
+  const any = game.skills.some((s) => s.level > 1);
+  return (
+    <Card>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50">set by your coaches</span>}>Your skills</SectionTitle>
+      <div className="space-y-2.5">
+        {game.skills.map((s) => (
+          <div key={s.key} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-3">
+            <span className="flex items-center gap-1.5 text-[13.5px] font-medium">
+              {s.label}
+              {s.recent && <span className="rounded-full bg-accent px-1.5 text-[10.5px] font-bold text-brand">+1</span>}
+            </span>
+            <div className="h-2 overflow-hidden rounded-full bg-ink/[0.07]">
+              <div className="h-full rounded-full bg-brand" style={{ width: `${s.level * 10}%` }} />
+            </div>
+            <span className="text-right text-[12px] text-ink/50 tabular-nums">Lv {s.level}</span>
+          </div>
+        ))}
+      </div>
+      {!any && <p className="mt-3 text-[13px] text-ink/55">After a session your coach can tap the skill that got better, and it moves up a level here.</p>}
+    </Card>
+  );
+}
+
+function Feed({ data }: { data: GameData }) {
+  if (!data.feed.length) return null;
+  return (
+    <Card>
+      <SectionTitle>From your coaches</SectionTitle>
+      <ul className="space-y-3">
+        {data.feed.map((f) => (
+          <li key={f.id} className="flex gap-3">
+            <Avatar name={f.coach} size={30} />
+            <div className="min-w-0 text-[13.5px]">
+              <p>
+                <b className="font-semibold">{f.coach.split(" ")[0]}</b>{" "}
+                {f.skills.length ? (
+                  <>
+                    moved up your <b className="font-semibold">{f.skills.map(skillLabel).join(", ")}</b>
+                  </>
+                ) : (
+                  "left you a tip"
+                )}
+              </p>
+              {f.tip && <p className="mt-0.5 text-ink/70">&ldquo;{f.tip}&rdquo;</p>}
+              <p className="mt-0.5 text-[12px] text-ink/50">
+                {fmtDay(f.at)} · {f.session}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+const BADGE_ICONS: Record<string, IconName> = {
+  s10: "flag",
+  s25: "flag",
+  s50: "flag",
+  streak4: "spark",
+  streak8: "spark",
+  coach_pick: "whistle",
+  goal4: "check",
+  early: "sun",
+  night: "clock",
+  comeback: "repeat",
+  all_round: "grid",
+};
+
+function BadgeIcon({ b }: { b: BadgeView }) {
+  if (b.key === "first") return <TennisBall size={26} />;
+  if (b.key === "accelerated") return <SessionMark type="performance_accelerator" size={24} className="fill-accent" />;
+  return <Icon name={BADGE_ICONS[b.key] ?? "ball"} size={22} strokeWidth={2} />;
+}
+
+function Badges({ game }: { game: GameProgress }) {
+  const earned = game.badges.filter((b) => b.earned);
+  // Earned first, then the ones closest to done.
+  const next = game.badges.filter((b) => !b.earned).sort((a, b) => b.have / b.need - a.have / a.need);
+  return (
+    <Card>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50 tabular-nums">{earned.length} of {game.badges.length}</span>}>Badges</SectionTitle>
+      <ul className="grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-6">
+        {[...earned, ...next].map((b) => (
+          <li key={b.key} className="text-center" title={b.hint}>
+            <div className={cx("mx-auto flex h-13 w-13 items-center justify-center rounded-full", b.earned ? "bg-brand text-accent" : "border-[1.5px] border-dashed border-ink/25 text-ink/35")}>
+              {b.earned ? <BadgeIcon b={b} /> : <Icon name="shield" size={18} />}
+            </div>
+            <p className="mt-1.5 text-[11.5px] leading-tight font-medium">{b.label}</p>
+            {!b.earned && <p className="line-clamp-2 text-[11px] leading-snug text-ink/50 tabular-nums">{b.need > 1 ? `${b.have} / ${b.need}` : b.hint}</p>}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+const monthName = (key: string) => new Date(`${key}T12:00:00Z`).toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+
+function Leaderboard({ data }: { data: GameData }) {
+  const b = data.board;
+  const row = (r: GameData["board"]["top"][number]) => (
+    <li key={r.user_id} className={cx("grid grid-cols-[1.5rem_auto_1fr_auto] items-center gap-3 rounded-xl px-2.5 py-2 text-[14px]", r.me && "bg-accent/35")}>
+      <span className="text-center font-display text-[13px] font-semibold text-ink/50 tabular-nums">{r.rank}</span>
+      <Avatar name={r.name} size={28} />
+      <span className={cx("truncate", r.me && "font-semibold")}>{r.me ? "You" : r.name}</span>
+      <span className="font-semibold tabular-nums">{r.played}</span>
+    </li>
+  );
+  return (
+    <Card>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50">sessions played</span>}>{monthName(b.month)} leaderboard</SectionTitle>
+      {b.top.length ? (
+        <ol className="space-y-0.5">
+          {b.top.map(row)}
+          {b.mine && (
+            <>
+              <li className="py-0.5 text-center text-ink/30" aria-hidden="true">
+                ⋯
+              </li>
+              {row(b.mine)}
+            </>
+          )}
+        </ol>
+      ) : (
+        <p className="text-sm text-ink/60">Nobody has played yet this month. Your first session puts you at the top.</p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[12.5px] text-ink/55">
+        <span>
+          {b.hidden
+            ? "You're hidden from the leaderboard."
+            : b.leading
+              ? "You're top this month. Hold on to it!"
+              : b.chase
+                ? `${b.chase.gap} more ${b.chase.gap === 1 ? "session" : "sessions"} to pass ${b.chase.name}`
+                : "Play a session to get on the board"}
+          {` · resets in ${b.resets_in} ${b.resets_in === 1 ? "day" : "days"}`}
+        </span>
+        <ActionButton action="setLeaderboardHidden" input={{ hidden: !b.hidden }} variant="ghost" size="sm">
+          {b.hidden ? "Show me" : "Hide me"}
+        </ActionButton>
+      </div>
+    </Card>
+  );
+}
+
+function HowPoints() {
+  const rows: [string, string][] = [
+    ["Group Session played", `${POINTS.group} points`],
+    ["Performance Accelerator played", `${POINTS.performance_accelerator} points`],
+    ["A coach moves up one of your skills", `+${POINTS.skill} point`],
+    ["Weekly goal hit", `+${POINTS.goal} point`],
+  ];
+  return (
+    <details className="card group p-5 md:p-6">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-semibold">
+        How points work
+        <Icon name="down" size={16} className="text-ink/50 transition-transform group-open:rotate-180" />
+      </summary>
+      <dl className="mt-3 divide-y divide-ink/[0.06] text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-4 py-2">
+            <dt className="text-ink/70">{k}</dt>
+            <dd className="font-semibold tabular-nums">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-[13px] text-ink/55">Every {POINTS_PER_LEVEL} points is a new level. No-shows earn nothing.</p>
+    </details>
+  );
+}
+
+export function MyGame({ data, meta }: { data: GameData; meta: FrameMeta }) {
+  return (
+    <>
+      <GameHero data={data} />
+      <div className="space-y-4">
+        {data.focus && (
+          <Card className="border-0 bg-sage shadow-none">
+            <div className="flex items-center gap-2 text-[12.5px] text-ink/60">
+              <Avatar name={data.focus.coach} size={26} />
+              This week&apos;s focus · from {data.focus.coach.split(" ")[0]}, {fmtDay(data.focus.at)}
+            </div>
+            <p className="mt-2 font-display text-[17px] leading-snug font-semibold">&ldquo;{data.focus.tip}&rdquo;</p>
+          </Card>
+        )}
+        <WeeklyGoal game={data.me} />
+        <Skills game={data.me} />
+        <Feed data={data} />
+        <Badges game={data.me} />
+        <Leaderboard data={data} />
+        <HowPoints />
+      </div>
+      {meta.user && <LevelUp game={data.me} userId={meta.user.id} />}
+    </>
+  );
+}
+
+// ───────────────────────── level up ─────────────────────────
+
+const seenKey = (userId: string) => `ltc.level.${userId}`;
+function readSeen(userId: string): number | null {
+  try {
+    const v = localStorage.getItem(seenKey(userId));
+    return v ? Number(v) : null;
+  } catch {
+    return null;
+  }
+}
+function writeSeen(userId: string, level: number) {
+  try {
+    localStorage.setItem(seenKey(userId), String(level));
+  } catch {
+    /* storage unavailable: the celebration just won't be remembered */
+  }
+}
+
+/** A full-screen moment the first time a player opens the app after reaching a new level. */
+function LevelUp({ game, userId }: { game: GameProgress; userId: string }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const seen = readSeen(userId);
+    // The first visit only remembers where they are, so nobody gets a celebration for old levels.
+    if (seen === null || seen > game.level) writeSeen(userId, game.level);
+    else if (seen < game.level) {
+      setOpen(true);
+      setTimeout(() => ballBurst({ x: window.innerWidth / 2, y: window.innerHeight * 0.32 }), 250);
+    }
+  }, [userId, game.level]);
+  if (!open) return null;
+  const close = () => {
+    writeSeen(userId, game.level);
+    setOpen(false);
+  };
+  const recent = game.skills.filter((s) => s.recent);
+  const items: [IconName, ReactNode, string][] = [
+    ...recent.map((s): [IconName, ReactNode, string] => ["whistle", `${s.label} Lv ${s.level}`, "Your coach moved it up"]),
+    ...(game.streak_weeks >= 2 ? [["spark", `${game.streak_weeks}-week streak`, "Keep turning up"] as [IconName, ReactNode, string]] : []),
+    ["ball", `${game.played} ${game.played === 1 ? "session" : "sessions"} played`, `${game.sessions_to_next} more ${game.sessions_to_next === 1 ? "session" : "sessions"} to Level ${game.level + 1}`],
+  ];
+  const r = 74;
+  return (
+    <div className="fade-in court-lines fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-brand p-6 text-center text-paper" role="dialog" aria-modal="true" aria-label={`Level ${game.level}`}>
+      <div className="pointer-events-none absolute top-1/4 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-accent/25 blur-3xl" />
+      <div className="relative w-full max-w-xs">
+        <div className="relative mx-auto mb-5 h-[170px] w-[170px]">
+          <svg width="170" height="170" viewBox="0 0 170 170" aria-hidden="true">
+            <circle cx="85" cy="85" r={r} fill="none" stroke="currentColor" strokeOpacity={0.14} strokeWidth="10" />
+            <circle cx="85" cy="85" r={r} fill="none" stroke="var(--accent)" strokeWidth="10" strokeLinecap="round" strokeDasharray={`${2 * Math.PI * r} 999`} transform="rotate(-90 85 85)" />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-[12px] font-semibold tracking-widest text-accent">LEVEL</span>
+            <span className="font-display text-6xl leading-none font-bold">{game.level}</span>
+          </div>
+        </div>
+        <div className="text-[13px] font-semibold tracking-wider text-accent uppercase">Level up</div>
+        <h2 className="mt-1 font-display text-[2rem] leading-tight font-semibold tracking-tight">{game.level_name}</h2>
+        <ul className="mt-5 space-y-2 text-left">
+          {items.map(([icon, title, sub]) => (
+            <li key={String(title)} className="flex items-center gap-3 rounded-xl bg-paper/[0.08] px-3 py-2.5 ring-1 ring-paper/10">
+              <Icon name={icon} size={20} className="text-accent" />
+              <span className="min-w-0">
+                <b className="block text-sm font-semibold">{title}</b>
+                <span className="text-[12px] text-paper/60">{sub}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <A href="/schedule" onClick={close} className={cx(btn("accent", "lg"), "mt-6 w-full justify-center")}>
+          Book my next session
+        </A>
+        <button type="button" onClick={close} className="mt-3 text-sm text-paper/65 hover:text-paper">
+          Close
+        </button>
+      </div>
+    </div>
   );
 }

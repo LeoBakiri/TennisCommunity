@@ -1,6 +1,6 @@
 // Remembers reads for a short time so a click rarely has to wait on the network.
 // Anything this browser changes is forgotten at once; the database still enforces every rule.
-import type { Query, SessionStats, StaffName, Store } from "./store";
+import type { LeaderRow, Query, SessionStats, StaffName, Store } from "./store";
 import type { Row, Table } from "./types";
 
 /** Tables that rarely change, and how long their rows are trusted. */
@@ -106,6 +106,10 @@ export class CachedStore implements Store {
 
   async staffNames(): Promise<StaffName[]> {
     return (await this.read("staff_names", true, () => this.inner.staffNames())).map(copy);
+  }
+
+  async leaderboard(fromIso: string, toIso: string): Promise<LeaderRow[]> {
+    return (await this.read(`leaderboard|${fromIso}|${toIso}`, false, () => this.inner.leaderboard(fromIso, toIso))).map(copy);
   }
 
   async insert<K extends Table>(table: K, row: Row<K>): Promise<Row<K>> {

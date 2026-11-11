@@ -20,6 +20,7 @@ export const ROUTES: RouteDef[] = [
   { id: "welcome", pattern: "/onboarding", area: "auth", title: "Welcome", load: Q.loadWelcome },
 
   { id: "m.sessions", pattern: "/my-sessions", area: "member", title: "My Sessions", load: Q.loadMySessions },
+  { id: "m.game", pattern: "/my-game", area: "member", title: "My Game", load: Q.loadMyGame },
   { id: "m.profile", pattern: "/profile", area: "member", title: "Profile", load: Q.loadProfile },
 
   { id: "c.schedule", pattern: "/coach", area: "coach", title: "My Schedule", load: Q.loadCoachSchedule },

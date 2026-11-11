@@ -1,4 +1,4 @@
-import type { Booking, Client, DB, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { Booking, Client, DB, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import { addDays, dateKey, startOfWeek, zonedToUtc } from "./time";
 
 const BALBOA = "Balboa Tennis Club, San Diego";
@@ -163,6 +163,23 @@ export function demoSeed(now = new Date()): DB {
     lesson(DEMO_IDS.leo, "private", ["Sofia Marquez"], fri, "07:00", 9000, "", "Morley Field");
   }
 
+  // Older community sessions, so Sam's My Game page has a history, a streak and coach feedback.
+  const feedback: Feedback[] = [];
+  const note = (s: Session, user: Profile, skills: Feedback["skills"], tip = "") =>
+    feedback.push({ id: `00000000-0000-4000-d000-${String(feedback.length + 1).padStart(12, "0")}`, session_id: s.id, user_id: user.id, coach_id: s.coach_ids[0], skills, tip, created_at: s.ends_at, updated_at: s.ends_at });
+  const sam = members[0];
+  for (let w = 2; w <= 9; w++) {
+    const pa = w % 3 === 0;
+    const s = mk(pa ? "performance_accelerator" : "group", addDays(addDays(monday, -7 * w), 2), w % 4 === 0 ? "07:30" : "18:00", pa ? { title: "Serve + Return" } : {});
+    if (w !== 6) book(s, sam, { attended: true });
+    for (let i = 1; i <= 4; i++) book(s, members[1 + ((w + i) % (members.length - 1))], { attended: true }); // never Sam twice
+    if (w === 3) note(s, sam, ["serve"]);
+    if (w === 5) note(s, sam, ["forehand", "movement"]);
+    if (w === 8) note(s, sam, ["forehand"]);
+  }
+  const lastMonday = sessions.find((s) => s.session_type === "group" && dateKey(s.starts_at) === addDays(monday, -7));
+  if (lastMonday) note(lastMonday, sam, ["backhand"], "Split step as they hit the ball, not after it bounces.");
+
   // Earlier weeks of lessons, so the month and year earnings views have history.
   const regulars = ["Rachel Green", "Amir Sadeghi", "Sofia Marquez", "Ben Carter", "Lucia Romero"];
   for (let w = 2; w <= 12; w++) {
@@ -199,5 +216,6 @@ export function demoSeed(now = new Date()): DB {
     // A sample rate so the demo shows commission at work; the live site starts with none.
     commission_rules: [{ id: "demo-rule-balboa", place: "Balboa", percent: 20, per_hour_cents: 0, per_lesson_cents: 0, created_at: created }],
     clients,
+    feedback,
   };
 }

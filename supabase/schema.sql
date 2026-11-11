@@ -51,6 +51,8 @@ create table if not exists public.profiles (
   emergency_contact text not null default '',
   status text not null default 'active' check (status in ('active','inactive')),
   onboarded boolean not null default false,
+  weekly_goal int not null default 1 check (weekly_goal between 1 and 3), -- sessions a week the player aims for
+  leaderboard_hidden boolean not null default false,
   created_at timestamptz not null default now()
 );
 create index if not exists profiles_email_idx on public.profiles (lower(email));
@@ -141,6 +143,20 @@ create table if not exists public.clients (
   updated_at timestamptz not null default now()
 );
 create unique index if not exists clients_coach_name on public.clients (coach_id, lower(full_name));
+
+-- What a coach noticed about one player after a community session: skills that moved up a level, and a tip.
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions(id) on update cascade on delete cascade,
+  user_id uuid not null references public.profiles(id) on update cascade on delete cascade,
+  coach_id uuid not null references public.profiles(id) on update cascade on delete cascade,
+  skills text[] not null default '{}' check (skills <@ array['serve','forehand','backhand','volley','movement','match_play']),
+  tip text not null default '' check (length(tip) <= 300),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists feedback_session_user on public.feedback (session_id, user_id);
+create index if not exists feedback_user_idx on public.feedback (user_id);
 
 create table if not exists public.coach_calendars (
   coach_id uuid primary key references public.profiles(id) on update cascade on delete cascade,
@@ -274,6 +290,7 @@ alter table public.sessions enable row level security;
 alter table public.bookings enable row level security;
 alter table public.lessons enable row level security;
 alter table public.clients enable row level security;
+alter table public.feedback enable row level security;
 alter table public.commission_rules enable row level security;
 alter table public.coach_calendars enable row level security;
 alter table public.coach_google_tokens enable row level security;
@@ -318,6 +335,13 @@ create policy clients_update on public.clients for update to authenticated
   using (coach_id = auth.uid() and public.is_staff()) with check (coach_id = auth.uid() and public.is_staff());
 create policy clients_delete on public.clients for delete to authenticated using (coach_id = auth.uid() and public.is_staff());
 
+-- feedback: players read their own; the session's coaches write it
+create policy feedback_read on public.feedback for select to authenticated using (user_id = auth.uid() or public.is_staff());
+create policy feedback_insert on public.feedback for insert to authenticated with check (coach_id = auth.uid() and public.coaches_session(session_id));
+create policy feedback_update on public.feedback for update to authenticated
+  using (public.coaches_session(session_id)) with check (coach_id = auth.uid() and public.coaches_session(session_id));
+create policy feedback_delete on public.feedback for delete to authenticated using (public.coaches_session(session_id));
+
 -- commission rules: coaches read them for their earnings; only admins change them
 create policy commission_rules_read on public.commission_rules for select to authenticated using (public.is_staff());
 create policy commission_rules_write on public.commission_rules for all to authenticated using (public.is_admin()) with check (public.is_admin());
@@ -328,11 +352,11 @@ create policy calendars_read on public.coach_calendars for select to authenticat
 
 grant usage on schema public to anon, authenticated;
 grant select on public.settings, public.profiles, public.sessions to anon;
-grant select, insert, update, delete on public.settings, public.profiles, public.sessions, public.bookings, public.lessons, public.clients to authenticated;
+grant select, insert, update, delete on public.settings, public.profiles, public.sessions, public.bookings, public.lessons, public.clients, public.feedback to authenticated;
 grant select on public.coach_calendars to authenticated;
 grant select, insert, update, delete on public.commission_rules to authenticated;
 revoke all on public.admin_emails from anon, authenticated;
-revoke all on public.lessons, public.commission_rules, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;
+revoke all on public.lessons, public.feedback, public.commission_rules, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;
 revoke all on public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from authenticated;
 -- The google-calendar function uses the service role.
 grant select on public.profiles, public.sessions, public.lessons to service_role;
@@ -358,6 +382,27 @@ create or replace function public.staff_names()
 returns table (id uuid, full_name text, role text)
 language sql stable security definer set search_path = public as $$
   select id, full_name, role from public.profiles where role in ('coach','admin')
+$$;
+
+-- Sessions played between two moments, per player, for the monthly leaderboard.
+-- Hands out only the first name and last initial, and skips players who hid themselves.
+create or replace function public.leaderboard(p_from timestamptz, p_to timestamptz)
+returns table (user_id uuid, name text, played int, reached_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select p.id,
+         split_part(trim(p.full_name), ' ', 1) || coalesce(' ' || upper(substring(trim(p.full_name) from '\s(\S)\S*$')) || '.', ''),
+         count(*)::int,
+         max(s.starts_at)
+  from public.bookings b
+  join public.sessions s on s.id = b.session_id
+  join public.profiles p on p.id = b.user_id
+  where b.status = 'confirmed' and b.attended is distinct from false
+    and s.session_type is not null and s.status <> 'cancelled'
+    and s.starts_at >= p_from and s.starts_at < p_to and s.starts_at <= now()
+    and p.role = 'member' and p.status = 'active' and not p.leaderboard_hidden
+  group by p.id
+  order by 3 desc, 4 asc
+  limit 50
 $$;
 
 -- Transaction-safe booking with capacity and waitlist handling.
@@ -524,6 +569,8 @@ revoke execute on function public.admin_remove_member(uuid) from anon, public;
 grant execute on function public.admin_remove_member(uuid) to authenticated;
 grant execute on function public.session_stats(uuid[]) to anon, authenticated;
 grant execute on function public.staff_names() to anon, authenticated;
+revoke execute on function public.leaderboard(timestamptz, timestamptz) from anon, public;
+grant execute on function public.leaderboard(timestamptz, timestamptz) to authenticated;
 grant execute on function public.book_session(uuid, uuid, text) to authenticated;
 grant execute on function public.cancel_booking(uuid, text, boolean) to authenticated;
 grant execute on function public.set_session_notes(uuid, text) to authenticated;

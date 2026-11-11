@@ -14,6 +14,7 @@ export const VIEWS: Record<string, View> = {
   welcome: P.WelcomeView,
 
   "m.sessions": M.MySessions as View,
+  "m.game": M.MyGame as View,
   "m.profile": M.ProfileView as View,
 
   "c.schedule": C.CoachSchedule as View,

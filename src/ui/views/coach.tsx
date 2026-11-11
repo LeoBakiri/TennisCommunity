@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
 import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
-import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind } from "@/core/types";
+import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 import { commissionUnder, ruleFor, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
+import { SKILLS } from "@/core/progress";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -286,6 +287,76 @@ function AttendanceToggle({ bookingId, value }: { bookingId: string; value: bool
   );
 }
 
+/** After a session: tap what got better for a player who came, and leave a tip they'll see as their focus. */
+function SkillTaps({ bookingId, name, saved }: { bookingId: string; name: string; saved: { skills: Skill[]; tip: string } | undefined }) {
+  const { run, pending } = useAction();
+  const [skills, setSkills] = useState<Skill[]>(saved?.skills ?? []);
+  const [tip, setTip] = useState(saved?.tip ?? "");
+  const [writing, setWriting] = useState(false);
+  const savedKey = JSON.stringify(saved ?? null);
+  useEffect(() => {
+    setSkills(saved?.skills ?? []);
+    setTip(saved?.tip ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+  const save = (next: Skill[], nextTip: string) => run("saveFeedback", { booking_id: bookingId, skills: next, tip: nextTip });
+  const toggle = (k: Skill) => {
+    const next = skills.includes(k) ? skills.filter((x) => x !== k) : [...skills, k];
+    setSkills(next);
+    save(next, saved?.tip ?? "");
+  };
+  const tipDirty = tip.trim() !== (saved?.tip ?? "");
+  const first = name.split(" ")[0];
+  return (
+    <div className="mt-3 rounded-xl bg-paper p-3">
+      <div className="mb-2 text-[12px] font-semibold text-ink/55">What got better today? (optional)</div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Skills ${first} improved`}>
+        {SKILLS.map((s) => {
+          const on = skills.includes(s.key);
+          return (
+            <button
+              key={s.key}
+              type="button"
+              disabled={pending}
+              aria-pressed={on}
+              onClick={() => toggle(s.key)}
+              className={cx("rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-colors", on ? "border-brand bg-brand text-paper" : "border-ink/12 bg-card text-ink/75 hover:border-ink/30")}
+            >
+              {s.label}
+              {on && <span className="ml-1 font-bold text-accent">+1</span>}
+            </button>
+          );
+        })}
+      </div>
+      {writing || saved?.tip ? (
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (tipDirty) save(skills, tip.trim());
+          }}
+        >
+          <input className="input min-h-10 flex-1 py-2 text-[13.5px]" value={tip} maxLength={300} onChange={(e) => setTip(e.target.value)} placeholder={`A tip for ${first} to work on`} aria-label={`Tip for ${first}`} autoFocus={writing && !saved?.tip} />
+          {tipDirty && (
+            <button type="submit" className={btn("primary", "sm")} disabled={pending}>
+              {pending ? <Spinner /> : "Save"}
+            </button>
+          )}
+        </form>
+      ) : (
+        <button type="button" onClick={() => setWriting(true)} className="mt-2 text-[12.5px] font-medium text-brand hover:underline">
+          + Add a tip
+        </button>
+      )}
+      {(saved?.skills.length || saved?.tip) && !tipDirty ? (
+        <p className="mt-2 flex items-center gap-1 text-[12px] text-[#2E5A2A]">
+          <Icon name="check" size={13} strokeWidth={2.5} /> Saved. {first} sees it in My Game.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
   const s = data.session;
   const [open, setOpen] = useState<string | null>(null);
@@ -332,7 +403,8 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
                   <div key={r.booking.id} className="px-4 py-3.5 md:px-5">
                     <div className="flex flex-wrap items-center gap-3">
                       <Avatar name={r.player?.full_name ?? "?"} size={38} />
-                      <div className="min-w-0 flex-1 font-semibold">{r.player?.full_name}</div>
+                      {/* Wide enough that on a phone the attendance buttons wrap below instead of covering the name. */}
+                      <div className="min-w-[7.5rem] flex-1 font-semibold">{r.player?.full_name}</div>
                       {r.booking.spot_offered_at && <Badge tone="amber">Offering spot</Badge>}
                       <AttendanceToggle bookingId={r.booking.id} value={r.booking.attended} />
                       <button className={btn("ghost", "sm")} onClick={() => setOpen(open === r.booking.id ? null : r.booking.id)} aria-expanded={open === r.booking.id}>
@@ -340,6 +412,7 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
                         <span className="sr-only">Contact details</span>
                       </button>
                     </div>
+                    {data.feedback && r.booking.attended === true && r.player && <SkillTaps bookingId={r.booking.id} name={r.player.full_name} saved={data.feedback[r.player.id]} />}
                     {open === r.booking.id && r.player && (
                       <div className="fade-in mt-3 space-y-1.5 rounded-xl bg-paper p-4 text-sm">
                         {r.player.phone && (

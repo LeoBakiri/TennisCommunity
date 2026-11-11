@@ -1,11 +1,12 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Client, Lesson, Profile, Session, SessionType } from "./types";
+import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, SessionType } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
+import { goalOf, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
@@ -102,7 +103,7 @@ export async function loadSchedule(ctx: LoadCtx) {
   const now = ctx.now.toISOString();
   const rows = (await communityBetween(ctx.store, today, addDays(today, settings.booking_horizon_days + 1))).filter((s) => s.status === "published" && s.starts_at > now);
   const u = ctx.actor.user;
-  const [sessions, stats] = await Promise.all([enrich(ctx.store, rows, L, u?.id), u ? playerStats(ctx, u.id) : null]);
+  const [sessions, stats] = await Promise.all([enrich(ctx.store, rows, L, u?.id), u ? playerProgress(ctx, u) : null]);
   const days = [...new Set(sessions.map((s) => dateKey(s.starts_at)))].map((day) => ({ day, sessions: sessions.filter((s) => dateKey(s.starts_at) === day) }));
   const me = u && stats ? { first_name: u.full_name.split(" ")[0], next: sessions.find((s) => s.my_booking?.status === "confirmed") ?? null, ...stats } : null;
   const totals = {
@@ -116,21 +117,67 @@ export async function loadSchedule(ctx: LoadCtx) {
 /** Sessions a player has played, and how many weeks in a row (ending this week or last) they've been on court. */
 export function playStats(playedStarts: string[], now: Date) {
   const weeks = new Set(playedStarts.map((iso) => startOfWeek(dateKey(iso))));
-  let week = startOfWeek(dateKey(now));
-  if (!weeks.has(week)) week = addDays(week, -7);
-  let streak = 0;
-  while (weeks.has(week)) {
-    streak++;
-    week = addDays(week, -7);
-  }
-  return { played: playedStarts.length, streak_weeks: streak };
+  return { played: playedStarts.length, streak_weeks: streakWeeks(weeks, now).weeks };
 }
 
-async function playerStats(ctx: LoadCtx, userId: string) {
+/** Community sessions the player was on court for: booked, not marked a no-show, and already started. */
+async function playedSessions(ctx: LoadCtx, userId: string) {
   const now = ctx.now.toISOString();
   const kept = (await ctx.store.list("bookings", { eq: { user_id: userId } })).filter((b) => holdsSeat(b) && b.attended !== false);
   const sessions = kept.length ? await ctx.store.list("sessions", { in: { field: "id", values: kept.map((b) => b.session_id) } }) : [];
-  return playStats(sessions.filter((s) => isCommunity(s) && s.status !== "cancelled" && s.starts_at <= now).map((s) => s.starts_at), ctx.now);
+  return sessions.filter((s) => isCommunity(s) && s.status !== "cancelled" && s.starts_at <= now);
+}
+
+/** Feedback is new; until its table reaches the live database, players simply have none. */
+const myFeedback = (ctx: LoadCtx, userId: string) => ctx.store.list("feedback", { eq: { user_id: userId } }).catch(() => [] as Feedback[]);
+
+async function playerProgress(ctx: LoadCtx, u: Profile, played?: Session[], feedback?: Feedback[]) {
+  const [sessions, notes] = await Promise.all([played ?? playedSessions(ctx, u.id), feedback ?? myFeedback(ctx, u.id)]);
+  return progress({ played: sessions.map((s) => ({ starts_at: s.starts_at, session_type: s.session_type! }) satisfies Played), feedback: notes, goal: goalOf(u), now: ctx.now });
+}
+
+export async function loadMyGame(ctx: LoadCtx) {
+  const u = ctx.actor.user!;
+  const today = dateKey(ctx.now);
+  const month = `${today.slice(0, 7)}-01`;
+  const nextMonth = `${addDays(month, 32).slice(0, 7)}-01`;
+  const [played, feedback, L, board] = await Promise.all([
+    playedSessions(ctx, u.id),
+    myFeedback(ctx, u.id),
+    profileMap(ctx.store),
+    ctx.store.leaderboard(startIso(month), startIso(nextMonth)).catch(() => []),
+  ]);
+  const me = await playerProgress(ctx, u, played, feedback);
+  const sessionsById = new Map((await ctx.store.list("sessions", { in: { field: "id", values: [...new Set(feedback.map((f) => f.session_id))] } })).map((s) => [s.id, s]));
+  const coachName = (id: string) => L.profile.get(id)?.full_name ?? "Your coach";
+  const feed = [...feedback]
+    .sort(by((f) => f.created_at, -1))
+    .map((f) => {
+      const s = sessionsById.get(f.session_id);
+      return { id: f.id, coach: coachName(f.coach_id), skills: f.skills, tip: f.tip, at: s?.starts_at ?? f.created_at, session: s ? sessionTitle(s) : "Session" };
+    })
+    .filter((f) => f.skills.length || f.tip);
+  const focusCutoff = new Date(ctx.now.getTime() - 28 * 86400000).toISOString();
+  const focus = feed.find((f) => f.tip && f.at >= focusCutoff) ?? null;
+  const ranked = board.map((r, i) => ({ ...r, rank: i + 1, me: r.user_id === u.id }));
+  const mine = ranked.find((r) => r.me) ?? null;
+  const ahead = mine && mine.rank > 1 ? ranked[mine.rank - 2] : null;
+  const days = Math.round((zonedToUtc(nextMonth, "00:00").getTime() - zonedToUtc(today, "00:00").getTime()) / 86400000);
+  return {
+    first_name: u.full_name.split(" ")[0],
+    me,
+    feed: feed.slice(0, 6),
+    focus,
+    board: {
+      month,
+      top: ranked.slice(0, 5),
+      mine: mine && mine.rank > 5 ? mine : null,
+      chase: ahead ? { name: ahead.name, gap: ahead.played - mine!.played + 1 } : null,
+      leading: mine?.rank === 1,
+      resets_in: days,
+      hidden: !!u.leaderboard_hidden,
+    },
+  };
 }
 
 export type BookingRow = { booking: Booking; session: SessionView };
@@ -225,7 +272,13 @@ export async function loadCoachSession(ctx: LoadCtx) {
   if (!s || !isCommunity(s)) throw new NotFound();
   if (!coachesSession(u, s)) throw new Forbidden();
   const L = await profileMap(ctx.store);
-  const [[view], bookings] = await Promise.all([enrich(ctx.store, [s], L, null), ctx.store.list("bookings", { eq: { session_id: s.id } })]);
+  const [[view], bookings, notes] = await Promise.all([
+    enrich(ctx.store, [s], L, null),
+    ctx.store.list("bookings", { eq: { session_id: s.id } }),
+    ctx.store.list("feedback", { eq: { session_id: s.id } }).catch(() => null),
+  ]);
+  // null until the My Game migration reaches the database, which hides the skill taps.
+  const feedback = notes && Object.fromEntries(notes.map((f) => [f.user_id, { skills: f.skills, tip: f.tip }]));
   const roster = bookings
     .filter(isActive)
     .sort((a, b) => (a.status === "waitlisted" ? 1 : 0) - (b.status === "waitlisted" ? 1 : 0) || (a.waitlist_position ?? 0) - (b.waitlist_position ?? 0) || (a.created_at < b.created_at ? -1 : 1))
@@ -233,7 +286,7 @@ export async function loadCoachSession(ctx: LoadCtx) {
       const p = L.profile.get(b.user_id);
       return { booking: b, player: p ? { id: p.id, full_name: p.full_name, email: p.email, phone: p.phone, emergency_contact: p.emergency_contact } : null };
     });
-  return { session: view, roster, isAdmin: isAdmin(u) };
+  return { session: view, roster, isAdmin: isAdmin(u), feedback, started: s.starts_at <= ctx.now.toISOString() };
 }
 
 const CLIENT_PAGE = /^\/coach\/clients\/[\w-]+$/;

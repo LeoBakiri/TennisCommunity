@@ -1,13 +1,14 @@
 // All state-changing operations. Every action validates its input with Zod
 // and checks the actor's permissions before touching the store.
 import { z, ZodError } from "zod";
-import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDay, fmtTime, timeKey, zonedToUtc } from "./time";
 import { isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
+import { SKILLS } from "./progress";
 
 export class UserError extends Error {}
 
@@ -78,6 +79,7 @@ const court = z.preprocess((v) => (v === "" || v === undefined || v === null ? n
 const courtFor = (location: string, c: number | null) => (isBalboa(location) ? c : null);
 
 const sessionTypes = z.enum(["group", "performance_accelerator"]);
+const skills = z.preprocess((v) => (Array.isArray(v) ? v : v ? [v] : []), z.array(z.enum(SKILLS.map((s) => s.key) as [Feedback["skills"][number], ...Feedback["skills"]])));
 
 // ───────────────────────── booking engine ─────────────────────────
 
@@ -247,6 +249,18 @@ export const actions: Record<string, Handler> = {
     return { ok: true, message: "Profile saved." };
   }),
 
+  setWeeklyGoal: action(z.object({ goal: z.coerce.number().int().min(1).max(3) }), async (ctx, input) => {
+    const u = me(ctx);
+    await ctx.store.update("profiles", u.id, { weekly_goal: input.goal });
+    return { ok: true, message: `Goal set: ${input.goal === 1 ? "1 session" : `${input.goal} sessions`} a week.` };
+  }),
+
+  setLeaderboardHidden: action(z.object({ hidden: z.boolean() }), async (ctx, input) => {
+    const u = me(ctx);
+    await ctx.store.update("profiles", u.id, { leaderboard_hidden: input.hidden });
+    return { ok: true, message: input.hidden ? "You're off the leaderboard." : "You're back on the leaderboard." };
+  }),
+
   // ── Player: booking ──
   bookSession: action(z.object({ session_id: id }), async (ctx, input) => {
     const u = me(ctx);
@@ -349,6 +363,30 @@ export const actions: Record<string, Handler> = {
     const s = await must(ctx.store.get("sessions", b.session_id), "Session");
     if (!coachesSession(u, s)) throw new UserError("You can only take attendance for your own sessions.");
     await ctx.store.update("bookings", b.id, { attended: input.attended === "clear" ? null : input.attended === "yes", updated_at: nowIso() });
+    // Skill taps only stand for players who were there.
+    if (input.attended !== "yes") {
+      const notes = await ctx.store.list("feedback", { eq: { session_id: s.id, user_id: b.user_id } }).catch(() => []);
+      for (const f of notes) await ctx.store.remove("feedback", f.id);
+    }
+    return { ok: true };
+  }),
+
+  saveFeedback: action(z.object({ booking_id: id, skills, tip: text(300) }), async (ctx, input) => {
+    const u = staff(ctx);
+    const b = await must(ctx.store.get("bookings", input.booking_id), "Booking");
+    const s = await must(ctx.store.get("sessions", b.session_id), "Session");
+    if (!coachesSession(u, s)) throw new UserError("You can only give feedback for your own sessions.");
+    if (b.status !== "confirmed" || b.attended !== true) throw new UserError("Mark them present first.");
+    const [existing] = await ctx.store.list("feedback", { eq: { session_id: s.id, user_id: b.user_id } });
+    const picked = [...new Set(input.skills)];
+    const ts = nowIso();
+    if (!picked.length && !input.tip) {
+      if (existing) await ctx.store.remove("feedback", existing.id);
+    } else if (existing) {
+      await ctx.store.update("feedback", existing.id, { skills: picked, tip: input.tip, coach_id: u.id, updated_at: ts });
+    } else {
+      await ctx.store.insert("feedback", { id: uid(), session_id: s.id, user_id: b.user_id, coach_id: u.id, skills: picked, tip: input.tip, created_at: ts, updated_at: ts });
+    }
     return { ok: true };
   }),
 
