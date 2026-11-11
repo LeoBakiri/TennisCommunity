@@ -1,16 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { A, useAction } from "../nav";
+import { A, useAction, useToast } from "../nav";
 import { ballBurst, Icon, SessionMark, TennisBall, type IconName } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Submit } from "../kit";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
 import { calendarHref, countdown, courtNote, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
-import type { BookingRow, ClubFeed, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
+import type { BookingRow, CalendarLinks, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
 import { addDays, fmtDate, fmtDateTime, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
 import { levelName, MAX_SKILL_LEVEL, MY_GAME_LAUNCHED, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
-import { by, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
+import { nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType, Skill } from "@/core/types";
-import { FEED_DAYS, type ClubEvent } from "@/core/ical";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 type ScheduleData = D<typeof loadSchedule>;
@@ -257,31 +256,46 @@ function CourtLine({ s }: { s: SessionView }) {
   return note ? <div className="mt-1 text-xs font-medium text-[#8A5A10]">{note}</div> : null;
 }
 
-/** A clinic or private from the player's CourtReserve calendar. It's managed in CourtReserve, so there's nothing to do here. */
-function ClubRow({ e }: { e: ClubEvent }) {
+/** Google opens its own add-event page; Apple gets the session as a calendar file. */
+function AddToCalendar({ s, links }: { s: SessionView; links: CalendarLinks | null }) {
+  const [open, setOpen] = useState(false);
+  if (!links) {
+    return (
+      <a href={calendarHref(s)} target="_blank" rel="noreferrer" className={btn("ghost", "sm")} title="Add to Google Calendar">
+        <Icon name="calendar" size={15} /> Add to calendar
+      </a>
+    );
+  }
+  const item = "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-ink/5";
   return (
-    <div className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 font-semibold">
-          <Icon name="calendar" size={16} className="shrink-0 text-ink/45" /> {e.title}
-        </div>
-        <div className="mt-0.5 text-sm text-ink/60">{e.all_day ? fmtDay(e.starts_at) : fmtDayRange(e.starts_at, e.ends_at)}</div>
-        <Place p={e} className="mt-1 text-sm" />
-      </div>
-      <Badge className="self-start sm:self-center">CourtReserve</Badge>
+    <div className="relative">
+      <button type="button" className={btn("ghost", "sm")} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="calendar" size={15} /> Add to calendar
+      </button>
+      {open && (
+        <>
+          <button className="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onClick={() => setOpen(false)} />
+          <div className="fade-in absolute left-0 z-50 mt-1 w-52 rounded-xl border border-ink/[0.08] bg-card p-1.5 shadow-xl">
+            <a href={links.session(s.id)} className={item} onClick={() => setOpen(false)}>
+              Apple Calendar
+            </a>
+            <a href={calendarHref(s)} target="_blank" rel="noreferrer" className={item} onClick={() => setOpen(false)}>
+              Google Calendar
+            </a>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function BookingGroup({ title, rows, window, club = [] }: { title: string; rows: BookingRow[]; window: number; club?: ClubEvent[] }) {
-  if (!rows.length && !club.length) return null;
-  // El Patio bookings and CourtReserve events in one list, by start time.
-  const items: { at: string; r?: BookingRow; e?: ClubEvent }[] = [...rows.map((r) => ({ at: r.session.starts_at, r })), ...club.map((e) => ({ at: e.starts_at, e }))].sort(by((i) => i.at));
+function BookingGroup({ title, rows, window, links }: { title: string; rows: BookingRow[]; window: number; links: CalendarLinks | null }) {
+  if (!rows.length) return null;
   return (
     <section>
       <SectionTitle>{title}</SectionTitle>
       <div className="card divide-y divide-ink/[0.06]">
-        {items.map(({ r, e }) => !r ? <ClubRow key={`club:${e!.uid}`} e={e!} /> : (
+        {rows.map((r) => (
           <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
             <div className="min-w-0">
               <div className="flex items-center gap-2 font-semibold">
@@ -292,11 +306,7 @@ function BookingGroup({ title, rows, window, club = [] }: { title: string; rows:
               <CourtLine s={r.session} />
             </div>
             <div className="flex items-center gap-2">
-              {r.booking.status === "confirmed" && (
-                <a href={calendarHref(r.session)} target="_blank" rel="noreferrer" className={btn("ghost", "sm")} title="Add to Google Calendar">
-                  <Icon name="calendar" size={15} /> Add to calendar
-                </a>
-              )}
+              {r.booking.status === "confirmed" && <AddToCalendar s={r.session} links={links} />}
               <MyBookingActions s={r.session} window={window} />
             </div>
           </div>
@@ -306,27 +316,17 @@ function BookingGroup({ title, rows, window, club = [] }: { title: string; rows:
   );
 }
 
-/** Players paste their CourtReserve calendar link once; their club bookings then show in Upcoming. */
-function ClubCalendar({ club }: { club: ClubFeed }) {
-  if (club.connected) {
-    return (
-      <div className="space-y-3">
-        {club.error && <Notice tone="warn">{club.error}</Notice>}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-sage/50 px-4 py-2.5 text-sm">
-          <span className="flex min-w-0 items-start gap-2 text-ink/70">
-            <Icon name="check" size={16} className="mt-0.5 shrink-0 text-brand" />
-            <span>
-              CourtReserve connected
-              {!club.error && <span className="text-ink/50"> · {club.events.length ? plural(club.events.length, "booking") : "nothing booked"} in the next {FEED_DAYS} days</span>}
-            </span>
-          </span>
-          <ActionButton action="disconnectCourtReserve" input={{}} variant="ghost" confirm={{ title: "Disconnect CourtReserve?", body: "Your CourtReserve bookings stop showing here. Nothing changes in CourtReserve.", label: "Disconnect", danger: true }}>
-            Disconnect
-          </ActionButton>
-        </div>
-      </div>
-    );
-  }
+/** Subscribing once puts every booking in the player's own calendar, where their other tennis already is. */
+function CalendarSubscribe({ links }: { links: CalendarLinks | null }) {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(links!.feed);
+      toast("Link copied. Paste it into your calendar app's \"subscribe\" or \"add from URL\" option.");
+    } catch {
+      toast("Couldn't copy the link. Try Apple or Google instead.", "error");
+    }
+  };
   return (
     <div className="card p-4 md:px-5">
       <div className="flex items-start gap-3">
@@ -334,22 +334,35 @@ function ClubCalendar({ club }: { club: ClubFeed }) {
           <Icon name="calendar" size={17} />
         </span>
         <div className="min-w-0 flex-1 text-sm">
-          <div className="font-semibold">Connect your CourtReserve calendar</div>
-          <div className="text-ink/55">Your clinics and privates from CourtReserve show up here, next to your El Patio sessions.</div>
-          <ActionForm action="connectCourtReserve" className="mt-3">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <input name="url" className="input min-w-0 flex-1" placeholder="https://app.courtreserve.com/Online/PublicIcal/…" inputMode="url" autoComplete="off" autoCapitalize="off" spellCheck={false} aria-label="CourtReserve calendar link" />
-              <Submit size="md" className="shrink-0">Connect</Submit>
-            </div>
-          </ActionForm>
-          <details className="mt-3 text-ink/60">
-            <summary className="cursor-pointer font-medium text-ink/75">Where do I find my link?</summary>
-            <ol className="mt-2 list-decimal space-y-1 pl-5">
-              <li>Sign in to CourtReserve and open your calendar.</li>
-              <li>Choose the option to subscribe or sync your calendar, and copy the link it gives you.</li>
-              <li>Paste it above. Only you can see it here.</li>
-            </ol>
-          </details>
+          <div className="font-semibold">Put your sessions in your calendar</div>
+          <div className="text-ink/55">
+            {links ? "Add it once. New bookings show up on their own, next to your CourtReserve clinics and privates, and cancelled sessions disappear." : "Your calendar link works on the live site, not in this demo."}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {links ? (
+              <>
+                <a href={links.apple} className={btn("primary", "sm")}>
+                  Apple Calendar
+                </a>
+                <a href={links.google} target="_blank" rel="noreferrer" className={btn("outline", "sm")}>
+                  Google Calendar
+                </a>
+                <button type="button" className={btn("ghost", "sm")} onClick={copy}>
+                  <Icon name="copy" size={15} /> Copy link
+                </button>
+              </>
+            ) : (
+              <>
+                <button className={btn("primary", "sm")} disabled>
+                  Apple Calendar
+                </button>
+                <button className={btn("outline", "sm")} disabled>
+                  Google Calendar
+                </button>
+              </>
+            )}
+          </div>
+          {links && <div className="mt-2 text-xs text-ink/45">Google can take a few hours to show a new booking. Keep the link private: anyone with it can see your sessions.</div>}
         </div>
       </div>
     </div>
@@ -382,16 +395,16 @@ function MyStats({ data }: { data: D<typeof loadMySessions> }) {
 }
 
 export function MySessions({ data }: { data: D<typeof loadMySessions> }) {
-  const empty = !data.confirmed.length && !data.waitlisted.length && !data.club.events.length;
+  const empty = !data.confirmed.length && !data.waitlisted.length;
   return (
     <>
       <PageHeader title="My Sessions" />
       <div className="space-y-6">
         <MyStats data={data} />
         {empty && <Empty icon="calendar" title="Nothing booked yet" action={<LinkButton href="/schedule">See the schedule</LinkButton>} />}
-        <BookingGroup title="Upcoming" rows={data.confirmed} window={data.window} club={data.club.events} />
-        <BookingGroup title="Waitlist" rows={data.waitlisted} window={data.window} />
-        <ClubCalendar club={data.club} />
+        <BookingGroup title="Upcoming" rows={data.confirmed} window={data.window} links={data.calendar} />
+        <BookingGroup title="Waitlist" rows={data.waitlisted} window={data.window} links={data.calendar} />
+        <CalendarSubscribe links={data.calendar} />
         {data.history.length > 0 && (
           <details className="card p-4 md:px-5">
             <summary className="cursor-pointer text-sm font-semibold">History</summary>

@@ -9,7 +9,6 @@ import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
 import { SKILLS } from "./progress";
-import { cleanFeedUrl } from "./ical";
 
 export class UserError extends Error {}
 
@@ -267,23 +266,6 @@ export const actions: Record<string, Handler> = {
     const u = me(ctx);
     await ctx.store.update("profiles", u.id, { leaderboard_hidden: input.hidden });
     return { ok: true, message: input.hidden ? "You're off the leaderboard." : "You're back on the leaderboard." };
-  }),
-
-  // ── Player: CourtReserve calendar ──
-  connectCourtReserve: action(z.object({ url: text(1000) }), async (ctx, input) => {
-    const u = me(ctx);
-    const url = cleanFeedUrl(input.url);
-    if (!url) throw new UserError("That doesn't look like a CourtReserve calendar link. It starts with https://app.courtreserve.com/Online/PublicIcal/");
-    const at = nowIso();
-    if (await ctx.store.get("calendar_feeds", u.id)) await ctx.store.update("calendar_feeds", u.id, { url, updated_at: at });
-    else await ctx.store.insert("calendar_feeds", { id: u.id, url, created_at: at, updated_at: at });
-    return { ok: true, message: "CourtReserve connected." };
-  }),
-
-  disconnectCourtReserve: action(z.object({}), async (ctx) => {
-    const u = me(ctx);
-    await ctx.store.remove("calendar_feeds", u.id);
-    return { ok: true, message: "CourtReserve disconnected." };
   }),
 
   // ── Player: booking ──

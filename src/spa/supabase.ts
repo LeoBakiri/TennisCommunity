@@ -150,10 +150,13 @@ function normalize<T>(row: T): T {
 
 export class SupabaseStore implements Store {
   kind = "supabase" as const;
+  readonly functionsUrl: string;
   constructor(
     private cfg: SupaConfig,
     private auth: SupabaseAuth,
-  ) {}
+  ) {
+    this.functionsUrl = `${cfg.supabaseUrl}/functions/v1`;
+  }
 
   private async headers(extra: Record<string, string> = {}) {
     const token = (await this.auth.token()) ?? this.cfg.supabaseAnonKey;

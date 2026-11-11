@@ -35,6 +35,8 @@ export interface Store {
   rpc?<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
   /** Server-side functions, such as the Google Calendar sync (Supabase only). */
   invoke?<T = unknown>(fn: string, body: Record<string, unknown>): Promise<T>;
+  /** Where server-side functions are served, for links opened outside the app (Supabase only). */
+  readonly functionsUrl?: string;
 }
 
 export type StaffName = Pick<Profile, "id" | "full_name" | "role">;

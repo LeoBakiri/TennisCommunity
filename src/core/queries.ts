@@ -3,11 +3,9 @@ import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, Sessio
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, courtPlan, decideBy, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle } from "./util";
+import { by, courtPlan, decideBy, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
-import { FEED_FN, parseIcs, upcomingClubEvents, type ClubEvent } from "./ical";
-import { demoClubFeed } from "./seed";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
@@ -217,28 +215,42 @@ export async function loadMyGame(ctx: LoadCtx) {
 
 export type BookingRow = { booking: Booking; session: SessionView };
 
-export interface ClubFeed {
-  connected: boolean;
-  events: ClubEvent[];
-  error: string | null;
+export const PLAYER_CALENDAR_FN = "player-calendar";
+
+/** Links to the player's own calendar feed; null in the demo, which has no server. */
+export interface CalendarLinks {
+  feed: string; // https, for Outlook and anything that asks for a link
+  apple: string; // webcal, which Apple Calendar opens as a subscription
+  google: string; // Google Calendar's "add by URL" page
+  session: (id: string) => string; // one booked session, for "Add to Apple Calendar"
 }
 
-/** The player's CourtReserve events. A slow or broken feed never stops the page from loading. */
-async function loadClubFeed(ctx: LoadCtx, userId: string): Promise<ClubFeed> {
-  // Before the calendar_feeds migration runs, the table is missing: treat that as not connected.
-  const feed = await ctx.store.get("calendar_feeds", userId).catch(() => null);
-  if (!feed) return { connected: false, events: [], error: null };
+export function calendarLinks(functionsUrl: string, token: string): CalendarLinks {
+  const feed = `${functionsUrl}/${PLAYER_CALENDAR_FN}?token=${token}`;
+  const webcal = feed.replace(/^https?:/, "webcal:");
+  return { feed, apple: webcal, google: `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(webcal)}`, session: (id) => `${feed}&session=${id}` };
+}
+
+/** The player's calendar link, made the first time they open My Sessions. */
+async function loadCalendarLinks(ctx: LoadCtx, userId: string): Promise<CalendarLinks | null> {
+  const base = ctx.store.functionsUrl;
+  if (!base) return null;
   try {
-    const ics = ctx.store.invoke ? (await ctx.store.invoke<{ ics: string }>(FEED_FN, {})).ics : demoClubFeed(ctx.now);
-    return { connected: true, events: upcomingClubEvents(parseIcs(ics), ctx.now), error: null };
+    let row = await ctx.store.get("player_calendars", userId);
+    if (!row) {
+      const token = uid().replace(/-/g, "");
+      // Two tabs can race to make it; whichever lost reads the winner's.
+      row = await ctx.store.insert("player_calendars", { id: userId, token, created_at: ctx.now.toISOString() }).catch(() => ctx.store.get("player_calendars", userId));
+    }
+    return row ? calendarLinks(base, row.token) : null;
   } catch {
-    return { connected: true, events: [], error: "Couldn't reach CourtReserve just now. Try again in a minute." };
+    return null; // before the player_calendars migration runs, the table is missing
   }
 }
 
 export async function loadMySessions(ctx: LoadCtx) {
   const u = ctx.actor.user!;
-  const [L, bookings, settings, club] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings", { eq: { user_id: u.id } }), getSettings(ctx.store), loadClubFeed(ctx, u.id)]);
+  const [L, bookings, settings, calendar] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings", { eq: { user_id: u.id } }), getSettings(ctx.store), loadCalendarLinks(ctx, u.id)]);
   const sessions = (await ctx.store.list("sessions", { in: { field: "id", values: bookings.map((b) => b.session_id) } })).filter(isCommunity);
   const views = new Map((await enrich(ctx.store, sessions, L, u.id)).map((s) => [s.id, s]));
   const rows: BookingRow[] = bookings.flatMap((b) => {
@@ -257,7 +269,7 @@ export async function loadMySessions(ctx: LoadCtx) {
       .slice(0, 30),
     stats,
     window: settings.cancellation_window_hours,
-    club,
+    calendar,
   };
 }
 

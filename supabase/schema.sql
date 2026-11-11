@@ -206,6 +206,13 @@ create table if not exists public.calendar_feeds (
   updated_at timestamptz not null default now()
 );
 
+-- A player's private calendar link (served by the player-calendar function).
+create table if not exists public.player_calendars (
+  id uuid primary key references public.profiles(id) on update cascade on delete cascade,
+  token text not null unique check (token ~ '^[0-9a-f]{32}$'),
+  created_at timestamptz not null default now()
+);
+
 -- ───────────────────────── role helpers ─────────────────────────
 
 create or replace function public.my_role() returns text
@@ -307,6 +314,7 @@ alter table public.coach_google_tokens enable row level security;
 alter table public.calendar_event_links enable row level security;
 alter table public.calendar_sync_queue enable row level security;
 alter table public.calendar_feeds enable row level security;
+alter table public.player_calendars enable row level security;
 
 -- settings: everyone reads, admins write
 create policy settings_read on public.settings for select using (true);
@@ -361,6 +369,7 @@ create policy calendars_read on public.coach_calendars for select to authenticat
 
 -- CourtReserve links: only their owner, not even admins
 create policy calendar_feeds_own on public.calendar_feeds for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
+create policy player_calendars_own on public.player_calendars for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
 
 -- ───────────────────────── privileges ─────────────────────────
 
@@ -370,6 +379,9 @@ grant select, insert, update, delete on public.settings, public.profiles, public
 grant select on public.coach_calendars to authenticated;
 grant select, insert, update, delete on public.calendar_feeds to authenticated;
 revoke all on public.calendar_feeds from anon;
+grant select, insert, delete on public.player_calendars to authenticated;
+revoke all on public.player_calendars from anon;
+grant select on public.player_calendars, public.bookings, public.settings to service_role;
 grant select, insert, update, delete on public.commission_rules to authenticated;
 revoke all on public.admin_emails from anon, authenticated;
 revoke all on public.lessons, public.feedback, public.commission_rules, public.coach_calendars, public.coach_google_tokens, public.calendar_event_links, public.calendar_sync_queue from anon;

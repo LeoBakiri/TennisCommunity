@@ -634,6 +634,9 @@
   .w-36 {
     width: calc(var(--spacing) * 36);
   }
+  .w-52 {
+    width: calc(var(--spacing) * 52);
+  }
   .w-56 {
     width: calc(var(--spacing) * 56);
   }
@@ -672,6 +675,9 @@
   }
   .w-\[260px\] {
     width: 260px;
+  }
+  .w-auto {
+    width: auto;
   }
   .w-full {
     width: 100%;
@@ -764,9 +770,6 @@
   }
   .scroll-mt-40 {
     scroll-margin-top: calc(var(--spacing) * 40);
-  }
-  .list-decimal {
-    list-style-type: decimal;
   }
   .list-none {
     list-style-type: none;
@@ -930,9 +933,6 @@
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--ink) 6%, transparent);
     }
-  }
-  .self-start {
-    align-self: flex-start;
   }
   .truncate {
     overflow: hidden;
@@ -1304,6 +1304,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--sage) 80%, transparent);
     }
+  }
+  .bg-white {
+    background-color: var(--color-white);
   }
   .bg-white\/60 {
     background-color: color-mix(in srgb, #fff 60%, transparent);
@@ -2206,9 +2209,6 @@
     }
     .sm\:gap-3 {
       gap: calc(var(--spacing) * 3);
-    }
-    .sm\:self-center {
-      align-self: center;
     }
     .sm\:rounded-2xl {
       border-radius: var(--radius-2xl);

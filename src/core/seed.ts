@@ -217,22 +217,7 @@ export function demoSeed(now = new Date()): DB {
     commission_rules: [{ id: "demo-rule-balboa", place: "Balboa", percent: 20, per_hour_cents: 0, per_lesson_cents: 0, created_at: created }],
     clients,
     feedback,
-    calendar_feeds: [],
+    player_calendars: [],
   };
 }
 
-/** What a CourtReserve calendar looks like, for the demo: the live site fetches the player's real one. */
-export function demoClubFeed(now: Date): string {
-  const today = dateKey(now);
-  const stamp = (day: string, time: string) => zonedToUtc(day, time).toISOString().replace(/[-:]|\.\d{3}/g, "");
-  const ev = (n: number, title: string, day: string, from: string, to: string) =>
-    ["BEGIN:VEVENT", `UID:demo-club-${n}`, `SUMMARY:${title}`, `DTSTART:${stamp(day, from)}`, `DTEND:${stamp(day, to)}`, "LOCATION:Balboa Tennis Club", "END:VEVENT"].join("\r\n");
-  return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    ev(1, "3.5 Drill Clinic", addDays(today, 1), "18:00", "19:30"),
-    ev(2, "Private Lesson", addDays(today, 3), "08:00", "09:00"),
-    ev(3, "Cardio Tennis", addDays(today, 6), "09:00", "10:00"),
-    "END:VCALENDAR",
-  ].join("\r\n");
-}

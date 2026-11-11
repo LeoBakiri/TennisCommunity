@@ -24,6 +24,7 @@ export class CachedStore implements Store {
   readonly kind: Store["kind"];
   readonly rpc?: Store["rpc"];
   readonly invoke?: Store["invoke"];
+  readonly functionsUrl?: string;
   private entries = new Map<string, Entry>();
 
   constructor(
@@ -31,6 +32,7 @@ export class CachedStore implements Store {
     private clock: () => number = Date.now,
   ) {
     this.kind = inner.kind;
+    this.functionsUrl = inner.functionsUrl;
     // Services check for rpc to choose the database path, so only offer what the inner store has.
     if (inner.rpc) {
       this.rpc = async <T>(fn: string, args: Record<string, unknown>) => {
