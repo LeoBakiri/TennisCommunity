@@ -12,6 +12,7 @@ import { isEmail, normalizePhone, uid } from "@/core/util";
 import { NavProvider, ToastHost, type LinkProps, type NavApi } from "@/ui/nav";
 import { PlayerShell, PortalShell, type FrameMeta } from "@/ui/shell";
 import { Empty, LinkButton } from "@/ui/kit";
+import { PullToRefresh } from "@/ui/pull-refresh";
 import { MY_GAME_LAUNCHED } from "@/core/progress";
 import { VIEWS } from "./registry";
 import { SupabaseAuth, SupabaseStore, type SupaConfig } from "./supabase";
@@ -525,6 +526,7 @@ function App() {
       <ToastHost>
         {busy && <div className="fixed inset-x-0 top-0 z-[70] h-0.5 animate-pulse bg-accent" aria-hidden="true" />}
         <Screen screen={screen} dimmed={dimmed} />
+        <PullToRefresh />
       </ToastHost>
     </NavProvider>
   );
