@@ -3,7 +3,7 @@ import { A, useAction, withQuery } from "./nav";
 import { bookedTakeover, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
+import { addDays, dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
 import { courtPlan, decideBy, fmtMoney, needsDecision, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
@@ -51,7 +51,14 @@ export function WeekNav({ monday, base }: { monday: string; base: string }) {
 
 // ───────────────────────── booking ─────────────────────────
 
-export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean }) {
+/** When a booking stops being free to cancel, said where the player decides. */
+export function cancelNote(s: Pick<SessionView, "starts_at">, window: number, now = Date.now()) {
+  const until = new Date(new Date(s.starts_at).getTime() - window * 3600000);
+  if (until.getTime() > now) return `Free to cancel until ${fmtDay(until)} at ${fmtTime(until)}. After that you can offer your spot to someone else.`;
+  return `It's less than ${window} hours away, so once you're booked you can't cancel. You can still offer your spot to someone else.`;
+}
+
+export function BookButton({ s, signedIn, window }: { s: SessionView; signedIn: boolean; window: number }) {
   const [open, setOpen] = useState(false);
   const { run, pending } = useAction();
   const isFull = s.spots_left <= 0;
@@ -85,6 +92,12 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             </div>
           </div>
         </div>
+        {!isFull && (
+          <p className="mt-3 flex items-start gap-2 px-1 text-sm text-ink/65">
+            <Icon name="clock" size={15} className="mt-0.5 shrink-0" />
+            <span>{cancelNote(s, window)}</span>
+          </p>
+        )}
         {!isFull && courtHeadsUp(s) && (
           <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] p-3.5 text-sm text-[#7A3E12]">
             <Icon name="flag" size={15} className="mt-0.5 shrink-0" />
@@ -478,7 +491,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
           ) : s.spots_left <= 0 && s.offered > 0 ? (
             <TakeSpotButton s={s} signedIn={signedIn} />
           ) : (
-            <BookButton s={s} signedIn={signedIn} />
+            <BookButton s={s} signedIn={signedIn} window={window} />
           )}
         </div>
       </div>
@@ -493,7 +506,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
               </span>
             </span>
           </div>
-          <BookButton s={skip} signedIn={signedIn} />
+          <BookButton s={skip} signedIn={signedIn} window={window} />
         </div>
       )}
     </article>

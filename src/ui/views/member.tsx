@@ -8,7 +8,7 @@ import type { FrameMeta } from "../shell";
 import type { BookingRow, ClubFeed, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
 import { addDays, fmtDate, fmtDateTime, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
 import { levelName, MAX_SKILL_LEVEL, MY_GAME_LAUNCHED, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
-import { by, lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
+import { by, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
 import type { SessionType, Skill } from "@/core/types";
 import { FEED_DAYS, type ClubEvent } from "@/core/ical";
 
@@ -19,45 +19,6 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 
 // ───────────────────────── schedule ─────────────────────────
-
-function Progress({ played, streak, game }: { played: number; streak: number; game: GameProgress }) {
-  const goal = nextMilestone(played);
-  const prev = lastMilestone(played);
-  const togo = goal - played;
-  return (
-    <div className="mt-6 rounded-xl bg-paper/[0.08] p-4 ring-1 ring-paper/10">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
-        <span className="font-semibold">
-          {played === 0 ? "Your first session is waiting" : `${plural(played, "session")} played`}
-        </span>
-        {streak >= 2 && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[12px] font-semibold text-ink">
-            <Icon name="spark" size={13} /> {streak}-week streak
-          </span>
-        )}
-      </div>
-      {goal <= 10 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {Array.from({ length: goal }, (_, i) => (
-            <TennisBall key={i} size={22} empty={i >= played} className={i < played ? "seat-taken" : "text-paper"} />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-paper/15">
-          <div className="h-full rounded-full bg-accent" style={{ width: `${((played - prev) / (goal - prev)) * 100}%` }} />
-        </div>
-      )}
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-        <p className="text-[13px] text-paper/65">{played === 0 ? "Book one below and your tally starts here." : `${togo} more to reach ${goal}.`}</p>
-        {MY_GAME_LAUNCHED && (
-          <A href="/my-game" className="inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline">
-            Level {game.level} · {game.into_level}/{POINTS_PER_LEVEL} points <Icon name="right" size={14} />
-          </A>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
   const t = data.totals;
@@ -93,25 +54,18 @@ function Hero({ data, meta }: { data: ScheduleData; meta: FrameMeta }) {
                 </p>
               </>
             )}
-            <Progress played={me.played} streak={me.streak_weeks} game={me} />
+            {MY_GAME_LAUNCHED && (
+              <A href="/my-game" className="mt-4 inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline">
+                Level {me.level} · {me.into_level}/{POINTS_PER_LEVEL} points <Icon name="right" size={14} />
+              </A>
+            )}
             {MY_GAME_LAUNCHED && meta.user && <LevelUp game={me} userId={meta.user.id} />}
           </>
         ) : (
           <>
             <h1 className="mt-2 max-w-md font-display text-[2rem] leading-[1.1] font-semibold tracking-tight md:text-[2.6rem]">Get on court this week.</h1>
             <p className="mt-3 max-w-md text-paper/70">Pick a session, book in two taps, and if it&apos;s full the waitlist moves you in when a spot opens.</p>
-            {t.sessions > 0 && (
-              <dl className="mt-6 grid max-w-md grid-cols-3 gap-2">
-                {[
-                  [t.sessions, t.sessions === 1 ? "session" : "sessions"],
-                  [t.booked, t.booked === 1 ? "player in" : "players in"],
-                  [t.open, t.open === 1 ? "spot open" : "spots open"],
-                ].map(([n, label]) => (
-                  <HeroStat key={label} value={n} label={String(label)} />
-                ))}
-              </dl>
-            )}
-            <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-3">
+            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
               <A href="/login?mode=signup&next=%2Fschedule" className={btn("accent", "lg")}>
                 Join free <Icon name="arrow" size={17} />
               </A>
@@ -183,6 +137,8 @@ function Filters({ value, onChange, sessions }: { value: Filter; onChange: (f: F
       {items.map((it) => {
         const n = count(it.key);
         const on = value === it.key;
+        // A filter that would show nothing is just noise.
+        if (!n && it.key !== "all" && !on) return null;
         return (
           <button
             key={it.key}
@@ -209,7 +165,7 @@ const matches = (s: SessionView, f: Filter) => (f === "all" ? true : f === "open
 function HowItWorks({ data }: { data: ScheduleData }) {
   const steps: [string, string, string][] = [
     ["calendar", "Pick a session", `Sessions are posted up to ${data.horizon} days ahead, with the coach, place and price on each.`],
-    ["check", "Book in two taps", "Your spot is held straight away, and it shows up under My Sessions."],
+    ["check", "Book in two taps", `Your spot is held straight away. Cancel free up to ${data.window} hours before; after that, offer your spot to someone else.`],
     ["repeat", "Full? Join the waitlist", "If someone drops out, the first player waiting moves in automatically."],
   ];
   return (
@@ -241,20 +197,24 @@ export function ScheduleView({ data, meta }: { data: ScheduleData; meta: FrameMe
   const all = data.days.flatMap((d) => d.sessions);
   const days = data.days.map((d) => ({ ...d, sessions: d.sessions.filter((s) => matches(s, filter)) })).filter((d) => d.sessions.length);
   const shown = new Set(days.map((d) => d.day));
+  // The day strip and filters help with a busy schedule; with a few sessions the list itself is quicker.
+  const busy = all.length >= 6;
   return (
     <>
       <Hero data={data} meta={meta} />
       {data.days.length ? (
         <>
-          <div className="sticky top-16 z-20 -mx-4 mb-4 border-b border-ink/[0.06] bg-paper/90 px-4 pt-1 backdrop-blur-md">
-            <DayStrip data={data} shown={shown} />
-          </div>
+          {data.days.length >= 4 && (
+            <div className="sticky top-16 z-20 -mx-4 mb-4 border-b border-ink/[0.06] bg-paper/90 px-4 pt-1 backdrop-blur-md">
+              <DayStrip data={data} shown={shown} />
+            </div>
+          )}
           <div className="mb-4 flex flex-col gap-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="font-display text-xl font-semibold tracking-tight">Coming up</h2>
               <span className="text-xs text-ink/50">Times are Pacific</span>
             </div>
-            <Filters value={filter} onChange={setFilter} sessions={all} />
+            {busy && <Filters value={filter} onChange={setFilter} sessions={all} />}
           </div>
           {days.length ? (
             <div className="space-y-5">

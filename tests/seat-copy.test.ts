@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { seatCopy } from "../src/ui/sessions";
+import { cancelNote, seatCopy } from "../src/ui/sessions";
 
 const seat = (booked: number, capacity = 6, extra: { waitlist?: number; mine?: "confirmed" | "waitlisted" } = {}) => ({
   booked,
@@ -40,4 +40,11 @@ test("an empty small session isn't called scarce", () => {
   assert.equal(seatCopy(seat(0, 2)).heat, "open");
   assert.equal(seatCopy(seat(0, 1)).title, "Be the first in");
   assert.equal(seatCopy(seat(0, 1)).sub, "1 spot open");
+});
+
+test("the booking pop-up says until when a booking is free to cancel", () => {
+  // Thu Nov 19, 5 PM Pacific; the 24-hour mark is Wed Nov 18, 5 PM.
+  const s = { starts_at: "2026-11-20T01:00:00.000Z" };
+  assert.equal(cancelNote(s, 24, Date.parse("2026-11-11T20:00:00Z")), "Free to cancel until Wed, Nov 18 at 5 PM. After that you can offer your spot to someone else.");
+  assert.match(cancelNote(s, 24, Date.parse("2026-11-19T12:00:00Z")), /^It's less than 24 hours away, so once you're booked you can't cancel/);
 });
