@@ -13,6 +13,7 @@ export function priceLabel(s: Pick<SessionView, "price_cents">) {
 
 export const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
 const sessionLabel = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].label;
+const takeoverDetails = (s: SessionView) => ({ label: sessionLabel(s), color: sessionColor(s), day: fmtDayLong(s.starts_at), time: fmtRange(s.starts_at, s.ends_at) });
 
 /** "today", "tomorrow", "Thursday" or "Nov 14", counted from today. */
 export function whenWord(iso: string, today: string) {
@@ -109,8 +110,8 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
               if (r.ok) {
                 setOpen(false);
                 bookedTakeover({
+                  ...takeoverDetails(s),
                   title: isFull ? "You're on the waitlist" : "You're booked",
-                  detail: `${sessionLabel(s)} · ${fmtDayLong(s.starts_at)}, ${fmtRange(s.starts_at, s.ends_at)}`,
                   note: isFull ? `#${s.waitlist + 1} in line. We'll move you in if a spot opens.` : "See you on court!",
                 });
               }
@@ -343,7 +344,7 @@ function usePromotedCelebration(s: SessionView) {
         localStorage.setItem(SEEN_WAITING, JSON.stringify(seen.filter((x) => x !== booking.id)));
         setPromoted(true);
         setTimeout(
-          () => bookedTakeover({ title: "A spot opened. You're in!", detail: `${sessionLabel(s)} · ${fmtDayLong(s.starts_at)}, ${fmtRange(s.starts_at, s.ends_at)}`, note: "See you on court!" }),
+          () => bookedTakeover({ ...takeoverDetails(s), title: "A spot opened. You're in!", note: "See you on court!" }),
           250,
         );
       }

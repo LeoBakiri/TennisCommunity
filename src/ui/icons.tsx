@@ -125,35 +125,48 @@ export function TennisBall({ size = 24, empty, className = "" }: { size?: number
 }
 
 /**
- * The moment a booking lands: a brand-green panel drops over the whole screen, a check draws itself,
- * and the details rise in. It lifts away on its own after a few seconds, or sooner on a tap or Escape.
+ * The moment a booking lands: a brand-green panel drops over the whole screen with a little bounce,
+ * a lime check pops and throws sparks, the title rises word by word and a ticket with the details
+ * slides up. A bar along the bottom counts down; it lifts away when the bar runs out, or on a tap or Escape.
  */
-export function bookedTakeover({ title, detail, note }: { title: string; detail: string; note?: string }) {
+export function bookedTakeover({ title, label, color, day, time, note }: { title: string; label: string; color: string; day: string; time: string; note?: string }) {
   if (typeof document === "undefined") return;
   document.querySelector(".booked-takeover")?.remove();
   const layer = document.createElement("div");
   layer.className = "booked-takeover";
   layer.setAttribute("role", "status");
-  layer.innerHTML = `<div class="booked-inner"><div class="booked-check"><span class="booked-ripple"></span><svg viewBox="0 0 80 80" width="88" height="88"><circle class="booked-ring" cx="40" cy="40" r="36" pathLength="1"/><path class="booked-tick" d="M25 41.5l10 10 20-22" pathLength="1"/></svg></div><h2></h2><p class="booked-detail"></p><p class="booked-note"></p><span class="booked-hint">Tap anywhere to close</span></div>`;
-  layer.querySelector("h2")!.textContent = title;
-  layer.querySelector(".booked-detail")!.textContent = detail;
+  const sparks = Array.from({ length: 10 }, (_, i) => `<i style="--a:${i * 36 + 18}deg"></i>`).join("");
+  layer.innerHTML = `<svg class="booked-court" viewBox="0 0 360 780" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect x="40" y="60" width="280" height="660"/><path d="M75 60v660M285 60v660M75 230h210M75 550h210M180 230v320M40 390h280"/></svg><div class="booked-glow"></div><div class="booked-inner"><div class="booked-check"><span class="booked-ripple"></span><span class="booked-ripple"></span><span class="booked-sparks">${sparks}</span><svg viewBox="0 0 80 80" width="92" height="92"><circle class="booked-disc" cx="40" cy="40" r="38"/><path class="booked-tick" d="M24 41.5l10.5 10.5 21.5-23" pathLength="1"/></svg></div><h2></h2><div class="booked-ticket"><div class="booked-label"><span class="booked-dot"></span><span></span></div><div class="booked-rows"><div><span>Day</span><b class="booked-day"></b></div><div><span>Time</span><b class="booked-time"></b></div></div></div><p class="booked-note"></p><span class="booked-hint">Tap anywhere to close</span></div><div class="booked-timer"></div>`;
+  const h2 = layer.querySelector("h2")!;
+  title.split(" ").forEach((word, i) => {
+    const mask = document.createElement("span");
+    const w = document.createElement("span");
+    w.textContent = word;
+    w.style.animationDelay = `${0.5 + i * 0.07}s`;
+    mask.appendChild(w);
+    h2.append(mask, " ");
+  });
+  layer.querySelector<HTMLElement>(".booked-dot")!.style.background = color;
+  layer.querySelector(".booked-label span:last-child")!.textContent = label;
+  layer.querySelector(".booked-day")!.textContent = day;
+  layer.querySelector(".booked-time")!.textContent = time;
   const noteEl = layer.querySelector<HTMLElement>(".booked-note")!;
   if (note) noteEl.textContent = note;
   else noteEl.remove();
   document.body.appendChild(layer);
-  navigator.vibrate?.(25);
+  navigator.vibrate?.([20, 60, 30]);
   let gone = false;
   const close = () => {
     if (gone) return;
     gone = true;
     window.removeEventListener("keydown", onKey);
     layer.classList.add("is-leaving");
-    setTimeout(() => layer.remove(), 450);
+    setTimeout(() => layer.remove(), 520);
   };
   const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
   layer.addEventListener("click", close);
   window.addEventListener("keydown", onKey);
-  setTimeout(close, 3200);
+  setTimeout(close, 4200);
 }
 
 /** A quick burst of tennis balls from a point on screen, for the moment a booking lands. */

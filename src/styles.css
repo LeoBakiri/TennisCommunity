@@ -293,84 +293,182 @@
     z-index: 80;
     display: grid;
     place-items: center;
-    padding: 24px;
+    overflow: hidden;
+    padding: 24px 16px;
     background: var(--brand);
     color: #fff;
     text-align: center;
     cursor: pointer;
-    animation: booked-drop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: booked-drop 0.7s cubic-bezier(0.3, 1.25, 0.5, 1) both;
   }
   .booked-takeover.is-leaving {
-    animation: booked-lift 0.42s cubic-bezier(0.55, 0, 0.75, 0) both;
+    animation: booked-lift 0.5s cubic-bezier(0.6, 0, 0.8, 0.2) both;
   }
-  .booked-inner > * {
-    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  .booked-takeover.is-leaving .booked-inner {
+    animation: booked-shrink 0.3s ease-in both;
   }
-  .booked-inner h2 {
-    margin-top: 22px;
-    font-family: var(--font-display);
-    font-size: clamp(34px, 9vw, 52px);
-    font-weight: 600;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-    animation-delay: 0.55s;
+  .booked-court {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: rgb(255 255 255 / 0.07);
+    stroke-width: 2;
+    animation: booked-court 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
   }
-  .booked-detail {
-    margin-top: 10px;
-    font-size: 16px;
-    color: rgb(255 255 255 / 0.75);
-    animation-delay: 0.65s;
+  .booked-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 560px;
+    height: 560px;
+    margin: -380px 0 0 -280px;
+    border-radius: 999px;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 28%, transparent), transparent);
+    animation: booked-glow 1.2s ease-out 0.35s both;
   }
-  .booked-note {
-    margin-top: 4px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--accent);
-    animation-delay: 0.72s;
-  }
-  .booked-hint {
-    display: block;
-    margin-top: 36px;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgb(255 255 255 / 0.4);
-    animation-delay: 1.2s;
+  .booked-inner {
+    position: relative;
+    width: min(100%, 380px);
   }
   .booked-check {
     position: relative;
     display: inline-grid;
     place-items: center;
-    animation-delay: 0.2s;
   }
   .booked-check svg {
     position: relative;
-    fill: none;
-    stroke: var(--accent);
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
-  .booked-ring {
-    stroke-width: 4;
-    stroke-dasharray: 1;
-    stroke-dashoffset: 1;
-    transform: rotate(-90deg);
+  .booked-disc {
+    fill: var(--accent);
     transform-origin: center;
-    animation: booked-draw 0.5s cubic-bezier(0.65, 0, 0.35, 1) 0.3s forwards;
+    animation: booked-pop 0.55s cubic-bezier(0.34, 1.7, 0.5, 1) 0.4s both;
   }
   .booked-tick {
-    stroke-width: 6;
+    fill: none;
+    stroke: var(--brand);
+    stroke-width: 7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     stroke-dasharray: 1;
     stroke-dashoffset: 1;
-    animation: booked-draw 0.3s cubic-bezier(0.65, 0, 0.35, 1) 0.7s forwards;
+    animation: booked-draw 0.32s cubic-bezier(0.65, 0, 0.35, 1) 0.72s forwards;
   }
   .booked-ripple {
     position: absolute;
     inset: 0;
+    border: 2px solid var(--accent);
     border-radius: 999px;
+    opacity: 0;
+    animation: booked-ripple 1.3s ease-out 0.75s;
+  }
+  .booked-ripple + .booked-ripple {
+    animation-delay: 1.05s;
+  }
+  .booked-sparks i {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 14px;
+    margin: -7px 0 0 -1.5px;
+    border-radius: 3px;
     background: var(--accent);
     opacity: 0;
-    animation: booked-ripple 0.9s ease-out 0.75s;
+    transform: rotate(var(--a)) translateY(-40px);
+    animation: booked-spark 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) 0.78s;
+  }
+  .booked-inner h2 {
+    margin-top: 26px;
+    font-family: var(--font-display);
+    font-size: clamp(38px, 10vw, 56px);
+    font-weight: 650;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+  }
+  .booked-inner h2 > span {
+    display: inline-block;
+    overflow: hidden;
+    padding-bottom: 0.08em;
+    vertical-align: bottom;
+  }
+  .booked-inner h2 > span > span {
+    display: inline-block;
+    animation: booked-word 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .booked-ticket {
+    margin-top: 24px;
+    padding: 16px 18px;
+    border: 1px solid rgb(255 255 255 / 0.14);
+    border-radius: 20px;
+    background: rgb(255 255 255 / 0.07);
+    backdrop-filter: blur(8px);
+    text-align: left;
+    animation: booked-ticket 0.7s cubic-bezier(0.22, 1.2, 0.36, 1) 0.8s both;
+  }
+  .booked-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.85);
+  }
+  .booked-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.15);
+  }
+  .booked-rows {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed rgb(255 255 255 / 0.2);
+  }
+  .booked-rows span {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.5);
+  }
+  .booked-rows b {
+    display: block;
+    margin-top: 2px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .booked-note {
+    margin-top: 16px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) 1.05s both;
+  }
+  .booked-hint {
+    display: block;
+    margin-top: 28px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.35);
+    animation: fade 0.4s ease-out 1.5s both;
+  }
+  .booked-timer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 4px;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    animation: booked-timer 3.6s linear 0.6s both;
   }
   .ball-burst {
     pointer-events: none;
@@ -422,6 +520,29 @@
     transform: translateY(-100%);
   }
 }
+@keyframes booked-shrink {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+@keyframes booked-court {
+  from {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+@keyframes booked-glow {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes booked-pop {
+  from {
+    transform: scale(0);
+  }
+}
 @keyframes booked-draw {
   to {
     stroke-dashoffset: 0;
@@ -429,12 +550,38 @@
 }
 @keyframes booked-ripple {
   from {
-    opacity: 0.35;
-    transform: scale(0.9);
+    opacity: 0.7;
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(2.2);
+    transform: scale(2.6);
+  }
+}
+@keyframes booked-spark {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--a)) translateY(-40px) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateY(-84px) scaleY(0.3);
+  }
+}
+@keyframes booked-word {
+  from {
+    transform: translateY(110%);
+  }
+}
+@keyframes booked-ticket {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+  }
+}
+@keyframes booked-timer {
+  to {
+    transform: scaleX(0);
   }
 }
 
