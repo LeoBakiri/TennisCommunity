@@ -319,13 +319,15 @@ function SeatMeter({ s }: { s: SessionView }) {
   const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat];
   const taken = Math.min(s.booked, s.capacity);
   const imIn = s.my_booking?.status === "confirmed";
-  const large = s.capacity <= 8;
   const { size: perCourt, courts, minimum } = courtPlan(s);
+  // Two courts keep the same big dots as one; they're a touch smaller on a phone so all 12 fit on a line.
+  const twoCourts = courts === 2;
+  const large = s.capacity <= 8 || twoCourts;
   const note = courtNote(s);
   const short = note ? !note.settled : false; // still under the minimum: those empty seats get an amber ring
   const seat = (i: number) => {
     const isTaken = i < taken;
-    const size = large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
+    const size = twoCourts ? "h-5 w-5 sm:h-[22px] sm:w-[22px]" : large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
     if (!isTaken) {
       const isNext = i === taken && !s.my_booking;
       const needed = short && i < minimum;
@@ -341,9 +343,10 @@ function SeatMeter({ s }: { s: SessionView }) {
     <>
       {s.capacity <= 14 ? (
         <div className={cx("flex w-full items-center sm:w-auto sm:justify-end", large ? "gap-1" : "gap-[3px]")} aria-hidden="true">
-          {/* Two-court sessions: each court is its own outlined box, so the split reads at a glance. */}
+          {/* One run of dots per court, with a short net line between courts. */}
           {Array.from({ length: courts }, (_, c) => (
-            <span key={c} className={cx("flex items-center", large ? "gap-1" : "gap-[3px]", courts > 1 && "rounded-lg border-[1.5px] border-ink/15 bg-white/50 px-1.5 py-1", c > 0 && "ml-1.5")}>
+            <span key={c} className={cx("flex items-center", large ? "gap-1" : "gap-[3px]")}>
+              {c > 0 && <span className="mx-1 h-7 w-[2px] shrink-0 rounded-full bg-ink/25" />}
               {Array.from({ length: Math.min(perCourt, s.capacity - c * perCourt) }, (_, j) => seat(c * perCourt + j))}
             </span>
           ))}
