@@ -135,24 +135,18 @@ export function Place({ p, className }: { p: { location: string; court?: number 
   );
 }
 
-/** Coach faces, overlapped, then their first names: "Kaan & Leo". */
+/** One soft chip per coach: a small face and their first name. */
 export function Coaches({ people, className }: { people: { full_name: string }[]; className?: string }) {
   if (!people.length) return null;
-  const names = people.map((c) => c.full_name.split(" ")[0]);
-  const label = names.length > 1 ? `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}` : names[0];
   return (
-    <span className={cx("flex min-w-0 items-center gap-2", className)}>
-      <span className="flex shrink-0 -space-x-1.5">
-        {people.map((c) => (
-          <span key={c.full_name} className="rounded-full ring-2 ring-white">
-            <Avatar name={c.full_name} size={22} />
-          </span>
-        ))}
-      </span>
-      <span className="truncate">
-        <span className="font-medium text-ink/80">{label}</span>
-        <span className="text-ink/50"> · {people.length > 1 ? "coaches" : "coach"}</span>
-      </span>
+    <span className={cx("flex flex-wrap items-center gap-1.5", className)}>
+      <span className="text-[12.5px] text-ink/50">{people.length > 1 ? "Coaches" : "Coach"}</span>
+      {people.map((c) => (
+        <span key={c.full_name} className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.05] py-[3px] pr-2.5 pl-[3px]">
+          <Avatar name={c.full_name} size={20} />
+          <span className="text-[13px] leading-none font-medium text-ink/80">{c.full_name.split(" ")[0]}</span>
+        </span>
+      ))}
     </span>
   );
 }
