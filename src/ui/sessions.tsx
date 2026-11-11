@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { A, useAction, withQuery } from "./nav";
 import { bookedTakeover, Icon, SessionMark } from "./icons";
-import { ActionButton, Badge, BookingBadge, btn, cx, Modal, Notice, Place, Spinner } from "./kit";
+import { ActionButton, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
 import { fmtMoney, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
@@ -381,10 +381,8 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
           <div className="mt-1.5 space-y-0.5 text-sm text-ink/70">
             <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
             <Place p={s} />
-            <div>
-              {s.coaches.length > 0 && `${s.coaches.map((c) => c.full_name.split(" ")[0]).join(" & ")} · `}
-              {priceLabel(s)}
-            </div>
+            <Coaches people={s.coaches} className="py-0.5" />
+            <div>{priceLabel(s)}</div>
           </div>
           {s.description && <p className="mt-2 text-sm whitespace-pre-line text-ink/60">{s.description}</p>}
         </div>

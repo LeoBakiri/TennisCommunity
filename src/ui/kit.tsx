@@ -135,6 +135,28 @@ export function Place({ p, className }: { p: { location: string; court?: number 
   );
 }
 
+/** Coach faces, overlapped, then their first names: "Kaan & Leo". */
+export function Coaches({ people, className }: { people: { full_name: string }[]; className?: string }) {
+  if (!people.length) return null;
+  const names = people.map((c) => c.full_name.split(" ")[0]);
+  const label = names.length > 1 ? `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}` : names[0];
+  return (
+    <span className={cx("flex min-w-0 items-center gap-2", className)}>
+      <span className="flex shrink-0 -space-x-1.5">
+        {people.map((c) => (
+          <span key={c.full_name} className="rounded-full ring-2 ring-white">
+            <Avatar name={c.full_name} size={22} />
+          </span>
+        ))}
+      </span>
+      <span className="truncate">
+        <span className="font-medium text-ink/80">{label}</span>
+        <span className="text-ink/50"> · {people.length > 1 ? "coaches" : "coach"}</span>
+      </span>
+    </span>
+  );
+}
+
 const AVATAR_TONES = ["#1F3A2E", "#4F6B4A", "#2F5D62", "#7A8F3A", "#B5672C", "#5B4B6E", "#8A5A44"];
 export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   const tone = AVATAR_TONES[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_TONES.length];
