@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
-import { countdown, WeekGrid, WeekNav, whenWord } from "../sessions";
+import { countdown, DecisionCard, WeekGrid, WeekNav, whenWord } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
@@ -121,6 +121,41 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
   );
 }
 
+/** Two-court sessions still under their minimum. Each links to the session, where the coach decides. */
+function ToDecide({ sessions, today }: { sessions: D<typeof loadCoachSchedule>["to_decide"]; today: string }) {
+  if (!sessions.length) return null;
+  const now = Date.now();
+  return (
+    <div className="mb-5 rounded-2xl bg-[#F6EBD3] p-4 text-[#6E4A0E] md:p-5">
+      <h2 className="flex items-start gap-2 font-semibold">
+        <Icon name="flag" size={17} className="mt-0.5 shrink-0" />
+        {sessions.length === 1 ? "A two-court session is short of players" : `${sessions.length} two-court sessions are short of players`}
+      </h2>
+      <ul className="mt-3 space-y-2">
+        {sessions.map((s) => {
+          const late = new Date(s.decide_by).getTime() <= now;
+          return (
+            <li key={s.id}>
+              <A href={`/coach/sessions/${s.id}`} className="flex items-center gap-3 rounded-xl bg-white/60 px-3.5 py-2.5 transition-colors hover:bg-white">
+                <SessionMark type={s.session_type} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-ink">
+                    {s.title} · {whenWord(s.starts_at, today)} {fmtTime(s.starts_at)}
+                  </span>
+                  <span className="block text-xs">
+                    {s.booked} of {s.minimum} signed up · {late ? <strong>decide now</strong> : `decide by ${whenWord(s.decide_by, today)} ${fmtTime(s.decide_by)}`}
+                  </span>
+                </span>
+                <Icon name="right" size={16} className="shrink-0 text-ink/35" />
+              </A>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
   const nav = useNav();
@@ -138,6 +173,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
         }
       />
       <CoachHero data={data} />
+      <ToDecide sessions={data.to_decide} today={data.today} />
       {calendarUp && calendarCard}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <WeekNav monday={data.monday} base="/coach" />
@@ -393,6 +429,9 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
           <Notice tone="warn">This session was cancelled.</Notice>
         </div>
       )}
+      <div className="mb-4 empty:hidden">
+        <DecisionCard s={s} booked={data.roster.filter((r) => r.booking.status === "confirmed").map((r) => ({ name: r.player?.full_name ?? "A player", at: r.booking.created_at }))} />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div className="space-y-6">
           <div>

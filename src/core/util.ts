@@ -21,6 +21,22 @@ export const LESSON_META: Record<LessonKind, { label: string; color: string }> =
   semi_private: { label: "Semi-Private Lesson", color: "#B5672C" },
 };
 
+// One court takes 6 Group Session players or 4 Performance Accelerator players. A bigger session runs on
+// two courts and only goes ahead with enough players; below that, a coach decides 12 hours before.
+export const COURT_SIZE: Record<SessionType, number> = { group: 6, performance_accelerator: 4 };
+const TWO_COURT_MINIMUM: Record<SessionType, number> = { group: 10, performance_accelerator: 6 };
+export const DECIDE_HOURS = 12;
+export function courtPlan(s: { session_type: SessionType | null; capacity: number }) {
+  const size = COURT_SIZE[s.session_type ?? "group"];
+  const courts = Math.ceil(s.capacity / size);
+  return { size, courts, minimum: courts > 1 ? Math.min(TWO_COURT_MINIMUM[s.session_type ?? "group"], s.capacity) : 0 };
+}
+/** Under its minimum and nobody has decided yet: a coach must run it, drop to one court or cancel. */
+export function needsDecision(s: { session_type: SessionType | null; capacity: number; booked: number; status: string; decided_at?: string | null }) {
+  return s.status === "published" && !s.decided_at && s.booked < courtPlan(s).minimum;
+}
+export const decideBy = (startsAt: string) => new Date(new Date(startsAt).getTime() - DECIDE_HOURS * 3600000).toISOString();
+
 // Balboa has numbered courts; other locations don't get a court picker.
 export const COURTS = [1, 2, 3, 4] as const;
 export const isBalboa = (location: string) => /balboa/i.test(location);

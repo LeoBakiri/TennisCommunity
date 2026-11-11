@@ -3,8 +3,8 @@ import { A, useAction, withQuery } from "./nav";
 import { bookedTakeover, Icon, SessionMark } from "./icons";
 import { ActionButton, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
-import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
-import { fmtMoney, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
+import { addDays, dateKey, fmtClock, fmtDateTime, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow } from "@/core/time";
+import { courtPlan, decideBy, fmtMoney, needsDecision, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
 
 export function priceLabel(s: Pick<SessionView, "price_cents">) {
   if (s.price_cents === null) return "Price TBA";
@@ -85,6 +85,12 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             </div>
           </div>
         </div>
+        {!isFull && courtHeadsUp(s) && (
+          <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] p-3.5 text-sm text-[#7A3E12]">
+            <Icon name="flag" size={15} className="mt-0.5 shrink-0" />
+            <span>{courtHeadsUp(s)}</span>
+          </div>
+        )}
         {isFull && (
           <div className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-[#B5672C]/25 bg-[#FBEEE2] p-3.5 text-sm text-[#7A3E12]">
             <span>
@@ -106,6 +112,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
             disabled={pending}
             data-autofocus
             onClick={async () => {
+              const headsUp = !isFull && courtHeadsUp(s);
               const r = await run("bookSession", { session_id: s.id });
               if (r.ok) {
                 setOpen(false);
@@ -116,7 +123,7 @@ export function BookButton({ s, signedIn }: { s: SessionView; signedIn: boolean 
                 bookedTakeover({
                   ...takeoverDetails(s),
                   title: waiting ? "You're on the waitlist" : "You're booked",
-                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : "See you on court!",
+                  note: waiting ? `#${position} in line. We'll move you in if a spot opens.` : headsUp ? `${courtPlan(s).minimum - s.booked - 1} more needed for 2 courts. Your coach confirms by ${shortWhen(decideBy(s.starts_at))}.` : "See you on court!",
                 });
               }
             }}
@@ -282,6 +289,28 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
 }
 
+/** Two-court sessions say so, and until they have enough players, how many more they need. */
+export function courtNote(s: Pick<SessionView, "session_type" | "capacity" | "booked" | "status" | "decided_at" | "starts_at">, now = Date.now()) {
+  const { courts, minimum } = courtPlan(s);
+  if (courts < 2) return null;
+  const label = `${courts} courts`;
+  if (!needsDecision(s)) return { settled: true as const, text: `${label} · going ahead` };
+  const by = decideBy(s.starts_at);
+  const late = new Date(by).getTime() <= now;
+  return { settled: false as const, text: late ? `${label} · coach is confirming` : `${label} · needs ${minimum - s.booked} more by ${shortWhen(by)}` };
+}
+/** "Sat 6 AM": close enough to read at a glance, since the session itself is within days. */
+const shortWhen = (iso: string) => `${fmtWeekday(iso)} ${fmtTime(iso)}`;
+
+/** Booking a two-court session that's still short: what happens if it stays short. */
+export function courtHeadsUp(s: SessionView) {
+  if (!needsDecision(s)) return null;
+  const { minimum, size } = courtPlan(s);
+  const after = s.booked + 1;
+  if (after >= minimum) return null;
+  return `Runs on 2 courts once ${minimum} sign up (${after} with you). If it's short, your coach decides by ${shortWhen(decideBy(s.starts_at))}: run it anyway, move to one court of ${size}, or cancel.`;
+}
+
 const HEAT_TEXT = { open: "text-ink", low: "text-[#8A5A10]", full: "text-[#8E3326]" };
 const HEAT_FILL = { low: "#B5672C", full: "#B9574A" };
 
@@ -291,23 +320,33 @@ function SeatMeter({ s }: { s: SessionView }) {
   const taken = Math.min(s.booked, s.capacity);
   const imIn = s.my_booking?.status === "confirmed";
   const large = s.capacity <= 8;
+  const { size: perCourt, courts, minimum } = courtPlan(s);
+  const note = courtNote(s);
+  const short = note ? !note.settled : false; // still under the minimum: those empty seats get an amber ring
+  const seat = (i: number) => {
+    const isTaken = i < taken;
+    const size = large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
+    if (!isTaken) {
+      const isNext = i === taken && !s.my_booking;
+      const needed = short && i < minimum;
+      return <span key={i} className={cx("shrink-0 rounded-full border-[1.5px] border-dashed", needed ? "border-[#B5672C]/55" : "border-ink/20", size, isNext && "seat-next")} style={{ borderColor: isNext ? fill : undefined, color: fill }} />;
+    }
+    return (
+      <span key={i} className={cx("seat-taken flex shrink-0 items-center justify-center rounded-full text-white", size)} style={{ background: fill, animationDelay: `${i * 45}ms` }}>
+        {large && <Icon name={imIn && i === 0 ? "check" : "user"} size={13} strokeWidth={2.4} />}
+      </span>
+    );
+  };
   return (
     <>
       {s.capacity <= 14 ? (
-        <div className={cx("flex w-full sm:w-auto sm:justify-end", large ? "gap-1" : "gap-[3px]")} aria-hidden="true">
-          {Array.from({ length: s.capacity }, (_, i) => {
-            const isTaken = i < taken;
-            const size = large ? "h-[22px] w-[22px]" : "h-3.5 w-3.5";
-            if (!isTaken) {
-              const isNext = i === taken && !s.my_booking;
-              return <span key={i} className={cx("shrink-0 rounded-full border-[1.5px] border-dashed border-ink/20", size, isNext && "seat-next")} style={{ borderColor: isNext ? fill : undefined, color: fill }} />;
-            }
-            return (
-              <span key={i} className={cx("seat-taken flex shrink-0 items-center justify-center rounded-full text-white", size)} style={{ background: fill, animationDelay: `${i * 45}ms` }}>
-                {large && <Icon name={imIn && i === 0 ? "check" : "user"} size={13} strokeWidth={2.4} />}
-              </span>
-            );
-          })}
+        <div className={cx("flex w-full items-center sm:w-auto sm:justify-end", large ? "gap-1" : "gap-[3px]")} aria-hidden="true">
+          {/* Two-court sessions: each court is its own outlined box, so the split reads at a glance. */}
+          {Array.from({ length: courts }, (_, c) => (
+            <span key={c} className={cx("flex items-center", large ? "gap-1" : "gap-[3px]", courts > 1 && "rounded-lg border-[1.5px] border-ink/15 bg-white/50 px-1.5 py-1", c > 0 && "ml-1.5")}>
+              {Array.from({ length: Math.min(perCourt, s.capacity - c * perCourt) }, (_, j) => seat(c * perCourt + j))}
+            </span>
+          ))}
         </div>
       ) : (
         <div className="h-2 w-full overflow-hidden rounded-full bg-ink/[0.07] sm:w-40" aria-hidden="true">
@@ -317,8 +356,53 @@ function SeatMeter({ s }: { s: SessionView }) {
       <div className="min-w-0 sm:text-right">
         <div className={cx("text-sm leading-tight font-semibold", HEAT_TEXT[heat])}>{title}</div>
         <div className="mt-0.5 text-xs text-ink/55">{sub}</div>
+        {note && <div className={cx("mt-0.5 text-xs", note.settled ? "text-ink/45" : "font-medium text-[#8A5A10]")}>{note.text}</div>}
       </div>
     </>
+  );
+}
+
+const listNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]);
+
+/** Coaches and admins: a two-court session under its minimum needs a call by 12 hours before. */
+export function DecisionCard({ s, booked = [] }: { s: SessionView; booked?: { name: string; at: string }[] }) {
+  if (!needsDecision(s) || new Date(s.starts_at).getTime() <= Date.now()) return null;
+  const { size, minimum } = courtPlan(s);
+  const by = decideBy(s.starts_at);
+  const late = new Date(by).getTime() <= Date.now();
+  const bumped = Math.max(0, s.booked - size);
+  // Same order as the move itself: the earliest sign-ups keep their spots.
+  const names = [...booked].sort((a, b) => (a.at < b.at ? -1 : 1)).slice(size).map((p) => p.name);
+  const who = names.length === bumped && bumped ? listNames(names) : `the other ${bumped}`;
+  return (
+    <div className="rounded-2xl bg-[#F6EBD3] p-4 text-[#6E4A0E] md:p-5">
+      <div className="flex items-start gap-3">
+        <Icon name="flag" size={18} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <h3 className="font-semibold">
+            {s.booked} of {minimum} signed up for two courts
+          </h3>
+          <p className="mt-0.5 text-sm">
+            {late ? "It's past the 12-hour mark. Decide now so players know." : `Decide by ${fmtDateTime(by)}, 12 hours before. Players see it's waiting on enough sign-ups.`}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3.5 flex flex-wrap gap-2">
+        <ActionButton action="decideSession" input={{ session_id: s.id, choice: "run" }} variant="primary" icon="check" confirm={{ title: "Run it on two courts?", body: `It goes ahead with ${s.booked} player${s.booked === 1 ? "" : "s"}.`, label: "Run it" }}>
+          Run on 2 courts
+        </ActionButton>
+        <ActionButton
+          action="decideSession"
+          input={{ session_id: s.id, choice: "one_court" }}
+          confirm={{ title: "Move to one court?", body: bumped ? `Capacity drops to ${size}. The first ${size} sign-ups keep their spots; ${who} ${bumped === 1 ? "goes" : "go"} to the front of the waitlist.` : `Capacity drops to ${size}. Everyone booked keeps their spot.`, label: "Move to 1 court" }}
+        >
+          Move to 1 court
+        </ActionButton>
+        <ActionButton action="decideSession" input={{ session_id: s.id, choice: "cancel" }} variant="danger" confirm={{ title: "Cancel this session?", body: `${s.booked + s.waitlist} booking(s) will be cancelled. Tell players on WhatsApp.`, label: "Cancel session", danger: true }}>
+          Cancel
+        </ActionButton>
+      </div>
+    </div>
   );
 }
 

@@ -1,9 +1,9 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
 import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
-import { addDays, dateKey, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
+import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
+import { by, courtPlan, decideBy, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
@@ -260,17 +260,23 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
   const u = ctx.actor.user!;
   const monday = weekParam(ctx);
   const nextMonday = addDays(monday, 7);
-  const [L, rows, lessons, calendars] = await Promise.all([
+  const today = dateKey(ctx.now);
+  const [L, rows, lessons, calendars, soon] = await Promise.all([
     profileMap(ctx.store),
     communityBetween(ctx.store, monday, nextMonday),
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(monday) }, lt: { field: "starts_at", value: startIso(nextMonday) } }),
     ctx.store.list("coach_calendars", { eq: { coach_id: u.id } }),
+    communityBetween(ctx.store, today, addDays(today, 8)),
   ]);
-  const sessions = await enrich(ctx.store, rows.filter((s) => s.coach_ids.includes(u.id) && s.status !== "draft"), L, null);
+  const [sessions, twoCourt] = await Promise.all([
+    enrich(ctx.store, rows.filter((s) => s.coach_ids.includes(u.id) && s.status !== "draft"), L, null),
+    // Whatever week is on screen, the coach hears about two-court sessions in the next week that are still short.
+    enrich(ctx.store, soon.filter((s) => s.coach_ids.includes(u.id) && s.status === "published" && s.starts_at > ctx.now.toISOString() && courtPlan(s).courts > 1), L, null),
+  ]);
   const items: ScheduleItem[] = [
     ...sessions.map((s) => {
       const meta = SESSION_META[s.session_type!];
-      return { id: s.id, title: s.title || meta.label, label: meta.label, color: meta.color, session_type: s.session_type!, starts_at: s.starts_at, ends_at: s.ends_at, href: `/coach/sessions/${s.id}`, detail: `${s.booked}/${s.capacity} booked${s.waitlist ? ` · ${s.waitlist} waiting` : ""}`, cancelled: s.status === "cancelled" };
+      return { id: s.id, title: s.title || meta.label, label: meta.label, color: meta.color, session_type: s.session_type!, starts_at: s.starts_at, ends_at: s.ends_at, href: `/coach/sessions/${s.id}`, detail: `${s.booked}/${s.capacity} booked${s.waitlist ? ` · ${s.waitlist} waiting` : ""}${needsDecision(s) ? ` · needs ${courtPlan(s).minimum} for 2 courts` : ""}`, cancelled: s.status === "cancelled" };
     }),
     ...lessons.map((l) => {
       const meta = LESSON_META[l.kind];
@@ -286,7 +292,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     players: { booked: live.reduce((n, s) => n + s.booked, 0), capacity: live.reduce((n, s) => n + s.capacity, 0), waitlist: live.reduce((n, s) => n + s.waitlist, 0) },
     monday,
     days: weekDays(monday),
-    today: dateKey(ctx.now),
+    today,
     nowIso: ctx.now.toISOString(),
     items,
     summary: {
@@ -296,6 +302,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     },
     calendar: calendars[0] ?? null,
     live: ctx.store.kind === "supabase",
+    to_decide: twoCourt.filter(needsDecision).map((s) => ({ id: s.id, title: sessionTitle(s), session_type: s.session_type!, starts_at: s.starts_at, booked: s.booked, minimum: courtPlan(s).minimum, decide_by: decideBy(s.starts_at) })),
   };
 }
 
@@ -591,6 +598,8 @@ function weekPulse(soon: SessionView[], today: string, now: Date, recent: { play
   const attention = soon.flatMap((s) => {
     const why = !s.coach_ids.length
       ? { tone: "amber" as const, text: "No coach assigned" }
+      : needsDecision(s) && s.starts_at < in48h
+        ? { tone: "red" as const, text: `${s.booked} of ${courtPlan(s).minimum} for two courts. Decide by ${fmtDateTime(decideBy(s.starts_at))}` }
       : s.starts_at < in48h && s.booked <= 1 && s.capacity > 1
         ? { tone: "red" as const, text: s.booked ? "Only 1 player so far" : "No players yet" }
         : s.spots_left === 0 && s.waitlist > 0

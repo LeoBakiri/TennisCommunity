@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { A, useAction } from "../nav";
 import { ballBurst, Icon, SessionMark, TennisBall, type IconName } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
-import { calendarHref, countdown, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
+import { calendarHref, countdown, courtNote, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
@@ -290,6 +290,13 @@ export function ScheduleView({ data, meta }: { data: ScheduleData; meta: FrameMe
 
 // ───────────────────────── my sessions ─────────────────────────
 
+/** Only while a two-court session is still short, so a booked player knows it isn't settled. */
+function CourtLine({ s }: { s: SessionView }) {
+  const note = courtNote(s);
+  if (!note || note.settled || s.status !== "published") return null;
+  return <div className="mt-1 text-xs font-medium text-[#8A5A10]">{note.text}</div>;
+}
+
 function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow[]; window: number }) {
   if (!rows.length) return null;
   return (
@@ -304,6 +311,7 @@ function BookingGroup({ title, rows, window }: { title: string; rows: BookingRow
               </div>
               <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
               <Place p={r.session} className="mt-1 text-sm" />
+              <CourtLine s={r.session} />
             </div>
             <div className="flex items-center gap-2">
               {r.booking.status === "confirmed" && (

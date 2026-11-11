@@ -4,7 +4,7 @@ import { z, ZodError } from "zod";
 import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDay, fmtTime, timeKey, zonedToUtc } from "./time";
-import { isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
+import { courtPlan, isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
@@ -165,6 +165,13 @@ async function reindexWaitlist(ctx: Ctx, sessionId: string) {
   for (let i = 0; i < wl.length; i++) {
     if (wl[i].waitlist_position !== i + 1) await ctx.store.update("bookings", wl[i].id, { waitlist_position: i + 1 });
   }
+}
+
+function decided(choice: "run" | "one_court" | "cancel", moved: number): ActionResult {
+  const players = `${moved} player${moved === 1 ? "" : "s"}`;
+  if (choice === "cancel") return { ok: true, message: moved ? `Session cancelled. Let the ${players} know on WhatsApp.` : "Session cancelled." };
+  if (choice === "one_court") return { ok: true, message: moved ? `Now on one court. ${players} moved to the waitlist; let them know on WhatsApp.` : "Now on one court." };
+  return { ok: true, message: "Going ahead on two courts." };
 }
 
 // ───────────────────────── actions ─────────────────────────
@@ -411,6 +418,45 @@ export const actions: Record<string, Handler> = {
     if (ctx.store.rpc) await ctx.store.rpc("set_session_notes", { p_session_id: s.id, p_notes: input.internal_notes });
     else await ctx.store.update("sessions", s.id, { internal_notes: input.internal_notes });
     return { ok: true, message: "Notes saved." };
+  }),
+
+  // A two-court session under its minimum: run it anyway, drop to one court, or cancel it.
+  decideSession: action(z.object({ session_id: id, choice: z.enum(["run", "one_court", "cancel"]) }), async (ctx, input) => {
+    const u = staff(ctx);
+    const s = await must(ctx.store.get("sessions", input.session_id), "Session");
+    if (!coachesSession(u, s)) throw new UserError("You can only decide on your own sessions.");
+    if (s.status !== "published") throw new UserError("This session isn't open.");
+    const { size, courts } = courtPlan(s);
+    if (courts < 2) throw new UserError("This session is already on one court.");
+    if (ctx.store.rpc) {
+      const moved = await ctx.store.rpc<number>("decide_session", { p_session_id: s.id, p_choice: input.choice });
+      return decided(input.choice, moved ?? 0);
+    }
+    const moved = await ctx.store.exclusive(`session:${s.id}`, async () => {
+      const active = (await ctx.store.list("bookings", { eq: { session_id: s.id } })).filter(isActive);
+      const ts = nowIso();
+      if (input.choice === "cancel") {
+        for (const b of active) {
+          await ctx.store.update("bookings", b.id, { status: "cancelled", cancelled_at: ts, updated_at: ts, cancel_reason: "Not enough players for two courts", waitlist_position: null });
+        }
+        await ctx.store.update("sessions", s.id, { status: "cancelled", decided_at: ts });
+        return active.length;
+      }
+      if (input.choice === "run") {
+        await ctx.store.update("sessions", s.id, { decided_at: ts });
+        return 0;
+      }
+      // One court: the earliest sign-ups keep their spots; the rest go to the front of the waitlist.
+      const booked = active.filter((b) => b.status === "confirmed").sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+      const bumped = booked.slice(size);
+      const queue = [...bumped, ...active.filter((b) => b.status === "waitlisted").sort((a, b) => (a.waitlist_position ?? 0) - (b.waitlist_position ?? 0))];
+      for (let i = 0; i < queue.length; i++) {
+        await ctx.store.update("bookings", queue[i].id, { status: "waitlisted", waitlist_position: i + 1, spot_offered_at: null, updated_at: ts });
+      }
+      await ctx.store.update("sessions", s.id, { capacity: size, decided_at: ts });
+      return bumped.length;
+    });
+    return decided(input.choice, moved);
   }),
 
   // ── Coach: private and semi-private lessons ──

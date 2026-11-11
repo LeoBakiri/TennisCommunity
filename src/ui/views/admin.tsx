@@ -2,7 +2,7 @@ import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
-import { priceLabel, whenWord } from "../sessions";
+import { DecisionCard, priceLabel, whenWord } from "../sessions";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
@@ -300,7 +300,7 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
         <Field label="Duration (minutes)">
           <input className="input" type="number" name="duration_min" min={15} step={15} defaultValue={duration} />
         </Field>
-        <Field label="Capacity">
+        <Field label="Capacity" hint={type === "performance_accelerator" ? "8 = two courts, needs 6 to go ahead" : "12 = two courts, needs 10 to go ahead"}>
           <input className="input" type="number" name="capacity" min={1} defaultValue={s?.capacity ?? defaults.capacity} />
         </Field>
         <Field label="Price per player (USD)" hint="Blank for “Price TBA”, 0 for free">
@@ -396,6 +396,9 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
           </>
         }
       />
+      <div className="mb-4 empty:hidden">
+        <DecisionCard s={s} booked={data.roster.filter((r) => r.booking.status === "confirmed").map((r) => ({ name: r.player?.full_name ?? "A player", at: r.booking.created_at }))} />
+      </div>
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
