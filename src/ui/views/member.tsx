@@ -6,10 +6,10 @@ import { calendarHref, countdown, MyBookingActions, SessionCard, skipTheLine, wh
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
-import { addDays, fmtDate, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
-import { POINTS, POINTS_PER_LEVEL, skillLabel, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
+import { addDays, fmtDate, fmtDateTime, fmtDay, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange } from "@/core/time";
+import { levelName, MAX_SKILL_LEVEL, POINTS, POINTS_PER_LEVEL, WEEKLY_GOALS, type BadgeView, type Progress as GameProgress } from "@/core/progress";
 import { lastMilestone, nextMilestone, SESSION_META, sessionTitle } from "@/core/util";
-import type { SessionType } from "@/core/types";
+import type { SessionType, Skill } from "@/core/types";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 type ScheduleData = D<typeof loadSchedule>;
@@ -406,19 +406,32 @@ function GoalRing({ done, goal, size = 22 }: { done: number; goal: number; size?
   );
 }
 
+/** A small "+2" tag: what something is worth. */
+function Pts({ n, dim, className }: { n: number; dim?: boolean; className?: string }) {
+  return <span className={cx("inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[12px] font-bold tabular-nums", dim ? "bg-ink/[0.06] text-ink/60" : "bg-accent text-brand", className)}>+{n}</span>;
+}
+
+/** Ten points to a level, one segment each, so every point shows. */
 function PointsBar({ game }: { game: GameProgress }) {
+  const nextName = levelName(game.level + 1);
   return (
     <div className="mt-4 max-w-md">
-      <div className="mb-1.5 flex justify-between gap-3 text-[12.5px] text-paper/70">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[12.5px] text-paper/70">
         <span>
-          <b className="font-semibold text-paper">{game.into_level}</b> / {POINTS_PER_LEVEL} points
+          <b className="font-display text-[17px] font-semibold text-paper tabular-nums">{game.into_level}</b> / {POINTS_PER_LEVEL} points
         </span>
         <span>
-          {game.sessions_to_next} {game.sessions_to_next === 1 ? "session" : "sessions"} to Level {game.level + 1}
+          {game.to_next} to Level {game.level + 1} · {nextName}
         </span>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-paper/15">
-        <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${(game.into_level / POINTS_PER_LEVEL) * 100}%` }} />
+      <div className="grid grid-cols-10 gap-1" role="img" aria-label={`${game.into_level} of ${POINTS_PER_LEVEL} points`}>
+        {Array.from({ length: POINTS_PER_LEVEL }, (_, i) => (
+          <span
+            key={i}
+            className={cx("h-2.5 rounded-full", i < game.into_level ? "seat-taken bg-accent" : i === game.into_level ? "seat-next bg-paper/25 text-accent" : "bg-paper/15")}
+            style={i < game.into_level ? { animationDelay: `${120 + i * 55}ms` } : undefined}
+          />
+        ))}
       </div>
     </div>
   );
@@ -428,10 +441,17 @@ function GameHero({ data }: { data: GameData }) {
   const g = data.me;
   return (
     <HeroPanel eyebrow={`Hi ${data.first_name} · Level ${g.level}`}>
-      <h1 className="mt-2 max-w-md font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.4rem]">{g.level_name}</h1>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h1 className="mt-2 font-display text-3xl leading-tight font-semibold tracking-tight md:text-[2.4rem]">{g.level_name}</h1>
+        {g.week_points > 0 && (
+          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-0.5 text-[12.5px] font-bold text-brand">
+            <Icon name="spark" size={13} /> +{g.week_points} this week
+          </span>
+        )}
+      </div>
       <PointsBar game={g} />
       <dl className="mt-5 grid max-w-md grid-cols-3 gap-2">
-        <HeroStat value={g.played} label={g.played === 1 ? "session played" : "sessions played"} />
+        <HeroStat value={g.points} label="points in all" />
         <HeroStat
           value={
             <span className="inline-flex items-center gap-1.5">
@@ -448,7 +468,7 @@ function GameHero({ data }: { data: GameData }) {
               {Math.min(g.this_week, g.goal)}/{g.goal}
             </span>
           }
-          label="this week's goal"
+          label="this week"
         />
       </dl>
       {g.streak_weeks > 0 && (
@@ -460,89 +480,287 @@ function GameHero({ data }: { data: GameData }) {
   );
 }
 
-function WeeklyGoal({ game }: { game: GameProgress }) {
-  const { run, pending } = useAction();
-  const done = game.this_week >= game.goal;
+/** One way to earn points next, with what it's worth. */
+function NextRow({ icon, title, sub, pts, children }: { icon: ReactNode; title: ReactNode; sub: ReactNode; pts?: number; children?: ReactNode }) {
+  return (
+    <li className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sage text-brand">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-[14px] font-semibold">{title}</p>
+          {pts !== undefined && <Pts n={pts} />}
+        </div>
+        <p className="mt-0.5 text-[13px] text-ink/60">{sub}</p>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+/** The goal picker answers at once; the save happens behind it. */
+function GoalPicker({ goal }: { goal: number }) {
+  const { run } = useAction();
+  const [shown, setShown] = useState(goal);
+  useEffect(() => setShown(goal), [goal]);
+  const pick = async (n: number) => {
+    if (n === shown) return;
+    const before = shown;
+    setShown(n);
+    const r = await run("setWeeklyGoal", { goal: n });
+    if (!r.ok) setShown(before);
+  };
+  return (
+    <div className="mt-2 inline-flex overflow-hidden rounded-full border border-ink/12" role="group" aria-label="Sessions a week">
+      {WEEKLY_GOALS.map((n) => (
+        <button
+          key={n}
+          type="button"
+          aria-pressed={shown === n}
+          onClick={() => pick(n)}
+          className={cx("px-3 py-1 text-[12.5px] font-medium transition-colors", n > 1 && "border-l border-ink/12", shown === n ? "bg-brand text-paper" : "bg-card text-ink/65 hover:bg-paper")}
+        >
+          {n} a week
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NextUp({ data }: { data: GameData }) {
+  const g = data.me;
+  const n = data.next;
+  const goalLeft = Math.max(0, g.goal - g.this_week);
+  const weakest = [...g.skills].sort((a, b) => a.level - b.level)[0];
+  const badge = g.closest_badge;
   return (
     <Card>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold">Weekly goal</h2>
-          <p className="mt-0.5 text-sm text-ink/60">
-            {done ? `Done for this week. That's +${POINTS.goal} point.` : `${game.goal - game.this_week} more this week for +${POINTS.goal} point.`}
-          </p>
-        </div>
-        <div className="inline-flex overflow-hidden rounded-full border border-ink/12" role="group" aria-label="Sessions a week">
-          {WEEKLY_GOALS.map((n) => (
-            <button
-              key={n}
-              type="button"
-              disabled={pending}
-              aria-pressed={game.goal === n}
-              onClick={() => game.goal !== n && run("setWeeklyGoal", { goal: n })}
-              className={cx("px-3.5 py-1.5 text-[13px] font-medium", n > 1 && "border-l border-ink/12", game.goal === n ? "bg-brand text-paper" : "bg-card text-ink/65 hover:bg-paper")}
-            >
-              {n} a week
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50">{g.to_next} to Level {g.level + 1}</span>}>Your next points</SectionTitle>
+      <ul className="divide-y divide-ink/[0.06]">
+        {n ? (
+          <NextRow
+            icon={<SessionMark type={n.session_type} size={18} />}
+            title={
+              <A href="/my-sessions" className="hover:underline">
+                {n.title} · {fmtDateTime(n.starts_at)}
+              </A>
+            }
+            sub={n.levels_up ? `Play it and you reach Level ${g.level + 1} · ${levelName(g.level + 1)}!` : `Play it and you're on ${g.into_level + n.earns}/${POINTS_PER_LEVEL}${n.goal_bonus ? ", weekly goal included" : ""}.`}
+            pts={n.earns}
+          />
+        ) : (
+          <NextRow
+            icon={<Icon name="calendar" size={18} />}
+            title="Book your next session"
+            sub={`${POINTS.group} for a Group Session, ${POINTS.performance_accelerator} for a Performance Accelerator.`}
+            pts={POINTS.group}
+          >
+            <LinkButton href="/schedule" size="sm" className="mt-2">
+              See sessions
+            </LinkButton>
+          </NextRow>
+        )}
+        <NextRow
+          icon={<GoalRing done={g.this_week} goal={g.goal} size={22} />}
+          title={goalLeft ? `Weekly goal: ${goalLeft} more this week` : "Weekly goal hit this week"}
+          sub={goalLeft ? `Play ${g.goal} ${g.goal === 1 ? "session" : "sessions"} by Sunday for a bonus point.` : "Nice. Your bonus point is in."}
+          pts={POINTS.goal}
+        >
+          <GoalPicker goal={g.goal} />
+        </NextRow>
+        <NextRow
+          icon={<Icon name="whistle" size={18} />}
+          title={`Get your ${weakest.label} moving`}
+          sub={`Every skill your coach moves up is +${POINTS.skill}. Ask them to work on your ${weakest.label.toLowerCase()} next time.`}
+          pts={POINTS.skill}
+        />
+        {badge && (
+          <NextRow
+            icon={<BadgeIcon b={badge} />}
+            title={`Closest badge: ${badge.label}`}
+            sub={badge.need > 1 ? `${badge.have} of ${badge.need}. ${badge.hint}.` : `${badge.hint}.`}
+          >
+            {badge.need > 1 && (
+              <div className="mt-2 h-1.5 max-w-60 overflow-hidden rounded-full bg-ink/[0.07]">
+                <div className="h-full rounded-full bg-brand" style={{ width: `${(badge.have / badge.need) * 100}%` }} />
+              </div>
+            )}
+          </NextRow>
+        )}
+      </ul>
     </Card>
   );
 }
 
-function Skills({ game }: { game: GameProgress }) {
-  const any = game.skills.some((s) => s.level > 1);
+/** Six skills on one shape: the further out, the better. Tap a skill to see its story. */
+function SkillWheel({ game, selected, onSelect }: { game: GameProgress; selected: Skill; onSelect: (k: Skill) => void }) {
+  const cxy = 170;
+  const cy = 128;
+  const R = 92;
+  const at = (i: number, r: number) => {
+    const a = -Math.PI / 2 + (i * Math.PI) / 3;
+    return [cxy + r * Math.cos(a), cy + r * Math.sin(a)] as const;
+  };
+  // The outer ring sits a little past the best skill, so early progress already fills the shape.
+  const top = Math.min(MAX_SKILL_LEVEL, Math.max(4, Math.max(...game.skills.map((s) => s.level)) + 1));
+  const ring = (frac: number) => game.skills.map((_, i) => at(i, R * frac).join(",")).join(" ");
+  const shape = game.skills.map((s, i) => at(i, (R * s.level) / top).join(",")).join(" ");
   return (
-    <Card>
-      <SectionTitle action={<span className="text-[12.5px] text-ink/50">set by your coaches</span>}>Your skills</SectionTitle>
-      <div className="space-y-2.5">
-        {game.skills.map((s) => (
-          <div key={s.key} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-3">
-            <span className="flex items-center gap-1.5 text-[13.5px] font-medium">
+    <svg viewBox="0 0 340 262" className="mx-auto block w-full max-w-[22rem]" role="group" aria-label="Your skills">
+      {Array.from({ length: top }, (_, i) => (i + 1) / top).map((f) => (
+        <polygon key={f} points={ring(f)} fill={f === 1 ? "var(--paper)" : "none"} stroke="var(--ink)" strokeOpacity={0.09} />
+      ))}
+      {game.skills.map((_, i) => {
+        const [x, y] = at(i, R);
+        return <line key={i} x1={cxy} y1={cy} x2={x} y2={y} stroke="var(--ink)" strokeOpacity={0.07} />;
+      })}
+      <polygon points={shape} fill="var(--accent)" fillOpacity={0.55} stroke="var(--brand)" strokeWidth={2} strokeLinejoin="round" style={{ transition: "all .5s" }} />
+      {game.skills.map((s, i) => {
+        const [x, y] = at(i, (R * s.level) / top);
+        return <circle key={s.key} cx={x} cy={y} r={s.key === selected ? 5.5 : 3.5} fill="var(--brand)" stroke="var(--card)" strokeWidth={1.5} />;
+      })}
+      {game.skills.map((s, i) => {
+        const [x, y] = at(i, R + 22);
+        const anchor = Math.abs(x - cxy) < 4 ? "middle" : x > cxy ? "start" : "end";
+        const on = s.key === selected;
+        return (
+          <g
+            key={s.key}
+            role="button"
+            tabIndex={0}
+            aria-pressed={on}
+            aria-label={`${s.label}, level ${s.level}`}
+            onClick={() => onSelect(s.key)}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect(s.key))}
+            className="cursor-pointer outline-none"
+          >
+            <rect x={anchor === "start" ? x - 8 : anchor === "end" ? x - 92 : x - 50} y={y - 17} width={100} height={30} fill="transparent" />
+            <text x={x} y={y - 2} textAnchor={anchor} className={cx("text-[13px]", on ? "font-bold" : "font-medium")} fill={on ? "var(--brand)" : "var(--ink)"} fillOpacity={on ? 1 : 0.75}>
               {s.label}
-              {s.recent && <span className="rounded-full bg-accent px-1.5 text-[10.5px] font-bold text-brand">+1</span>}
-            </span>
-            <div className="h-2 overflow-hidden rounded-full bg-ink/[0.07]">
-              <div className="h-full rounded-full bg-brand" style={{ width: `${s.level * 10}%` }} />
-            </div>
-            <span className="text-right text-[12px] text-ink/50 tabular-nums">Lv {s.level}</span>
+            </text>
+            <text x={x} y={y + 12} textAnchor={anchor} className="text-[11px] font-semibold" fill="var(--ink)" fillOpacity={0.45}>
+              Lv {s.level}
+              {s.recent ? " ▲" : ""}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function Skills({ data }: { data: GameData }) {
+  const g = data.me;
+  // Open on the skill a coach moved most recently, or the first one.
+  const latest = (k: Skill) => data.history[k][0]?.at ?? "";
+  const start = g.skills.reduce((best, x) => (latest(x.key) > latest(best.key) ? x : best)).key;
+  const [sel, setSel] = useState<Skill>(start);
+  const s = g.skills.find((x) => x.key === sel)!;
+  const story = data.history[sel];
+  const [all, setAll] = useState(false);
+  const any = g.skills.some((x) => x.level > 1);
+  return (
+    <Card>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50">tap a skill</span>}>Your game</SectionTitle>
+      {data.focus && (
+        <div className="mb-4 rounded-xl bg-sage p-4">
+          <div className="flex items-center gap-2 text-[12.5px] text-ink/60">
+            <Avatar name={data.focus.coach} size={24} />
+            Your focus · from {data.focus.coach}, {fmtDay(data.focus.at)}
           </div>
-        ))}
+          <p className="mt-1.5 font-display text-[16.5px] leading-snug font-semibold">&ldquo;{data.focus.tip}&rdquo;</p>
+        </div>
+      )}
+      <div className="md:grid md:grid-cols-[1fr_1fr] md:items-center md:gap-6">
+        <SkillWheel game={g} selected={sel} onSelect={(k) => (setSel(k), setAll(false))} />
+        <div key={sel} className="fade-in mt-2 rounded-xl border border-ink/[0.07] p-4 md:mt-0">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="font-display text-[19px] font-semibold">{s.label}</h3>
+            <span className="text-[13px] font-semibold text-ink/55 tabular-nums">
+              Lv {s.level} / {MAX_SKILL_LEVEL}
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-10 gap-1" aria-hidden="true">
+            {Array.from({ length: MAX_SKILL_LEVEL }, (_, i) => (
+              <span key={i} className={cx("h-2 rounded-full", i < s.level ? "bg-brand" : i === s.level ? "bg-accent" : "bg-ink/[0.07]")} />
+            ))}
+          </div>
+          <p className="mt-2 text-[13px] text-ink/60">
+            {s.raised ? `Moved up ${s.raised === 1 ? "once" : `${s.raised} times`} · +${POINTS.skill * s.raised} points so far.` : "Not moved up yet."}
+            {s.level < MAX_SKILL_LEVEL && ` One more tap from a coach takes it to Lv ${s.level + 1} (+${POINTS.skill}).`}
+          </p>
+          {story.length > 0 && (
+            <ul className="mt-3 space-y-2.5 border-t border-ink/[0.06] pt-3">
+              {(all ? story : story.slice(0, 2)).map((h, i) => (
+                <li key={i} className="flex gap-2.5 text-[13px]">
+                  <Avatar name={h.coach} size={24} />
+                  <div className="min-w-0">
+                    <p>
+                      <b className="font-semibold">{h.coach}</b> <span className="text-ink/50">· {fmtDay(h.at)}</span>
+                    </p>
+                    {h.tip && <p className="mt-0.5 text-ink/70">&ldquo;{h.tip}&rdquo;</p>}
+                  </div>
+                </li>
+              ))}
+              {story.length > 2 && !all && (
+                <li>
+                  <button type="button" onClick={() => setAll(true)} className="text-[13px] font-semibold text-brand hover:underline">
+                    Show all {story.length}
+                  </button>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
       </div>
-      {!any && <p className="mt-3 text-[13px] text-ink/55">After a session your coach can tap the skill that got better, and it moves up a level here.</p>}
+      {!any && <p className="mt-3 text-[13px] text-ink/55">After a session your coach taps the skills that got better. Each one grows your shape here and earns +{POINTS.skill}.</p>}
     </Card>
   );
 }
 
-function Feed({ data }: { data: GameData }) {
-  if (!data.feed.length) return null;
+/** Where every point came from, one line per session. */
+function PointsLog({ data }: { data: GameData }) {
+  const [all, setAll] = useState(false);
+  const g = data.me;
+  if (!data.log.length) return null;
+  const rows = all ? data.log : data.log.slice(0, 4);
   return (
     <Card>
-      <SectionTitle>From your coaches</SectionTitle>
-      <ul className="space-y-3">
-        {data.feed.map((f) => (
-          <li key={f.id} className="flex gap-3">
-            <Avatar name={f.coach} size={30} />
-            <div className="min-w-0 text-[13.5px]">
-              <p>
-                <b className="font-semibold">{f.coach.split(" ")[0]}</b>{" "}
-                {f.skills.length ? (
-                  <>
-                    moved up your <b className="font-semibold">{f.skills.map(skillLabel).join(", ")}</b>
-                  </>
-                ) : (
-                  "left you a tip"
-                )}
-              </p>
-              {f.tip && <p className="mt-0.5 text-ink/70">&ldquo;{f.tip}&rdquo;</p>}
-              <p className="mt-0.5 text-[12px] text-ink/50">
-                {fmtDay(f.at)} · {f.session}
-              </p>
+      <SectionTitle action={<span className="text-[12.5px] text-ink/50 tabular-nums">{g.points} from {plural(g.played, "session")}</span>}>Points history</SectionTitle>
+      <ul className="divide-y divide-ink/[0.06]">
+        {rows.map((e) => (
+          <li key={e.key} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sage">{e.session_type ? <SessionMark type={e.session_type} size={16} /> : <Icon name="whistle" size={16} className="text-brand" />}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[13.5px]">
+                  <b className="font-semibold">{e.title}</b> <span className="text-ink/50">· {fmtDay(e.at)}</span>
+                </p>
+                <span className={cx("font-display text-[15px] font-semibold tabular-nums", e.total ? "text-brand" : "text-ink/40")}>+{e.total}</span>
+              </div>
+              {e.parts.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {e.parts.map((p, i) => (
+                    <span key={i} className={cx("rounded-full px-2 py-0.5 text-[11.5px] font-medium", p.label === "Played" ? "bg-ink/[0.05] text-ink/65" : "bg-accent/45 text-brand")}>
+                      {p.label} +{p.points}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {e.tip && (
+                <p className="mt-1 text-[12.5px] text-ink/60">
+                  {e.coach}: &ldquo;{e.tip}&rdquo;
+                </p>
+              )}
             </div>
           </li>
         ))}
       </ul>
+      {data.log.length > 4 && (
+        <button type="button" onClick={() => setAll(!all)} className="mt-3 text-[13px] font-semibold text-brand hover:underline">
+          {all ? "Show less" : `Show all ${data.log.length}`}
+        </button>
+      )}
+      <HowPoints />
     </Card>
   );
 }
@@ -571,20 +789,43 @@ function Badges({ game }: { game: GameProgress }) {
   const earned = game.badges.filter((b) => b.earned);
   // Earned first, then the ones closest to done.
   const next = game.badges.filter((b) => !b.earned).sort((a, b) => b.have / b.need - a.have / a.need);
+  const list = [...earned, ...next];
+  const [open, setOpen] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const shown = all ? list : list.slice(0, 8);
+  const pick = list.find((b) => b.key === open);
   return (
     <Card>
       <SectionTitle action={<span className="text-[12.5px] text-ink/50 tabular-nums">{earned.length} of {game.badges.length}</span>}>Badges</SectionTitle>
-      <ul className="grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-6">
-        {[...earned, ...next].map((b) => (
-          <li key={b.key} className="text-center" title={b.hint}>
-            <div className={cx("mx-auto flex h-13 w-13 items-center justify-center rounded-full", b.earned ? "bg-brand text-accent" : "border-[1.5px] border-dashed border-ink/25 text-ink/35")}>
-              {b.earned ? <BadgeIcon b={b} /> : <Icon name="shield" size={18} />}
-            </div>
-            <p className="mt-1.5 text-[11.5px] leading-tight font-medium">{b.label}</p>
-            {!b.earned && <p className="line-clamp-2 text-[11px] leading-snug text-ink/50 tabular-nums">{b.need > 1 ? `${b.have} / ${b.need}` : b.hint}</p>}
+      <ul className="grid grid-cols-4 gap-x-2 gap-y-4 sm:grid-cols-8">
+        {shown.map((b) => (
+          <li key={b.key} className="text-center">
+            <button type="button" onClick={() => setOpen(open === b.key ? null : b.key)} aria-expanded={open === b.key} className="group w-full">
+              <span
+                className={cx(
+                  "mx-auto flex h-13 w-13 items-center justify-center rounded-full transition-transform group-hover:scale-105",
+                  b.earned ? "bg-brand text-accent" : "border-[1.5px] border-dashed border-ink/25 text-ink/35",
+                  open === b.key && "ring-2 ring-accent ring-offset-2",
+                )}
+              >
+                {b.earned ? <BadgeIcon b={b} /> : <Icon name="shield" size={18} />}
+              </span>
+              <span className="mt-1.5 block text-[11.5px] leading-tight font-medium">{b.label}</span>
+              {!b.earned && b.need > 1 && <span className="block text-[11px] text-ink/50 tabular-nums">{b.have} / {b.need}</span>}
+            </button>
           </li>
         ))}
       </ul>
+      {pick && (
+        <p className="fade-in mt-4 rounded-xl bg-paper px-3.5 py-2.5 text-[13px]">
+          <b className="font-semibold">{pick.label}</b> · {pick.earned ? "Earned." : `${pick.hint}${pick.need > 1 ? ` (${pick.have} of ${pick.need})` : ""}.`}
+        </p>
+      )}
+      {list.length > 8 && (
+        <button type="button" onClick={() => setAll(!all)} className="mt-3 text-[13px] font-semibold text-brand hover:underline">
+          {all ? "Show fewer" : `Show all ${list.length}`}
+        </button>
+      )}
     </Card>
   );
 }
@@ -593,6 +834,15 @@ const monthName = (key: string) => new Date(`${key}T12:00:00Z`).toLocaleString("
 
 function Leaderboard({ data }: { data: GameData }) {
   const b = data.board;
+  const { run } = useAction();
+  const [hidden, setHidden] = useState(b.hidden);
+  useEffect(() => setHidden(b.hidden), [b.hidden]);
+  const toggle = async () => {
+    const next = !hidden;
+    setHidden(next);
+    const r = await run("setLeaderboardHidden", { hidden: next });
+    if (!r.ok) setHidden(!next);
+  };
   const row = (r: GameData["board"]["top"][number]) => (
     <li key={r.user_id} className={cx("grid grid-cols-[1.5rem_auto_1fr_auto] items-center gap-3 rounded-xl px-2.5 py-2 text-[14px]", r.me && "bg-accent/35")}>
       <span className="text-center font-display text-[13px] font-semibold text-ink/50 tabular-nums">{r.rank}</span>
@@ -604,6 +854,11 @@ function Leaderboard({ data }: { data: GameData }) {
   return (
     <Card>
       <SectionTitle action={<span className="text-[12.5px] text-ink/50">sessions played</span>}>{monthName(b.month)} leaderboard</SectionTitle>
+      {b.chase && !hidden && (
+        <p className="mb-3 flex items-center gap-2 rounded-xl bg-sage px-3 py-2 text-[13px] font-medium">
+          <Icon name="arrow" size={15} className="text-brand" /> {b.chase.gap} more {b.chase.gap === 1 ? "session" : "sessions"} to pass {b.chase.name}
+        </p>
+      )}
       {b.top.length ? (
         <ol className="space-y-0.5">
           {b.top.map(row)}
@@ -621,18 +876,12 @@ function Leaderboard({ data }: { data: GameData }) {
       )}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[12.5px] text-ink/55">
         <span>
-          {b.hidden
-            ? "You're hidden from the leaderboard."
-            : b.leading
-              ? "You're top this month. Hold on to it!"
-              : b.chase
-                ? `${b.chase.gap} more ${b.chase.gap === 1 ? "session" : "sessions"} to pass ${b.chase.name}`
-                : "Play a session to get on the board"}
+          {hidden ? "You're hidden from the leaderboard." : b.leading ? "You're top this month. Hold on to it!" : !b.chase ? "Play a session to get on the board." : "First name and last initial only."}
           {` · resets in ${b.resets_in} ${b.resets_in === 1 ? "day" : "days"}`}
         </span>
-        <ActionButton action="setLeaderboardHidden" input={{ hidden: !b.hidden }} variant="ghost" size="sm">
-          {b.hidden ? "Show me" : "Hide me"}
-        </ActionButton>
+        <button type="button" onClick={toggle} className={btn("ghost", "sm")}>
+          {hidden ? "Show me" : "Hide me"}
+        </button>
       </div>
     </Card>
   );
@@ -640,26 +889,26 @@ function Leaderboard({ data }: { data: GameData }) {
 
 function HowPoints() {
   const rows: [string, string][] = [
-    ["Group Session played", `${POINTS.group} points`],
-    ["Performance Accelerator played", `${POINTS.performance_accelerator} points`],
-    ["A coach moves up one of your skills", `+${POINTS.skill} point`],
-    ["Weekly goal hit", `+${POINTS.goal} point`],
+    ["Group Session played", `+${POINTS.group}`],
+    ["Performance Accelerator played", `+${POINTS.performance_accelerator}`],
+    ["A coach moves up one of your skills", `+${POINTS.skill} each`],
+    ["Weekly goal hit", `+${POINTS.goal}`],
   ];
   return (
-    <details className="card group p-5 md:p-6">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-[15px] font-semibold">
+    <details className="group mt-4 border-t border-ink/[0.06] pt-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-[13px] font-semibold text-ink/70">
         How points work
-        <Icon name="down" size={16} className="text-ink/50 transition-transform group-open:rotate-180" />
+        <Icon name="down" size={15} className="text-ink/50 transition-transform group-open:rotate-180" />
       </summary>
-      <dl className="mt-3 divide-y divide-ink/[0.06] text-sm">
+      <dl className="mt-2 divide-y divide-ink/[0.06] text-[13px]">
         {rows.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-4 py-2">
+          <div key={k} className="flex justify-between gap-4 py-1.5">
             <dt className="text-ink/70">{k}</dt>
             <dd className="font-semibold tabular-nums">{v}</dd>
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[13px] text-ink/55">Every {POINTS_PER_LEVEL} points is a new level. No-shows earn nothing.</p>
+      <p className="mt-1.5 text-[12.5px] text-ink/55">Every {POINTS_PER_LEVEL} points is a new level. No-shows earn nothing.</p>
     </details>
   );
 }
@@ -669,21 +918,11 @@ export function MyGame({ data, meta }: { data: GameData; meta: FrameMeta }) {
     <>
       <GameHero data={data} />
       <div className="space-y-4">
-        {data.focus && (
-          <Card className="border-0 bg-sage shadow-none">
-            <div className="flex items-center gap-2 text-[12.5px] text-ink/60">
-              <Avatar name={data.focus.coach} size={26} />
-              This week&apos;s focus · from {data.focus.coach.split(" ")[0]}, {fmtDay(data.focus.at)}
-            </div>
-            <p className="mt-2 font-display text-[17px] leading-snug font-semibold">&ldquo;{data.focus.tip}&rdquo;</p>
-          </Card>
-        )}
-        <WeeklyGoal game={data.me} />
-        <Skills game={data.me} />
-        <Feed data={data} />
+        <NextUp data={data} />
+        <Skills data={data} />
+        <PointsLog data={data} />
         <Badges game={data.me} />
         <Leaderboard data={data} />
-        <HowPoints />
       </div>
       {meta.user && <LevelUp game={data.me} userId={meta.user.id} />}
     </>

@@ -14,21 +14,48 @@ const monday = startOfWeek(dateKey(NOW));
 const at = (key: string, time = "18:00") => zonedToUtc(key, time).toISOString();
 const group = (key: string, time?: string): Played => ({ starts_at: at(key, time), session_type: "group" });
 
-test("points stay small: 2 a Group Session, 3 a Performance Accelerator, 10 a level", () => {
+test("points stay small: 2 a Group Session, 3 a Performance Accelerator, 2 a skill moved up, 10 a level", () => {
   const p = progress({
     played: [group(addDays(monday, -14)), { starts_at: at(addDays(monday, -7)), session_type: "performance_accelerator" }],
-    feedback: [{ skills: ["backhand", "serve"], created_at: NOW.toISOString() }],
+    feedback: [{ skills: ["backhand"], created_at: NOW.toISOString() }],
     goal: 1,
     now: NOW,
   });
-  // 2 + 3 for the sessions, +2 for two skills, +2 for two weeks that hit a goal of 1.
+  // 2 + 3 for the sessions, +2 for one skill, +2 for two weeks that hit a goal of 1.
   assert.equal(p.points, 9);
   assert.equal(p.level, 1);
   assert.equal(p.into_level, 9);
+  assert.equal(p.to_next, 1);
   assert.equal(p.sessions_to_next, 1);
   assert.equal(levelFor(10), 2);
   assert.equal(p.skills.find((s) => s.key === "backhand")?.level, 2);
   assert.equal(p.skills.find((s) => s.key === "backhand")?.recent, true);
+});
+
+test("the points log adds up to the total, one line per session", () => {
+  const played: Played[] = [
+    { id: "a", starts_at: at(addDays(monday, -7)), session_type: "group" },
+    { id: "b", starts_at: at(addDays(monday, -5)), session_type: "performance_accelerator" },
+    { id: "c", starts_at: at(monday, "07:30"), session_type: "group" },
+  ];
+  const p = progress({
+    played,
+    feedback: [
+      { session_id: "b", coach_id: "leo", skills: ["serve", "volley"], tip: "Toss higher.", created_at: at(addDays(monday, -5), "20:00") },
+      { session_id: "gone", coach_id: "leo", skills: ["movement"], tip: "", created_at: at(addDays(monday, -3)) },
+    ],
+    goal: 2,
+    now: NOW,
+  });
+  assert.equal(p.log.reduce((n, e) => n + e.total, 0), p.points);
+  // Newest first, and the goal bonus sits on the session that reached it.
+  assert.deepEqual(p.log.map((e) => e.key), ["c", "note-0", "b", "a"]);
+  const b = p.log.find((e) => e.key === "b")!;
+  assert.deepEqual(b.parts.map((x) => [x.label, x.points]), [["Played", 3], ["Serve up", 2], ["Volley up", 2], ["Weekly goal", 1]]);
+  assert.equal(b.tip, "Toss higher.");
+  assert.equal(p.week_points, 2);
+  assert.equal(p.skills.find((s) => s.key === "serve")?.raised, 1);
+  assert.ok(p.closest_badge && !p.closest_badge.earned);
 });
 
 test("a weekly goal of 2 only pays out in weeks with 2 sessions", () => {
@@ -103,6 +130,8 @@ test("a coach's skill tap and tip reach the player's My Game page, and go if the
   const game = await loadMyGame({ ...player, params: {}, search: {} });
   assert.equal(game.focus?.tip, "Racket up early at the net.");
   assert.ok(game.me.skills.find((s) => s.key === "volley")!.level >= 2);
+  assert.equal(game.history.volley[0].tip, "Racket up early at the net.");
+  assert.ok(game.log.some((e) => e.session_id === past.id && e.parts.some((x) => x.label === "Volley up")));
 
   const coachView = await loadCoachSession({ ...leo, params: { id: past.id }, search: {} });
   assert.deepEqual(coachView.feedback?.[booking.user_id]?.skills, ["volley"]);

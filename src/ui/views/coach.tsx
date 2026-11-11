@@ -10,7 +10,7 @@ import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, f
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
 import { commissionUnder, ruleFor, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
-import { SKILLS } from "@/core/progress";
+import { POINTS, SKILLS } from "@/core/progress";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -323,7 +323,7 @@ function SkillTaps({ bookingId, name, saved }: { bookingId: string; name: string
               className={cx("rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-colors", on ? "border-brand bg-brand text-paper" : "border-ink/12 bg-card text-ink/75 hover:border-ink/30")}
             >
               {s.label}
-              {on && <span className="ml-1 font-bold text-accent">+1</span>}
+              {on && <span className="ml-1 font-bold text-accent">+{POINTS.skill}</span>}
             </button>
           );
         })}

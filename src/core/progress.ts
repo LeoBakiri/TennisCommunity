@@ -12,8 +12,8 @@ export const SKILLS: { key: Skill; label: string }[] = [
 ];
 export const skillLabel = (k: Skill) => SKILLS.find((s) => s.key === k)?.label ?? k;
 
-/** Small numbers on purpose: a session is worth 2 or 3, and every 10 points is a level. */
-export const POINTS = { group: 2, performance_accelerator: 3, skill: 1, goal: 1 } as const;
+/** Small numbers on purpose: a session is worth 2 or 3, getting better at a skill is worth as much as a session, and every 10 points is a level. */
+export const POINTS = { group: 2, performance_accelerator: 3, skill: 2, goal: 1 } as const;
 export const POINTS_PER_LEVEL = 10;
 export const MAX_SKILL_LEVEL = 10;
 export const WEEKLY_GOALS = [1, 2, 3] as const;
@@ -24,6 +24,7 @@ export const levelFor = (points: number) => Math.floor(points / POINTS_PER_LEVEL
 
 /** A community session the player was on court for. */
 export interface Played {
+  id?: string;
   starts_at: string;
   session_type: SessionType;
 }
@@ -83,7 +84,23 @@ export interface BadgeView {
   need: number;
 }
 
-export function progress(input: { played: Played[]; feedback: Pick<Feedback, "skills" | "created_at">[]; goal: number; now: Date }) {
+/** What a coach noted after a session; the extra fields tie it to the session it was about. */
+export type Note = Pick<Feedback, "skills" | "created_at"> & Partial<Pick<Feedback, "session_id" | "coach_id" | "tip">>;
+
+/** One line of the points log: a session played (with what the coach noted), or a note on its own. */
+export interface LogEntry {
+  key: string;
+  at: string;
+  session_id: string | null;
+  session_type: SessionType | null;
+  parts: { label: string; points: number }[];
+  total: number;
+  skills: Skill[];
+  tip: string;
+  coach_id: string | null;
+}
+
+export function progress(input: { played: Played[]; feedback: Note[]; goal: number; now: Date }) {
   const { feedback, goal, now } = input;
   const played = [...input.played].sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1));
   const perWeek = new Map<string, number>();
@@ -106,8 +123,48 @@ export function progress(input: { played: Played[]; feedback: Pick<Feedback, "sk
   const skills = SKILLS.map((s) => {
     const n = marks.filter((m) => m === s.key).length;
     const recent = feedback.some((f) => f.skills.includes(s.key) && new Date(f.created_at).getTime() >= fresh);
-    return { ...s, level: Math.min(MAX_SKILL_LEVEL, 1 + n), recent };
+    return { ...s, level: Math.min(MAX_SKILL_LEVEL, 1 + n), raised: n, recent };
   });
+
+  // The points log: each session with everything it earned, newest first.
+  const notesBySession = new Map<string, Note[]>();
+  for (const f of feedback) if (f.session_id) notesBySession.set(f.session_id, [...(notesBySession.get(f.session_id) ?? []), f]);
+  const seenInWeek = new Map<string, number>();
+  const used = new Set<Note>();
+  const log: LogEntry[] = played.map((p, i) => {
+    const w = startOfWeek(dateKey(p.starts_at));
+    const nth = (seenInWeek.get(w) ?? 0) + 1;
+    seenInWeek.set(w, nth);
+    const notes = p.id ? (notesBySession.get(p.id) ?? []) : [];
+    notes.forEach((n) => used.add(n));
+    const skills = notes.flatMap((n) => n.skills);
+    const parts = [
+      { label: "Played", points: POINTS[p.session_type] },
+      ...skills.map((k) => ({ label: `${skillLabel(k)} up`, points: POINTS.skill })),
+      ...(nth === goal ? [{ label: "Weekly goal", points: POINTS.goal }] : []),
+    ];
+    const tipNote = notes.find((n) => n.tip);
+    return {
+      key: p.id ?? `played-${i}`,
+      at: p.starts_at,
+      session_id: p.id ?? null,
+      session_type: p.session_type,
+      parts,
+      total: parts.reduce((n, x) => n + x.points, 0),
+      skills,
+      tip: tipNote?.tip ?? "",
+      coach_id: (tipNote ?? notes[0])?.coach_id ?? null,
+    };
+  });
+  // Notes for sessions not in the played list still count; they get a line of their own.
+  feedback
+    .filter((f) => !used.has(f) && (f.skills.length || f.tip))
+    .forEach((f, i) => {
+      const parts = f.skills.map((k) => ({ label: `${skillLabel(k)} up`, points: POINTS.skill }));
+      log.push({ key: `note-${i}`, at: f.created_at, session_id: f.session_id ?? null, session_type: null, parts, total: parts.reduce((n, x) => n + x.points, 0), skills: f.skills, tip: f.tip ?? "", coach_id: f.coach_id ?? null });
+    });
+  log.sort((a, b) => (a.at < b.at ? 1 : -1));
+  const weekPoints = log.filter((e) => startOfWeek(dateKey(e.at)) === thisWeek).reduce((n, e) => n + e.total, 0);
 
   const early = played.filter((p) => timeKey(p.starts_at) < "09:00").length;
   const late = played.filter((p) => timeKey(p.starts_at) >= "19:00").length;
@@ -131,8 +188,11 @@ export function progress(input: { played: Played[]; feedback: Pick<Feedback, "sk
     badge("s50", "50 sessions", "Play 50 sessions", played.length, 50),
   ];
 
+  const closest = badges.filter((b) => !b.earned).sort((a, b) => b.have / b.need - a.have / a.need)[0] ?? null;
+
   return {
     points,
+    week_points: weekPoints,
     level,
     level_name: levelName(level),
     into_level: into,
@@ -148,6 +208,8 @@ export function progress(input: { played: Played[]; feedback: Pick<Feedback, "sk
     goal_weeks: goalWeeks,
     skills,
     badges,
+    closest_badge: closest,
+    log,
   };
 }
 

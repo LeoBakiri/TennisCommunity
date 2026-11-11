@@ -1,12 +1,12 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, SessionType } from "./types";
+import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
-import { goalOf, progress, streakWeeks, type Played } from "./progress";
+import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
 export class Forbidden extends Error {}
@@ -120,20 +120,26 @@ export function playStats(playedStarts: string[], now: Date) {
   return { played: playedStarts.length, streak_weeks: streakWeeks(weeks, now).weeks };
 }
 
-/** Community sessions the player was on court for: booked, not marked a no-show, and already started. */
-async function playedSessions(ctx: LoadCtx, userId: string) {
+/** The player's community sessions with a seat held: the ones they've played (not marked a no-show) and the ones still to come. */
+async function heldSessions(ctx: LoadCtx, userId: string) {
   const now = ctx.now.toISOString();
-  const kept = (await ctx.store.list("bookings", { eq: { user_id: userId } })).filter((b) => holdsSeat(b) && b.attended !== false);
-  const sessions = kept.length ? await ctx.store.list("sessions", { in: { field: "id", values: kept.map((b) => b.session_id) } }) : [];
-  return sessions.filter((s) => isCommunity(s) && s.status !== "cancelled" && s.starts_at <= now);
+  const held = (await ctx.store.list("bookings", { eq: { user_id: userId } })).filter(holdsSeat);
+  const noShow = new Set(held.filter((b) => b.attended === false).map((b) => b.session_id));
+  const sessions = held.length ? (await ctx.store.list("sessions", { in: { field: "id", values: held.map((b) => b.session_id) } })).filter((s) => isCommunity(s) && s.status !== "cancelled") : [];
+  return {
+    played: sessions.filter((s) => s.starts_at <= now && !noShow.has(s.id)),
+    upcoming: sessions.filter((s) => s.starts_at > now && s.status === "published").sort(by((s) => s.starts_at)),
+  };
 }
 
 /** Feedback is new; until its table reaches the live database, players simply have none. */
 const myFeedback = (ctx: LoadCtx, userId: string) => ctx.store.list("feedback", { eq: { user_id: userId } }).catch(() => [] as Feedback[]);
 
+const asPlayed = (s: Session): Played => ({ id: s.id, starts_at: s.starts_at, session_type: s.session_type! });
+
 async function playerProgress(ctx: LoadCtx, u: Profile, played?: Session[], feedback?: Feedback[]) {
-  const [sessions, notes] = await Promise.all([played ?? playedSessions(ctx, u.id), feedback ?? myFeedback(ctx, u.id)]);
-  return progress({ played: sessions.map((s) => ({ starts_at: s.starts_at, session_type: s.session_type! }) satisfies Played), feedback: notes, goal: goalOf(u), now: ctx.now });
+  const [sessions, notes] = await Promise.all([played ?? heldSessions(ctx, u.id).then((h) => h.played), feedback ?? myFeedback(ctx, u.id)]);
+  return progress({ played: sessions.map(asPlayed), feedback: notes, goal: goalOf(u), now: ctx.now });
 }
 
 export async function loadMyGame(ctx: LoadCtx) {
@@ -141,24 +147,48 @@ export async function loadMyGame(ctx: LoadCtx) {
   const today = dateKey(ctx.now);
   const month = `${today.slice(0, 7)}-01`;
   const nextMonth = `${addDays(month, 32).slice(0, 7)}-01`;
-  const [played, feedback, L, board] = await Promise.all([
-    playedSessions(ctx, u.id),
+  // Everything in one round of requests (plus the sessions behind the bookings), so the page opens quickly.
+  const [held, feedback, L, board] = await Promise.all([
+    heldSessions(ctx, u.id),
     myFeedback(ctx, u.id),
     profileMap(ctx.store),
     ctx.store.leaderboard(startIso(month), startIso(nextMonth)).catch(() => []),
   ]);
-  const me = await playerProgress(ctx, u, played, feedback);
-  const sessionsById = new Map((await ctx.store.list("sessions", { in: { field: "id", values: [...new Set(feedback.map((f) => f.session_id))] } })).map((s) => [s.id, s]));
-  const coachName = (id: string) => L.profile.get(id)?.full_name ?? "Your coach";
-  const feed = [...feedback]
-    .sort(by((f) => f.created_at, -1))
-    .map((f) => {
-      const s = sessionsById.get(f.session_id);
-      return { id: f.id, coach: coachName(f.coach_id), skills: f.skills, tip: f.tip, at: s?.starts_at ?? f.created_at, session: s ? sessionTitle(s) : "Session" };
-    })
-    .filter((f) => f.skills.length || f.tip);
+  const me = await playerProgress(ctx, u, held.played, feedback);
+  const sessionsById = new Map(held.played.map((s) => [s.id, s]));
+  const coachFirst = (id: string | null | undefined) => (id && L.profile.get(id)?.full_name.split(" ")[0]) || "Your coach";
+  const titleOf = (id: string | null) => {
+    const s = id ? sessionsById.get(id) : undefined;
+    return s ? sessionTitle(s) : "Coach's note";
+  };
+  const log = me.log.slice(0, 40).map((e) => ({ ...e, title: titleOf(e.session_id), coach: e.coach_id ? coachFirst(e.coach_id) : null }));
+
+  // Each skill's story: when a coach moved it up, and what they said.
+  const history = Object.fromEntries(
+    me.skills.map((s) => [
+      s.key,
+      feedback
+        .filter((f) => f.skills.includes(s.key))
+        .sort(by((f) => f.created_at, -1))
+        .map((f) => ({ at: sessionsById.get(f.session_id)?.starts_at ?? f.created_at, coach: coachFirst(f.coach_id), tip: f.tip })),
+    ]),
+  ) as Record<Skill, { at: string; coach: string; tip: string }[]>;
+
   const focusCutoff = new Date(ctx.now.getTime() - 28 * 86400000).toISOString();
-  const focus = feed.find((f) => f.tip && f.at >= focusCutoff) ?? null;
+  const latestTip = [...feedback].filter((f) => f.tip).sort(by((f) => f.created_at, -1))[0];
+  const focus = latestTip && latestTip.created_at >= focusCutoff ? { tip: latestTip.tip, coach: coachFirst(latestTip.coach_id), at: sessionsById.get(latestTip.session_id)?.starts_at ?? latestTip.created_at, skills: latestTip.skills } : null;
+
+  // The next session they're booked on, and what playing it earns.
+  const nextSession = held.upcoming[0];
+  let next = null;
+  if (nextSession) {
+    const sameWeek = startOfWeek(dateKey(nextSession.starts_at)) === startOfWeek(today);
+    const bookedThisWeek = held.upcoming.filter((s) => startOfWeek(dateKey(s.starts_at)) === startOfWeek(today) && s.starts_at <= nextSession.starts_at).length;
+    const goalBonus = sameWeek && me.this_week + bookedThisWeek === me.goal ? POINTS.goal : 0;
+    const earns = POINTS[nextSession.session_type!] + goalBonus;
+    next = { id: nextSession.id, title: sessionTitle(nextSession), starts_at: nextSession.starts_at, session_type: nextSession.session_type!, earns, goal_bonus: goalBonus > 0, levels_up: me.into_level + earns >= POINTS_PER_LEVEL };
+  }
+
   const ranked = board.map((r, i) => ({ ...r, rank: i + 1, me: r.user_id === u.id }));
   const mine = ranked.find((r) => r.me) ?? null;
   const ahead = mine && mine.rank > 1 ? ranked[mine.rank - 2] : null;
@@ -166,8 +196,11 @@ export async function loadMyGame(ctx: LoadCtx) {
   return {
     first_name: u.full_name.split(" ")[0],
     me,
-    feed: feed.slice(0, 6),
+    log,
+    history,
     focus,
+    next,
+    booked_ahead: held.upcoming.length,
     board: {
       month,
       top: ranked.slice(0, 5),

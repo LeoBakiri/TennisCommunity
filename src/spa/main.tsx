@@ -178,7 +178,7 @@ type Screen =
 
 // Main pages reopen instantly from memory while fresh data loads behind them.
 // Only pages without forms are kept: a form would hold on to the older values.
-const CACHED_ROUTES = new Set(["schedule", "m.sessions", "c.schedule", "a.schedule", "a.coaches", "a.members"]);
+const CACHED_ROUTES = new Set(["schedule", "m.sessions", "m.game", "c.schedule", "a.schedule", "a.coaches", "a.members"]);
 const SCREEN_CACHE_SIZE = 40;
 const screenCache = new Map<string, ViewScreen>();
 const prefetchedAt = new Map<string, number>();
@@ -235,7 +235,7 @@ function likelyPages(view: ViewScreen): string[] {
     return [`/coach?week=${addDays(monday, 7)}`, `/coach?week=${addDays(monday, -7)}`, "/coach"];
   }
   if (view.area === "coach") return ["/coach"];
-  return view.meta.user ? ["/schedule", "/my-sessions"] : [];
+  return view.meta.user ? ["/schedule", "/my-sessions", "/my-game"] : [];
 }
 
 function prefetchWhenIdle(view: ViewScreen) {
