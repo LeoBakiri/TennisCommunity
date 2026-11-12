@@ -2159,6 +2159,12 @@
     .sm\:max-w-md {
       max-width: var(--container-md);
     }
+    .sm\:flex-1 {
+      flex: 1;
+    }
+    .sm\:shrink-0 {
+      flex-shrink: 0;
+    }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -2209,6 +2215,9 @@
     }
     .sm\:gap-3 {
       gap: calc(var(--spacing) * 3);
+    }
+    .sm\:gap-4 {
+      gap: calc(var(--spacing) * 4);
     }
     .sm\:rounded-2xl {
       border-radius: var(--radius-2xl);

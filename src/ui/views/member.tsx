@@ -296,8 +296,8 @@ function BookingGroup({ title, rows, window, links }: { title: string; rows: Boo
       <SectionTitle>{title}</SectionTitle>
       <div className="card divide-y divide-ink/[0.06]">
         {rows.map((r) => (
-          <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
-            <div className="min-w-0">
+          <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-5">
+            <div className="min-w-0 sm:flex-1">
               <div className="flex items-center gap-2 font-semibold">
                 <SessionMark type={r.session.session_type} /> {sessionTitle(r.session)}
               </div>
@@ -305,7 +305,7 @@ function BookingGroup({ title, rows, window, links }: { title: string; rows: Boo
               <Place p={r.session} className="mt-1 text-sm" />
               <CourtLine s={r.session} />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
               {r.booking.status === "confirmed" && <AddToCalendar s={r.session} links={links} />}
               <MyBookingActions s={r.session} window={window} />
             </div>
