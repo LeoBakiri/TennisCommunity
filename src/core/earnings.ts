@@ -48,6 +48,16 @@ export function lessonMoney(l: Priced & Pick<Lesson, "commission_cents">, rules:
   return { gross, commission, net: gross - commission, priced: l.price_cents !== null };
 }
 
+/** Dollars for money screens: "$0", "$1,240", "$12.50". */
+export function usd(cents: number): string {
+  const sign = cents < 0 ? "−" : "";
+  const d = Math.abs(cents) / 100;
+  return `${sign}$${d.toLocaleString("en-US", { minimumFractionDigits: d % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
+/** Short dollars for chart labels: "$950", "$1.2k". */
+export const usdShort = (cents: number) => (Math.abs(cents) >= 100000 ? `$${(cents / 100000).toFixed(1).replace(/\.0$/, "")}k` : usd(cents));
+
 export function addMoney(items: Money[]) {
   return items.reduce((t, m) => ({ gross: t.gross + m.gross, commission: t.commission + m.commission, net: t.net + m.net }), { gross: 0, commission: 0, net: 0 });
 }

@@ -6,7 +6,7 @@ import { runAction, type Ctx } from "../src/core/services";
 import type { Actor, DB, Session } from "../src/core/types";
 import { addDays, dateKey } from "../src/core/time";
 import { matchRoute, guard, retiredRedirect } from "../src/core/routes";
-import { loadAdminCoaches, loadAdminMember, loadCoachSchedule, loadSchedule } from "../src/core/queries";
+import { loadAdminCoaches, loadAdminMember, loadCoachEarnings, loadCoachSchedule, loadSchedule } from "../src/core/queries";
 
 function setup() {
   const now = new Date();
@@ -279,11 +279,27 @@ test("coaches edit notes and attendance only for sessions they're assigned to", 
   assert.equal((await store.get("sessions", s.id))!.internal_notes, "Bring cones");
 });
 
-test("the coaches page shows lesson counts without client names", async () => {
+test("the coaches page shows each coach's earnings, matching their own Earnings page, without client names", async () => {
   const { load } = setup();
-  const data = await loadAdminCoaches(await load(DEMO_IDS.leo));
-  assert.ok(data.coaches.find((c) => c.id === DEMO_IDS.maya)!.lessons >= 1);
-  assert.ok(!JSON.stringify(data).includes("Amir Sadeghi"));
+  for (const period of ["week", "month", "year"]) {
+    const data = await loadAdminCoaches({ ...(await load(DEMO_IDS.leo)), search: { period } });
+    assert.equal(data.period, period);
+    for (const id of [DEMO_IDS.leo, DEMO_IDS.maya]) {
+      const own = await loadCoachEarnings({ ...(await load(id)), search: { period } });
+      const row = data.coaches.find((c) => c.id === id)!;
+      assert.equal(row.earned.net, own.totals.net);
+      assert.equal(row.earned.lessons, own.totals.lessons);
+      assert.equal(row.booked.net, own.scheduled.net);
+      assert.equal(row.previous, own.previous.net);
+      assert.equal(row.owed.total, own.owed.total);
+      assert.equal(row.chart.length, own.chart.length);
+    }
+    assert.equal(data.totals.net, data.coaches.reduce((n, c) => n + c.earned.net, 0));
+    assert.ok(!JSON.stringify(data).includes("Amir Sadeghi"));
+  }
+  const month = await loadAdminCoaches(await load(DEMO_IDS.leo));
+  assert.equal(month.period, "month");
+  assert.ok(month.totals.net > 0 || month.totals.booked > 0);
 });
 
 test("routes and guards separate player, coach and admin", () => {

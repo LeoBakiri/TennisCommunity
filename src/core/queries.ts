@@ -95,6 +95,13 @@ async function communityBetween(store: Store, fromKey: string, toKey: string) {
   return rows.filter(isCommunity);
 }
 
+/** The point in the previous period as far through it as `now` is through this one, so totals compare like with like. */
+function sameShareOf(range: { from: string; to: string }, before: { from: string; to: string }, now: Date): string {
+  const t = (key: string) => new Date(startIso(key)).getTime();
+  const elapsed = Math.min(1, Math.max(0, (now.getTime() - t(range.from)) / (t(range.to) - t(range.from))));
+  return new Date(t(before.from) + elapsed * (t(before.to) - t(before.from))).toISOString();
+}
+
 // ───────────────────────── player ─────────────────────────
 
 export async function loadSchedule(ctx: LoadCtx) {
@@ -462,8 +469,7 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   const t = total(earned);
   const scheduled = total(inPeriod.filter((r) => !r.done));
   // Compare like with like: the same share of the previous period that has passed in this one.
-  const elapsed = Math.min(1, Math.max(0, (ctx.now.getTime() - new Date(startIso(range.from)).getTime()) / (new Date(startIso(range.to)).getTime() - new Date(startIso(range.from)).getTime())));
-  const prevCut = new Date(new Date(startIso(before.from)).getTime() + elapsed * (new Date(startIso(before.to)).getTime() - new Date(startIso(before.from)).getTime())).toISOString();
+  const prevCut = sameShareOf(range, before, ctx.now);
   const previous = total(within(before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut));
 
   const sumBy = (rs: R[], key: (r: R) => string[]) => {
@@ -729,45 +735,89 @@ export async function loadSessionEditor(ctx: LoadCtx) {
 }
 
 export async function loadAdminCoaches(ctx: LoadCtx) {
+  const period: Period = PERIODS.includes(ctx.search.period as Period) ? (ctx.search.period as Period) : "month";
+  const today = dateKey(ctx.now);
+  const at = isDateKey(ctx.search.at) ? ctx.search.at : today;
+  const range = periodRange(period, at);
+  const before = periodRange(period, range.prev);
   const now = ctx.now.toISOString();
-  const today = startIso(dateKey(ctx.now));
-  const weekEnd = startIso(addDays(startOfWeek(dateKey(ctx.now)), 7));
-  const monthEnd = startIso(addDays(dateKey(ctx.now), 28));
-  const clientsSince = startIso(addDays(dateKey(ctx.now), -60));
-  const [L, sessions, allLessons, calendars] = await Promise.all([
+  // A year back covers the previous period and any lesson still waiting to be paid, like the coach Earnings page.
+  const since = [before.from, addDays(today, -400)].sort()[0];
+  const clientsSince = startIso(addDays(today, -60));
+  const [L, allLessons, rules, calendars, inPeriod, upcoming] = await Promise.all([
     profileMap(ctx.store),
-    ctx.store.list("sessions", { gte: { field: "starts_at", value: today }, order: { field: "starts_at" } }),
-    ctx.store.list("lessons", { gte: { field: "starts_at", value: clientsSince } }),
+    ctx.store.list("lessons", { gte: { field: "starts_at", value: startIso(since) } }),
+    ctx.store.list("commission_rules"),
     ctx.store.list("coach_calendars"),
+    communityBetween(ctx.store, range.from, range.to),
+    ctx.store.list("sessions", { gte: { field: "starts_at", value: now }, order: { field: "starts_at" } }),
   ]);
-  const lessons = allLessons.filter((l) => l.starts_at >= now);
-  const assigned = await enrich(ctx.store, sessions.filter((s) => s.starts_at >= now && isCommunity(s) && s.status === "published"), L, null);
+  const community = await enrich(ctx.store, inPeriod.filter((s) => s.status === "published"), L, null);
+  const prevCut = sameShareOf(range, before, ctx.now);
+  const rows = allLessons.map((l) => ({ lesson: l, money: lessonMoney(l, rules), done: l.ends_at <= now, hours: hours(l.starts_at, l.ends_at) }));
+  type R = (typeof rows)[number];
+  const net = (rs: R[]) => addMoney(rs.map((r) => r.money)).net;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
+  const coaches = L.profiles
+    .filter((p) => isStaff(p) && p.status === "active")
+    .sort(by((p) => p.full_name))
+    .map((p) => {
+      const mine = rows.filter((r) => r.lesson.coach_id === p.id);
+      const inP = mine.filter((r) => inRange(r.lesson.starts_at, range.from, range.to));
+      const done = inP.filter((r) => r.done);
+      const money = addMoney(done.map((r) => r.money));
+      const lessonHours = round1(done.reduce((n, r) => n + r.hours, 0));
+      const owed = mine.filter((r) => r.done && !r.lesson.paid_at && r.money.gross > 0);
+      const sessions = community.filter((s) => s.coach_ids.includes(p.id));
+      const played = sessions.filter((s) => s.ends_at <= now);
+      // Clients: anyone they taught or have booked in the last 60 days, matched by name like the Clients tab. Only the count leaves here.
+      const clients = new Set(allLessons.filter((l) => l.coach_id === p.id && l.starts_at >= clientsSince).flatMap((l) => l.client_names.map((n) => n.trim().toLowerCase())).filter(Boolean));
+      return {
+        ...person(p),
+        email: p.email,
+        calendar: calendars.find((c) => c.coach_id === p.id) ?? null,
+        earned: { ...money, lessons: done.length, hours: lessonHours, per_hour: lessonHours ? Math.round(money.net / lessonHours / 100) * 100 : 0 },
+        booked: { net: net(inP.filter((r) => !r.done)), lessons: inP.filter((r) => !r.done).length },
+        previous: net(mine.filter((r) => inRange(r.lesson.starts_at, before.from, before.to) && r.lesson.ends_at <= prevCut)),
+        unpriced: inP.filter((r) => !r.money.priced).length,
+        owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed.length },
+        chart: buckets(period, at).map((b) => {
+          const rs = inP.filter((r) => inRange(r.lesson.starts_at, b.from, b.to));
+          return { key: b.key, label: b.label, earned: net(rs.filter((r) => r.done)), booked: net(rs.filter((r) => !r.done)), current: today >= b.from && today < b.to };
+        }),
+        community: {
+          sessions: sessions.length,
+          played: played.length,
+          hours: round1(sessions.reduce((n, s) => n + hours(s.starts_at, s.ends_at), 0)),
+          players: sessions.reduce((n, s) => n + s.booked, 0),
+          capacity: sessions.reduce((n, s) => n + s.capacity, 0),
+        },
+        clients: clients.size,
+      };
+    });
+  const sum = (f: (c: (typeof coaches)[number]) => number) => coaches.reduce((n, c) => n + f(c), 0);
   return {
-    coaches: L.profiles
-      .filter((p) => isStaff(p) && p.status === "active")
-      .sort(by((p) => p.full_name))
-      .map((p) => {
-        const mine = assigned.filter((s) => s.coach_ids.includes(p.id));
-        const month = mine.filter((s) => s.starts_at < monthEnd);
-        // Clients: anyone they taught or have booked in the last 60 days, matched by name like the Clients tab.
-        const clients = new Set(allLessons.filter((l) => l.coach_id === p.id).flatMap((l) => l.client_names.map((n) => n.trim().toLowerCase())).filter(Boolean));
-        return {
-          ...person(p),
-          email: p.email,
-          sessions: mine,
-          lessons: lessons.filter((l) => l.coach_id === p.id).length,
-          calendar: calendars.find((c) => c.coach_id === p.id) ?? null,
-          stats: {
-            this_week: mine.filter((s) => s.starts_at < weekEnd).length,
-            month: month.length,
-            booked: month.reduce((n, s) => n + s.booked, 0),
-            capacity: month.reduce((n, s) => n + s.capacity, 0),
-            waitlist: month.reduce((n, s) => n + s.waitlist, 0),
-            clients: clients.size,
-          },
-        };
-      }),
-    unassigned: assigned.filter((s) => !s.coach_ids.length),
+    period,
+    at,
+    label: periodLabel(period, at),
+    current: inRange(now, range.from, range.to),
+    prev: range.prev,
+    next: range.next,
+    coaches,
+    totals: {
+      net: sum((c) => c.earned.net),
+      gross: sum((c) => c.earned.gross),
+      commission: sum((c) => c.earned.commission),
+      lessons: sum((c) => c.earned.lessons),
+      hours: round1(sum((c) => c.earned.hours + c.community.hours)),
+      booked: sum((c) => c.booked.net),
+      previous: sum((c) => c.previous),
+      owed: sum((c) => c.owed.total),
+      owed_lessons: sum((c) => c.owed.lessons),
+    },
+    has_rules: rules.some((r) => r.percent > 0 || r.per_hour_cents > 0 || r.per_lesson_cents > 0),
+    unassigned: upcoming.filter((s) => isCommunity(s) && s.status === "published" && !s.coach_ids.length),
   };
 }
 

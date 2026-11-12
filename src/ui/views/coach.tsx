@@ -8,7 +8,7 @@ import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSch
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
-import { commissionUnder, ruleFor, type Period } from "@/core/earnings";
+import { commissionUnder, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
@@ -600,13 +600,6 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
 
 // ───────────────────────── earnings ─────────────────────────
 
-/** Dollars for money screens: "$0", "$1,240", "$12.50". */
-export function usd(cents: number): string {
-  const sign = cents < 0 ? "−" : "";
-  const d = Math.abs(cents) / 100;
-  return `${sign}$${d.toLocaleString("en-US", { minimumFractionDigits: d % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
-}
-const usdShort = (cents: number) => (Math.abs(cents) >= 100000 ? `$${(cents / 100000).toFixed(1).replace(/\.0$/, "")}k` : usd(cents));
 
 export function ruleText(r: CommissionRule): string {
   return [r.percent ? `${r.percent}%` : "", r.per_hour_cents ? `${usd(r.per_hour_cents)}/hr` : "", r.per_lesson_cents ? `${usd(r.per_lesson_cents)}/lesson` : ""].filter(Boolean).join(" + ");

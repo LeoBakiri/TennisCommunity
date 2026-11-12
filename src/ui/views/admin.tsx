@@ -8,7 +8,7 @@ import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSche
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
 import { COURTS, fmtMoney, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
-import { COMMISSION_ROWS } from "@/core/earnings";
+import { COMMISSION_ROWS, usd } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -488,21 +488,169 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
 
 // ───────────────────────── coaches ─────────────────────────
 
-function CoachStat({ label, value, hint }: { label: string; value: number | string; hint: string }) {
+type CoachesData = D<typeof loadAdminCoaches>;
+type CoachRow = CoachesData["coaches"][number];
+
+function CoachStat({ label, value, hint, tone }: { label: string; value: number | string; hint: string; tone?: "warn" }) {
   return (
-    <div className="min-w-0 rounded-xl bg-ink/[0.03] px-3 py-2.5">
+    <div className={cx("min-w-0 rounded-xl px-3 py-2.5", tone === "warn" ? "bg-[#D29A3A]/10" : "bg-ink/[0.03]")}>
       <div className="text-[12px] text-ink/55">{label}</div>
-      <div className="mt-0.5 font-display text-xl font-semibold tracking-tight tabular-nums">{value}</div>
+      <div className={cx("mt-0.5 font-display text-xl font-semibold tracking-tight tabular-nums", tone === "warn" && "text-[#8A5A10]")}>{value}</div>
       <div className="truncate text-[11px] text-ink/45">{hint}</div>
     </div>
   );
 }
 
-export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
-  const now = Date.now();
+/** Up or down against the same point of the previous period. */
+function Change({ now, before, word, current, light }: { now: number; before: number; word: string; current: boolean; light?: boolean }) {
+  const diff = now - before;
+  if (!now && !before) return null;
+  const up = light ? "text-accent" : "text-brand";
+  const down = light ? "text-[#F3B7A8]" : "text-[#A4462F]";
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12.5px]", light ? "bg-paper/10 ring-1 ring-paper/15" : "bg-ink/[0.04]")}>
+      <span className={cx("font-semibold tabular-nums", diff > 0 ? up : diff < 0 ? down : "")}>
+        {diff > 0 ? "▲" : diff < 0 ? "▼" : "="} {usd(Math.abs(diff))}
+      </span>
+      <span className={light ? "text-paper/65" : "text-ink/50"}>
+        vs last {word}
+        {current ? " so far" : ""}
+      </span>
+    </span>
+  );
+}
+
+function CoachChart({ chart, name }: { chart: CoachRow["chart"]; name: string }) {
+  const max = Math.max(1, ...chart.map((b) => b.earned + b.booked));
+  return (
+    <div className="mt-4">
+      <div className="flex h-16 items-end gap-1" role="img" aria-label={`${name}: ${chart.map((b) => `${b.label} ${usd(b.earned + b.booked)}`).join(", ")}`}>
+        {chart.map((b) => {
+          const sum = b.earned + b.booked;
+          return (
+            <div key={b.key} className="flex h-full min-w-0 flex-1 flex-col justify-end" title={`${b.label}: ${usd(sum)}`}>
+              <div className="mx-auto flex w-full max-w-8 flex-col justify-end overflow-hidden rounded-[4px]" style={{ height: `${(Math.max(0, sum) / max) * 100}%`, minHeight: sum ? 3 : 0 }}>
+                {b.booked > 0 && <div className="bg-brand/25" style={{ flexGrow: b.booked }} />}
+                {b.earned > 0 && <div className="bg-brand" style={{ flexGrow: b.earned }} />}
+              </div>
+              {!sum && <div className="mx-auto h-[2px] w-full max-w-8 rounded-full bg-ink/[0.07]" />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex gap-1">
+        {chart.map((b) => (
+          <span key={b.key} className={cx("min-w-0 flex-1 truncate text-center text-[10.5px]", b.current ? "font-semibold text-brand" : "text-ink/45")}>
+            {b.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CoachCard({ c, data }: { c: CoachRow; data: CoachesData }) {
+  const word = data.period;
+  const e = c.earned;
+  const fill = c.community.capacity ? Math.round((c.community.players / c.community.capacity) * 100) : 0;
+  return (
+    <Card>
+      <div className="flex items-start gap-3">
+        <Avatar name={c.full_name} size={40} />
+        <div className="min-w-0 flex-1">
+          <A href={`/admin/members/${c.id}`} className="font-semibold hover:underline">
+            {c.full_name}
+          </A>
+          <div className="truncate text-xs text-ink/50">{c.email}</div>
+        </div>
+        {c.calendar ? c.calendar.status === "connected" ? <Badge tone="green">Calendar synced</Badge> : <Badge tone="amber">Calendar needs reconnecting</Badge> : <Badge>No calendar</Badge>}
+      </div>
+      <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div>
+          <div className="text-[12px] text-ink/55">Earned {data.current ? `this ${word}` : `in ${data.label}`}, after commission</div>
+          <div className="font-display text-3xl font-semibold tracking-tight tabular-nums">{usd(e.net)}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1 text-right">
+          <Change now={e.net} before={c.previous} word={word} current={data.current} />
+          {c.booked.lessons > 0 && (
+            <span className="text-[12.5px] text-ink/55">
+              + {usd(c.booked.net)} booked ({plural(c.booked.lessons, "lesson")})
+            </span>
+          )}
+        </div>
+      </div>
+      {c.chart.some((b) => b.earned + b.booked > 0) ? <CoachChart chart={c.chart} name={c.full_name} /> : <p className="mt-3 text-[13px] text-ink/45">No paid lessons {data.current ? `this ${word}` : `in ${data.label}`}.</p>}
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <CoachStat label="Lessons" value={e.lessons} hint={e.hours ? `${e.hours} hours` : "none taught"} />
+        <CoachStat label="Per hour" value={e.hours ? usd(e.per_hour) : "–"} hint="after commission" />
+        <CoachStat label="Commission" value={usd(e.commission)} hint={data.has_rules ? `of ${usd(e.gross)} charged` : "no rate set yet"} />
+        <CoachStat label="Unpaid" value={usd(c.owed.total)} hint={c.owed.lessons ? `${plural(c.owed.lessons, "past lesson")}` : "all paid"} tone={c.owed.total > 0 ? "warn" : undefined} />
+      </div>
+      {c.unpriced > 0 && <p className="mt-2 text-[12px] text-[#8A5A10]">{plural(c.unpriced, "lesson")} this {word} {c.unpriced === 1 ? "has" : "have"} no price, so {c.unpriced === 1 ? "it isn't" : "they aren't"} counted.</p>}
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink/[0.06] pt-3 text-[13px] text-ink/60">
+        <span className="flex items-center gap-1.5">
+          <SessionMark type="group" size={14} />
+          {c.community.sessions ? (
+            <span>
+              {plural(c.community.sessions, "community session")} · {plural(c.community.players, "player")} · {fill}% full · {c.community.hours} h
+            </span>
+          ) : (
+            <span>No community sessions this {word}</span>
+          )}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Icon name="users" size={14} /> {plural(c.clients, "client")}
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+export function AdminCoaches({ data }: { data: CoachesData }) {
+  const base = "/admin/coaches";
+  const word = data.period;
+  const go = (at: string) => withQuery(base, { period: data.period, at });
+  const t = data.totals;
   return (
     <>
-      <PageHeader title="Coaches" subtitle="How each coach is doing. Sessions, booked and waiting cover the next 4 weeks; clients are anyone taught in the last 60 days or booked ahead. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="What each coach earns from lessons, what's still unpaid, and how their community sessions are doing. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <Tabs current={data.period} items={(["week", "month", "year"] as const).map((p) => ({ key: p, label: p === "week" ? "Weekly" : p === "month" ? "Monthly" : "Yearly", href: withQuery(base, { period: p, at: data.at }) }))} />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <A href={go(data.prev)} className={btn("outline", "sm")} aria-label={`Previous ${word}`}>
+          <Icon name="left" size={16} />
+        </A>
+        <A href={withQuery(base, { period: data.period })} className={btn("outline", "sm")}>
+          This {word}
+        </A>
+        <A href={go(data.next)} className={btn("outline", "sm")} aria-label={`Next ${word}`}>
+          <Icon name="right" size={16} />
+        </A>
+        <span className="ml-1 text-sm font-medium text-ink/70">{data.label}</span>
+      </div>
+      <HeroPanel eyebrow={data.current ? `All coaches · this ${word}` : `All coaches · ${data.label}`}>
+        <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
+        <p className="mt-1 text-sm text-paper/70">
+          earned from lessons, after commission
+          {t.booked > 0 && <span className="text-accent"> · {usd(t.booked)} more booked</span>}
+        </p>
+        <div className="mt-3">
+          <Change now={t.net} before={t.previous} word={word} current={data.current} light />
+        </div>
+        <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
+          <HeroStat value={t.lessons} label={t.lessons === 1 ? "lesson taught" : "lessons taught"} />
+          <HeroStat value={t.hours} label="hours on court" />
+          <HeroStat value={usd(t.commission)} label="club commission" />
+          <HeroStat value={usd(t.owed)} label={t.owed_lessons ? `unpaid · ${plural(t.owed_lessons, "lesson")}` : "unpaid"} />
+        </dl>
+        {!data.has_rules && (
+          <p className="mt-4 text-[12.5px] text-paper/60">
+            No club commission rate yet, so coaches keep the full lesson price.{" "}
+            <A href="/admin/settings" className="underline hover:text-paper">
+              Set it in Settings
+            </A>
+          </p>
+        )}
+      </HeroPanel>
       {data.unassigned.length > 0 && (
         <div className="mb-5">
           <Notice tone="warn">
@@ -520,58 +668,10 @@ export function AdminCoaches({ data }: { data: D<typeof loadAdminCoaches> }) {
       )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {data.coaches.map((c) => (
-          <Card key={c.id}>
-            <div className="flex items-start gap-3">
-              <Avatar name={c.full_name} size={40} />
-              <div className="min-w-0 flex-1">
-                <A href={`/admin/members/${c.id}`} className="font-semibold hover:underline">
-                  {c.full_name}
-                </A>
-                <div className="truncate text-xs text-ink/50">{c.email}</div>
-              </div>
-              {c.calendar ? c.calendar.status === "connected" ? <Badge tone="green">Calendar synced</Badge> : <Badge tone="amber">Calendar needs reconnecting</Badge> : <Badge>No calendar</Badge>}
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <CoachStat label="Sessions" value={c.stats.month} hint={`${c.stats.this_week} this week`} />
-              <CoachStat label="Booked" value={c.stats.capacity ? `${Math.round((c.stats.booked / c.stats.capacity) * 100)}%` : "–"} hint={`${c.stats.booked}/${c.stats.capacity} spots`} />
-              <CoachStat label="Waiting" value={c.stats.waitlist} hint="on waitlists" />
-              <CoachStat label="Clients" value={c.stats.clients} hint={c.lessons ? `${plural(c.lessons, "lesson")} ahead` : "No lessons ahead"} />
-            </div>
-            {c.sessions.length > 0 ? (
-              <ul className="mt-3 divide-y divide-ink/[0.06] border-t border-ink/[0.06]">
-                {c.sessions.slice(0, 5).map((s) => {
-                  const pct = Math.min(100, (s.booked / Math.max(1, s.capacity)) * 100);
-                  // Under half full with two days to go: worth a nudge on WhatsApp.
-                  const low = pct < 50 && new Date(s.starts_at).getTime() - now < 2 * 86400000;
-                  return (
-                    <li key={s.id}>
-                      <A href={`/admin/sessions/${s.id}`} className="flex items-center gap-2 py-2.5 text-sm hover:underline">
-                        <SessionMark type={s.session_type} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate">{sessionTitle(s)}</span>
-                          <span className="block truncate text-xs text-ink/50">{fmtDateTime(s.starts_at)}</span>
-                        </span>
-                        {s.waitlist > 0 && <Badge tone="blue">+{s.waitlist} waiting</Badge>}
-                        <span className="w-20 shrink-0">
-                          <span className={cx("block text-right text-xs tabular-nums", low ? "font-medium text-[#8A5A10]" : "text-ink/55")}>
-                            {s.booked}/{s.capacity}
-                          </span>
-                          <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-ink/[0.07]">
-                            <span className={cx("block h-full rounded-full", low ? "bg-[#D29A3A]" : "bg-brand")} style={{ width: `${pct}%` }} />
-                          </span>
-                        </span>
-                      </A>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className="mt-3 border-t border-ink/[0.06] pt-3 text-sm text-ink/45">No community sessions coming up.</div>
-            )}
-            {c.sessions.length > 5 && <div className="mt-2 text-xs text-ink/45">and {plural(c.sessions.length - 5, "more session")}</div>}
-          </Card>
+          <CoachCard key={c.id} c={c} data={data} />
         ))}
       </div>
+      <p className="mt-4 text-[12.5px] text-ink/45">Earnings count private and semi-private lessons once they've happened. Unpaid is every past lesson not yet marked paid. Community sessions aren't counted as money yet.</p>
     </>
   );
 }
