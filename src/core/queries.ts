@@ -3,7 +3,7 @@ import type { Actor, Booking, Client, CommissionRule, Feedback, Lesson, LessonKi
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle, uid } from "./util";
+import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
@@ -411,7 +411,7 @@ export async function loadLessonEditor(ctx: LoadCtx) {
   const seen = new Set<string>();
   const clients = [...cards.map((c) => c.full_name), ...mine.flatMap((l) => l.client_names)].filter((n) => !seen.has(nameKey(n)) && !!seen.add(nameKey(n))).sort();
   const cardIds = Object.fromEntries(cards.map((c) => [nameKey(c.full_name), c.id]));
-  const places = [...new Set([settings.default_location, ...mine.map((l) => l.location)].filter(Boolean))].sort();
+  const places = placeOptions(settings.default_location, ...mine.map((l) => l.location));
   const back = CLIENT_PAGE.test(ctx.search.back ?? "") ? ctx.search.back : "";
   if (ctx.params.id === "new") {
     const s = ctx.search;
@@ -792,6 +792,7 @@ export async function loadSessionEditor(ctx: LoadCtx) {
   const [L, settings, s] = await Promise.all([profileMap(ctx.store), getSettings(ctx.store), ctx.params.id === "new" ? null : ctx.store.get("sessions", ctx.params.id)]);
   const coaches = L.profiles.filter(isStaff).map(person).sort(by((p) => p.full_name));
   const members = L.profiles.filter((p) => p.status === "active").map(person).sort(by((p) => p.full_name));
+  const places = placeOptions(settings.default_location, s?.location);
   const defaults = {
     location: settings.default_location,
     group: { capacity: settings.default_group_capacity, price_cents: settings.default_group_price_cents, duration_min: settings.default_group_duration_min },
@@ -804,6 +805,7 @@ export async function loadSessionEditor(ctx: LoadCtx) {
       coaches,
       members,
       defaults,
+      places,
       prefill: {
         session_type: ctx.search.type === "performance_accelerator" ? ("performance_accelerator" as const) : ("group" as const),
         date: isDateKey(ctx.search.date) ? ctx.search.date : addDays(dateKey(ctx.now), 1),
@@ -820,7 +822,7 @@ export async function loadSessionEditor(ctx: LoadCtx) {
       const p = L.profile.get(b.user_id);
       return { booking: b, player: p ? { ...person(p), email: p.email, phone: p.phone } : null };
     });
-  return { session: view, roster, coaches, members, defaults, prefill: null };
+  return { session: view, roster, coaches, members, defaults, places, prefill: null };
 }
 
 export async function loadAdminCoaches(ctx: LoadCtx) {

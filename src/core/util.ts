@@ -41,6 +41,9 @@ export const decideBy = (s: { starts_at: string; decide_by?: string | null }) =>
 // Balboa has numbered courts; other locations don't get a court picker.
 export const COURTS = [1, 2, 3, 4] as const;
 export const isBalboa = (location: string) => /balboa/i.test(location);
+/** Places coaches pick from. Emerald Hills has no commission rule, so it takes 0%. */
+export const KNOWN_PLACES = ["Emerald Hills"] as const;
+export const placeOptions = (...extra: (string | null | undefined)[]) => [...new Set([...extra, ...KNOWN_PLACES].filter((x): x is string => !!x))].sort();
 export const placeLabel = (p: { location: string; court?: number | null }) => (p.court ? `${p.location} · Court ${p.court}` : p.location);
 
 export const sessionTitle = (s: { session_type: SessionType | null; title: string }) => {

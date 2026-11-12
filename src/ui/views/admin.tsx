@@ -306,7 +306,7 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
         <Field label="Price per player (USD)" hint="Blank for “Price TBA”, 0 for free">
           <input className="input" name="price" inputMode="decimal" defaultValue={dollarsField(s ? s.price_cents : defaults.price_cents)} />
         </Field>
-        <LocationCourt location={s?.location ?? data.defaults.location} court={s?.court ?? null} />
+        <LocationCourt location={s?.location ?? data.defaults.location} court={s?.court ?? null} places={data.places} />
         <fieldset className="sm:col-span-2">
           <legend className="label">Coach</legend>
           <div className="flex flex-wrap gap-2">
