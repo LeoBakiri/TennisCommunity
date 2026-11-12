@@ -1,28 +1,35 @@
-// Coach earnings: club commission on lessons, and the week / month / year totals
+// Coach earnings: club commission on lessons and community sessions, Balboa paydays, and the week / month / year totals
 // behind the Earnings page. Pure functions, so the page and the tests share them.
-import type { CommissionRule, Lesson } from "./types";
+import type { CommissionRule, Lesson, Session } from "./types";
 import { addDays, dateKey, startOfWeek } from "./time";
 
 export type Period = "week" | "month" | "year";
 export const PERIODS: Period[] = ["week", "month", "year"];
 
 /** How many club commission rows the admin settings form shows. */
-export const COMMISSION_ROWS = 3;
+export const COMMISSION_ROWS = 4;
 
-type Priced = Pick<Lesson, "price_cents" | "starts_at" | "ends_at" | "location">;
+type Priced = Pick<Lesson, "price_cents" | "starts_at" | "ends_at" | "location"> & { client_names?: string[] };
 
 const minutes = (l: Pick<Lesson, "starts_at" | "ends_at">) => Math.max(0, Math.round((new Date(l.ends_at).getTime() - new Date(l.starts_at).getTime()) / 60000));
 
 const charges = (r: CommissionRule) => r.percent > 0 || r.per_hour_cents > 0 || r.per_lesson_cents > 0;
 
-/** The rule for a lesson's place: the first one whose place name appears in the location, e.g. "Balboa". */
-export function ruleFor(location: string, rules: CommissionRule[]): CommissionRule | null {
+/** Players on court for a lesson: one per client name. */
+export const lessonPlayers = (l: { client_names?: string[] }) => Math.max(1, l.client_names?.length ?? 1);
+
+/**
+ * The rule for a place and group size: rules whose place name appears in the location, e.g. "Balboa",
+ * and whose player limit fits. The tightest limit wins, so "up to 4 players" beats a rule with no limit.
+ */
+export function ruleFor(location: string, rules: CommissionRule[], players = 1): CommissionRule | null {
   const where = location.toLowerCase();
-  return rules.find((r) => r.place.trim() && charges(r) && where.includes(r.place.trim().toLowerCase())) ?? null;
+  const fits = rules.filter((r) => r.place.trim() && charges(r) && where.includes(r.place.trim().toLowerCase()) && (r.max_players == null || players <= r.max_players));
+  return fits.sort((a, b) => (a.max_players ?? Infinity) - (b.max_players ?? Infinity))[0] ?? null;
 }
 
-/** What the club takes for one lesson under a rule, in cents. */
-export function commissionUnder(rule: CommissionRule, l: Priced): number {
+/** What the club takes for one lesson or session under a rule, in cents. */
+export function commissionUnder(rule: CommissionRule, l: Pick<Lesson, "price_cents" | "starts_at" | "ends_at">): number {
   const pct = Math.round(((l.price_cents ?? 0) * rule.percent) / 100);
   const hourly = Math.round((rule.per_hour_cents * minutes(l)) / 60);
   return pct + hourly + rule.per_lesson_cents;
@@ -30,7 +37,7 @@ export function commissionUnder(rule: CommissionRule, l: Priced): number {
 
 /** Commission to store when a lesson is saved: null while no rule covers its place, so a rule set later still applies. */
 export function commissionFor(l: Priced, rules: CommissionRule[]): number | null {
-  const rule = ruleFor(l.location, rules);
+  const rule = ruleFor(l.location, rules, lessonPlayers(l));
   return rule ? commissionUnder(rule, l) : null;
 }
 
@@ -46,6 +53,35 @@ export function lessonMoney(l: Priced & Pick<Lesson, "commission_cents">, rules:
   const gross = l.price_cents ?? 0;
   const commission = l.commission_cents ?? commissionFor(l, rules) ?? 0;
   return { gross, commission, net: gross - commission, priced: l.price_cents !== null };
+}
+
+/**
+ * One coach's share of a community session: every booked player pays the session price, the club
+ * takes its commission for that group size, and the coaches split the rest evenly.
+ */
+export function sessionShare(s: Pick<Session, "price_cents" | "starts_at" | "ends_at" | "location" | "coach_ids">, players: number, rules: CommissionRule[]): Money {
+  const total = (s.price_cents ?? 0) * players;
+  const rule = players > 0 ? ruleFor(s.location, rules, players) : null;
+  const cut = rule ? Math.min(total, commissionUnder(rule, { ...s, price_cents: total })) : 0;
+  const coaches = Math.max(1, s.coach_ids.length);
+  const gross = Math.round(total / coaches);
+  const commission = Math.round(cut / coaches);
+  return { gross, commission, net: gross - commission, priced: s.price_cents !== null };
+}
+
+/** Balboa pays through CourtReserve twice a month: work on the 1st–15th on the 20th, the 16th–end on the 5th of next month. */
+export function payday(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (d <= 15) return `${day.slice(0, 7)}-20`;
+  return new Date(Date.UTC(y, m, 5)).toISOString().slice(0, 10);
+}
+
+/** The work days a payday covers, as [first, day after last]. */
+export function payWindow(pay: string): { from: string; to: string } {
+  const [y, m, d] = pay.split("-").map(Number);
+  if (d === 20) return { from: `${pay.slice(0, 7)}-01`, to: `${pay.slice(0, 7)}-16` };
+  const prev = new Date(Date.UTC(y, m - 2, 16)).toISOString().slice(0, 10);
+  return { from: prev, to: `${pay.slice(0, 7)}-01` };
 }
 
 /** Dollars for money screens: "$0", "$1,240", "$12.50". */
@@ -131,3 +167,9 @@ export const inRange = (iso: string, from: string, to: string) => {
   const d = dateKey(iso);
   return d >= from && d < to;
 };
+
+/** "Nov 20" for a payday. */
+export const fmtPayday = (key: string) => short(key);
+
+/** "Nov 1 – 15" for the work days a payday covers (last day included). */
+export const fmtPayWindow = (from: string, last: string) => `${short(from)} – ${Number(last.slice(8, 10))}`;

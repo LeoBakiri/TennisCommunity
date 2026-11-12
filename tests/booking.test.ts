@@ -288,7 +288,10 @@ test("the coaches page shows each coach's earnings, matching their own Earnings 
       const own = await loadCoachEarnings({ ...(await load(id)), search: { period } });
       const row = data.coaches.find((c) => c.id === id)!;
       assert.equal(row.earned.net, own.totals.net);
-      assert.equal(row.earned.lessons, own.totals.lessons);
+      assert.equal(row.lessons.count, own.totals.lessons);
+      assert.equal(row.community.count, own.totals.sessions);
+      assert.equal(row.community.net, own.sessions.filter((r) => r.done).reduce((n, r) => n + r.money.net, 0));
+      assert.deepEqual(row.payday, own.paydays[0] ?? null);
       assert.equal(row.booked.net, own.scheduled.net);
       assert.equal(row.previous, own.previous.net);
       assert.equal(row.owed.total, own.owed.total);

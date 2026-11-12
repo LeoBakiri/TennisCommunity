@@ -1,10 +1,10 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Client, Feedback, Lesson, Profile, Session, SessionType, Skill } from "./types";
+import type { Actor, Booking, Client, CommissionRule, Feedback, Lesson, LessonKind, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, courtPlan, decideBy, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle, uid } from "./util";
-import { addMoney, buckets, inRange, lessonMoney, periodLabel, periodRange, PERIODS, ruleFor, type Period } from "./earnings";
+import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle, uid } from "./util";
+import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
@@ -444,6 +444,64 @@ export async function loadLessonEditor(ctx: LoadCtx) {
 }
 
 /** One coach's lesson income for a week, month or year. Community sessions are counted, not priced. */
+/** Community sessions that went ahead (or will), with how many players hold a spot. */
+async function sessionsWithPlayers(store: Store, fromKey: string, toKey: string, coachId?: string) {
+  const rows = (
+    await store.list("sessions", {
+      ...(coachId ? { contains: { field: "coach_ids", value: coachId } } : {}),
+      gte: { field: "starts_at", value: startIso(fromKey) },
+      lt: { field: "starts_at", value: startIso(toKey) },
+      order: { field: "starts_at" },
+    })
+  ).filter((s) => isCommunity(s) && s.status === "published");
+  const stats = await store.sessionStats(rows.map((s) => s.id));
+  return rows.map((s) => ({ ...s, booked: stats[s.id]?.booked ?? 0 }));
+}
+type PlayedSession = Awaited<ReturnType<typeof sessionsWithPlayers>>[number];
+
+/**
+ * A coach's lessons and community sessions as money, the same way for their Earnings page and the admin Coaches page.
+ * Work at Balboa is paid through CourtReserve on a payday; anything else the coach marks paid.
+ */
+function coachMoney(coachId: string, lessons: Lesson[], sessions: PlayedSession[], rules: CommissionRule[], now: string) {
+  const lessonRows = lessons
+    .filter((l) => l.coach_id === coachId)
+    .map((l) => ({
+      lesson: l,
+      money: lessonMoney(l, rules),
+      done: l.ends_at <= now,
+      hours: hours(l.starts_at, l.ends_at),
+      place: ruleFor(l.location, rules, lessonPlayers(l))?.place ?? null,
+      payday: isBalboa(l.location) ? payday(dateKey(l.starts_at)) : null,
+    }));
+  const sessionRows = sessions
+    .filter((s) => s.coach_ids.includes(coachId))
+    .map((s) => ({
+      session: { id: s.id, session_type: s.session_type, title: s.title, starts_at: s.starts_at, ends_at: s.ends_at, location: s.location, price_cents: s.price_cents, coaches: s.coach_ids.length, players: s.booked },
+      money: sessionShare(s, s.booked, rules),
+      done: s.ends_at <= now,
+      hours: hours(s.starts_at, s.ends_at),
+      place: ruleFor(s.location, rules, s.booked)?.place ?? null,
+      payday: isBalboa(s.location) ? payday(dateKey(s.starts_at)) : null,
+    }));
+  return { lessonRows, sessionRows };
+}
+
+type MoneyRow = { money: Money; done: boolean; hours: number; payday: string | null };
+
+/** The next paydays from today, with what's already earned for each and what's still booked. */
+function upcomingPaydays(rows: MoneyRow[], today: string, count = 2) {
+  const dates = [...new Set(rows.map((r) => r.payday).filter((d): d is string => !!d && d >= today))].sort().slice(0, count);
+  return dates.map((date) => {
+    const mine = rows.filter((r) => r.payday === date);
+    const window = payWindow(date);
+    return { date, from: window.from, to: addDays(window.to, -1), earned: addMoney(mine.filter((r) => r.done).map((r) => r.money)).net, booked: addMoney(mine.filter((r) => !r.done).map((r) => r.money)).net, items: mine.length };
+  });
+}
+
+/** How far back and ahead to load community sessions: the period, the one before it, and the open paydays. */
+const sessionSpan = (before: { from: string }, range: { to: string }, today: string) => ({ from: [before.from, addDays(today, -35)].sort()[0], to: [range.to, addDays(today, 50)].sort()[1] });
+
 export async function loadCoachEarnings(ctx: LoadCtx) {
   const u = ctx.actor.user!;
   const period: Period = PERIODS.includes(ctx.search.period as Period) ? (ctx.search.period as Period) : "week";
@@ -453,24 +511,35 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   const before = periodRange(period, range.prev);
   // A year back covers the previous period and any lesson still waiting to be paid.
   const since = [before.from, addDays(today, -400)].sort()[0];
-  const [lessons, rules, community] = await Promise.all([
+  const span = sessionSpan(before, range, today);
+  const [lessons, rules, sessions] = await Promise.all([
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(since) }, order: { field: "starts_at" } }),
     ctx.store.list("commission_rules"),
-    communityBetween(ctx.store, range.from, range.to),
+    sessionsWithPlayers(ctx.store, span.from, span.to, u.id),
   ]);
   const now = ctx.now.toISOString();
-  const rows = lessons.map((l) => ({ lesson: l, money: lessonMoney(l, rules), done: l.ends_at <= now, hours: hours(l.starts_at, l.ends_at), place: ruleFor(l.location, rules)?.place ?? null }));
+  const { lessonRows: rows, sessionRows } = coachMoney(u.id, lessons, sessions, rules, now);
   type R = (typeof rows)[number];
-  const within = (from: string, to: string) => rows.filter((r) => inRange(r.lesson.starts_at, from, to));
-  const inPeriod = within(range.from, range.to);
-  const total = (rs: R[]) => ({ ...addMoney(rs.map((r) => r.money)), lessons: rs.length, hours: Math.round(rs.reduce((n, r) => n + r.hours, 0) * 10) / 10 });
+  type S = (typeof sessionRows)[number];
+  const within = <T extends { lesson: Lesson } | { session: { starts_at: string } }>(rs: T[], from: string, to: string) => rs.filter((r) => inRange("lesson" in r ? r.lesson.starts_at : r.session.starts_at, from, to));
+  const inPeriod = within(rows, range.from, range.to);
+  const sessionsIn = within(sessionRows, range.from, range.to);
+  const total = (rs: R[], ss: S[] = []) => ({ ...addMoney([...rs, ...ss].map((r) => r.money)), lessons: rs.length, sessions: ss.length, hours: Math.round([...rs, ...ss].reduce((n, r) => n + r.hours, 0) * 10) / 10 });
 
-  const earned = inPeriod.filter((r) => r.done);
-  const t = total(earned);
-  const scheduled = total(inPeriod.filter((r) => !r.done));
+  const t = total(
+    inPeriod.filter((r) => r.done),
+    sessionsIn.filter((r) => r.done),
+  );
+  const scheduled = total(
+    inPeriod.filter((r) => !r.done),
+    sessionsIn.filter((r) => !r.done),
+  );
   // Compare like with like: the same share of the previous period that has passed in this one.
   const prevCut = sameShareOf(range, before, ctx.now);
-  const previous = total(within(before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut));
+  const previous = total(
+    within(rows, before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut),
+    within(sessionRows, before.from, before.to).filter((r) => r.session.ends_at <= prevCut),
+  );
 
   const sumBy = (rs: R[], key: (r: R) => string[]) => {
     const m = new Map<string, { net: number; gross: number; commission: number; lessons: number }>();
@@ -488,10 +557,20 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     }
     return [...m.entries()].map(([name, e]) => ({ name, ...e, net: Math.round(e.net), gross: Math.round(e.gross), commission: Math.round(e.commission) })).sort(by((e) => e.net, -1));
   };
+  const placeOf = (r: { place: string | null }, location: string) => r.place ?? (location || "No location");
+  const byPlace = new Map<string, { name: string; net: number; gross: number; commission: number; lessons: number }>();
+  for (const r of [...inPeriod.map((r) => ({ name: placeOf(r, r.lesson.location), money: r.money })), ...sessionsIn.map((r) => ({ name: placeOf(r, r.session.location), money: r.money }))]) {
+    const e = byPlace.get(r.name) ?? { name: r.name, net: 0, gross: 0, commission: 0, lessons: 0 };
+    e.net += r.money.net;
+    e.gross += r.money.gross;
+    e.commission += r.money.commission;
+    e.lessons += 1;
+    byPlace.set(r.name, e);
+  }
 
-  const owed = rows.filter((r) => r.done && !r.lesson.paid_at && r.money.gross > 0).map((r) => ({ lesson: r.lesson, money: r.money }));
-  const view = (r: R) => ({ lesson: r.lesson, money: r.money, done: r.done, place: r.place });
-  const communitySessions = community.filter((s) => s.coach_ids.includes(u.id) && s.status === "published");
+  // Balboa work is paid on a payday, so only lessons elsewhere wait for the coach to mark them paid.
+  const owed = rows.filter((r) => r.done && !r.payday && !r.lesson.paid_at && r.money.gross > 0).map((r) => ({ lesson: r.lesson, money: r.money }));
+  const view = (r: R) => ({ lesson: r.lesson, money: r.money, done: r.done, place: r.place, payday: r.payday });
   return {
     period,
     at,
@@ -504,15 +583,19 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     scheduled,
     previous,
     chart: buckets(period, at).map((b) => {
-      const rs = within(b.from, b.to);
+      const rs = [...within(rows, b.from, b.to), ...within(sessionRows, b.from, b.to)];
       return { key: b.key, label: b.label, earned: addMoney(rs.filter((r) => r.done).map((r) => r.money)).net, scheduled: addMoney(rs.filter((r) => !r.done).map((r) => r.money)).net, current: today >= b.from && today < b.to };
     }),
-    byKind: (["private", "semi_private"] as const).map((k) => ({ kind: k, ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
-    byPlace: sumBy(inPeriod, (r) => [r.place ?? (r.lesson.location || "No location")]).map((p) => ({ ...p, commissioned: rules.some((x) => x.place === p.name) })),
+    byKind: [
+      ...(["private", "semi_private"] as const).map((k) => ({ kind: k as LessonKind | "community", ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
+      { kind: "community" as const, ...total([], sessionsIn) },
+    ],
+    byPlace: [...byPlace.values()].sort(by((p) => p.net, -1)).map((p) => ({ ...p, commissioned: rules.some((x) => x.place === p.name) })),
     clients: sumBy(inPeriod, (r) => (r.lesson.client_names.length ? r.lesson.client_names : ["Unnamed"])).slice(0, 6),
     lessons: inPeriod.map(view).sort(by((r) => r.lesson.starts_at, -1)),
+    sessions: sessionsIn.sort(by((r) => r.session.starts_at, -1)),
     owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
-    community: { sessions: communitySessions.length, hours: Math.round(communitySessions.reduce((n, s) => n + hours(s.starts_at, s.ends_at), 0) * 10) / 10 },
+    paydays: upcomingPaydays([...rows, ...sessionRows], today),
     rules,
   };
 }
@@ -743,60 +826,66 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
   const now = ctx.now.toISOString();
   // A year back covers the previous period and any lesson still waiting to be paid, like the coach Earnings page.
   const since = [before.from, addDays(today, -400)].sort()[0];
+  const span = sessionSpan(before, range, today);
   const clientsSince = startIso(addDays(today, -60));
-  const [L, allLessons, rules, calendars, inPeriod, upcoming] = await Promise.all([
+  const [L, allLessons, rules, calendars, sessions, upcoming] = await Promise.all([
     profileMap(ctx.store),
     ctx.store.list("lessons", { gte: { field: "starts_at", value: startIso(since) } }),
     ctx.store.list("commission_rules"),
     ctx.store.list("coach_calendars"),
-    communityBetween(ctx.store, range.from, range.to),
+    sessionsWithPlayers(ctx.store, span.from, span.to),
     ctx.store.list("sessions", { gte: { field: "starts_at", value: now }, order: { field: "starts_at" } }),
   ]);
-  const community = await enrich(ctx.store, inPeriod.filter((s) => s.status === "published"), L, null);
   const prevCut = sameShareOf(range, before, ctx.now);
-  const rows = allLessons.map((l) => ({ lesson: l, money: lessonMoney(l, rules), done: l.ends_at <= now, hours: hours(l.starts_at, l.ends_at) }));
-  type R = (typeof rows)[number];
-  const net = (rs: R[]) => addMoney(rs.map((r) => r.money)).net;
   const round1 = (n: number) => Math.round(n * 10) / 10;
+  const startOf = (r: { lesson: Lesson } | { session: { starts_at: string } }) => ("lesson" in r ? r.lesson.starts_at : r.session.starts_at);
+  const endOf = (r: { lesson: Lesson } | { session: { ends_at: string } }) => ("lesson" in r ? r.lesson.ends_at : r.session.ends_at);
 
   const coaches = L.profiles
     .filter((p) => isStaff(p) && p.status === "active")
     .sort(by((p) => p.full_name))
     .map((p) => {
-      const mine = rows.filter((r) => r.lesson.coach_id === p.id);
-      const inP = mine.filter((r) => inRange(r.lesson.starts_at, range.from, range.to));
+      const { lessonRows, sessionRows } = coachMoney(p.id, allLessons, sessions, rules, now);
+      const all = [...lessonRows, ...sessionRows];
+      const inP = all.filter((r) => inRange(startOf(r), range.from, range.to));
       const done = inP.filter((r) => r.done);
       const money = addMoney(done.map((r) => r.money));
-      const lessonHours = round1(done.reduce((n, r) => n + r.hours, 0));
-      const owed = mine.filter((r) => r.done && !r.lesson.paid_at && r.money.gross > 0);
-      const sessions = community.filter((s) => s.coach_ids.includes(p.id));
-      const played = sessions.filter((s) => s.ends_at <= now);
+      const workHours = round1(done.reduce((n, r) => n + r.hours, 0));
+      const lessonsDone = lessonRows.filter((r) => r.done && inRange(r.lesson.starts_at, range.from, range.to));
+      const sessionsIn = sessionRows.filter((r) => inRange(r.session.starts_at, range.from, range.to));
+      const sessionsDone = sessionsIn.filter((r) => r.done);
+      const ahead = inP.filter((r) => !r.done);
+      // Balboa is paid on paydays, so "unpaid" is only lessons elsewhere not marked paid.
+      const owed = lessonRows.filter((r) => r.done && !r.payday && !r.lesson.paid_at && r.money.gross > 0);
       // Clients: anyone they taught or have booked in the last 60 days, matched by name like the Clients tab. Only the count leaves here.
       const clients = new Set(allLessons.filter((l) => l.coach_id === p.id && l.starts_at >= clientsSince).flatMap((l) => l.client_names.map((n) => n.trim().toLowerCase())).filter(Boolean));
       return {
         ...person(p),
         email: p.email,
         calendar: calendars.find((c) => c.coach_id === p.id) ?? null,
-        earned: { ...money, lessons: done.length, hours: lessonHours, per_hour: lessonHours ? Math.round(money.net / lessonHours / 100) * 100 : 0 },
-        booked: { net: net(inP.filter((r) => !r.done)), lessons: inP.filter((r) => !r.done).length },
-        previous: net(mine.filter((r) => inRange(r.lesson.starts_at, before.from, before.to) && r.lesson.ends_at <= prevCut)),
+        earned: { ...money, hours: workHours, per_hour: workHours ? Math.round(money.net / workHours / 100) * 100 : 0 },
+        lessons: { count: lessonsDone.length, hours: round1(lessonsDone.reduce((n, r) => n + r.hours, 0)), ...addMoney(lessonsDone.map((r) => r.money)) },
+        community: {
+          count: sessionsDone.length,
+          hours: round1(sessionsDone.reduce((n, r) => n + r.hours, 0)),
+          players: sessionsDone.reduce((n, r) => n + r.session.players, 0),
+          ahead: sessionsIn.length - sessionsDone.length,
+          ...addMoney(sessionsDone.map((r) => r.money)),
+        },
+        booked: { net: addMoney(ahead.map((r) => r.money)).net, count: ahead.length },
+        previous: addMoney(all.filter((r) => inRange(startOf(r), before.from, before.to) && endOf(r) <= prevCut).map((r) => r.money)).net,
         unpriced: inP.filter((r) => !r.money.priced).length,
         owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed.length },
+        payday: upcomingPaydays(all, today, 1)[0] ?? null,
         chart: buckets(period, at).map((b) => {
-          const rs = inP.filter((r) => inRange(r.lesson.starts_at, b.from, b.to));
-          return { key: b.key, label: b.label, earned: net(rs.filter((r) => r.done)), booked: net(rs.filter((r) => !r.done)), current: today >= b.from && today < b.to };
+          const rs = inP.filter((r) => inRange(startOf(r), b.from, b.to));
+          return { key: b.key, label: b.label, earned: addMoney(rs.filter((r) => r.done).map((r) => r.money)).net, booked: addMoney(rs.filter((r) => !r.done).map((r) => r.money)).net, current: today >= b.from && today < b.to };
         }),
-        community: {
-          sessions: sessions.length,
-          played: played.length,
-          hours: round1(sessions.reduce((n, s) => n + hours(s.starts_at, s.ends_at), 0)),
-          players: sessions.reduce((n, s) => n + s.booked, 0),
-          capacity: sessions.reduce((n, s) => n + s.capacity, 0),
-        },
         clients: clients.size,
       };
     });
   const sum = (f: (c: (typeof coaches)[number]) => number) => coaches.reduce((n, c) => n + f(c), 0);
+  const nextPay = coaches.map((c) => c.payday?.date).filter((d): d is string => !!d).sort()[0] ?? null;
   return {
     period,
     at,
@@ -809,17 +898,24 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
       net: sum((c) => c.earned.net),
       gross: sum((c) => c.earned.gross),
       commission: sum((c) => c.earned.commission),
-      lessons: sum((c) => c.earned.lessons),
-      hours: round1(sum((c) => c.earned.hours + c.community.hours)),
+      lessons: sum((c) => c.lessons.count),
+      sessions: sum((c) => c.community.count),
+      hours: round1(sum((c) => c.earned.hours)),
       booked: sum((c) => c.booked.net),
       previous: sum((c) => c.previous),
       owed: sum((c) => c.owed.total),
       owed_lessons: sum((c) => c.owed.lessons),
     },
+    payday: nextPay ? { date: nextPay, ...payWindowDays(nextPay), earned: sum((c) => (c.payday?.date === nextPay ? c.payday.earned : 0)), booked: sum((c) => (c.payday?.date === nextPay ? c.payday.booked : 0)) } : null,
     has_rules: rules.some((r) => r.percent > 0 || r.per_hour_cents > 0 || r.per_lesson_cents > 0),
     unassigned: upcoming.filter((s) => isCommunity(s) && s.status === "published" && !s.coach_ids.length),
   };
 }
+
+const payWindowDays = (date: string) => {
+  const w = payWindow(date);
+  return { from: w.from, to: addDays(w.to, -1) };
+};
 
 export async function loadAdminMembers(ctx: LoadCtx) {
   const q = (ctx.search.q ?? "").toLowerCase().trim();

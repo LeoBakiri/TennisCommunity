@@ -135,6 +135,7 @@ export interface CommissionRule {
   percent: number; // % of the lesson price
   per_hour_cents: number; // court fee per hour on court
   per_lesson_cents: number; // flat fee per lesson
+  max_players: number | null; // only for groups this size or smaller; null for any size
   created_at: string;
 }
 

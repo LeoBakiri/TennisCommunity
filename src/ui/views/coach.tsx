@@ -8,7 +8,7 @@ import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSch
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
-import { commissionUnder, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
+import { commissionUnder, fmtPayday, fmtPayWindow, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
@@ -262,14 +262,14 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
 // ───────────────────────── lesson ─────────────────────────
 
 /** Live "you keep" line under the price, with the club's commission when the place has one. */
-function LessonTakeHome({ lesson, rules, draft }: { lesson: Lesson | null; rules: CommissionRule[]; draft: { price: string; location: string; minutes: number } }) {
+function LessonTakeHome({ lesson, rules, draft }: { lesson: Lesson | null; rules: CommissionRule[]; draft: { price: string; location: string; minutes: number; players: number } }) {
   const dollars = Number(draft.price.replace(/[$,]/g, ""));
   if (!draft.price.trim() || !Number.isFinite(dollars)) return null;
   const start = lesson ? new Date(lesson.starts_at) : new Date(0);
   const priced = { price_cents: Math.round(dollars * 100), location: draft.location, starts_at: start.toISOString(), ends_at: new Date(start.getTime() + draft.minutes * 60000).toISOString() };
   // Same rule as saving: an unchanged lesson keeps the commission it was saved with.
-  const unchanged = lesson && lesson.commission_cents !== null && lesson.price_cents === priced.price_cents && lesson.location === priced.location && lesson.ends_at === priced.ends_at;
-  const rule = ruleFor(draft.location, rules);
+  const unchanged = lesson && lesson.commission_cents !== null && lesson.price_cents === priced.price_cents && lesson.client_names.length === draft.players && lesson.location === priced.location && lesson.ends_at === priced.ends_at;
+  const rule = ruleFor(draft.location, rules, draft.players);
   const cut = unchanged ? lesson.commission_cents! : rule ? commissionUnder(rule, priced) : 0;
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl bg-sage/50 px-4 py-3 text-sm sm:col-span-2">
@@ -290,6 +290,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
   const [money, setMoney] = useState({ price: l ? (l.price_cents == null ? "" : String(l.price_cents / 100)) : p!.price, location: l?.location ?? p!.location, minutes: duration });
   const [repeat, setRepeat] = useState(1);
   const [day, setDay] = useState(date);
+  const [names, setNames] = useState(l?.client_names.join(", ") ?? p!.client);
   const cards = (l?.client_names ?? []).flatMap((n) => (data.cardIds[nameKey(n)] ? [{ name: n, id: data.cardIds[nameKey(n)] }] : []));
   return (
     <>
@@ -310,7 +311,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
                 ))}
               </div>
               <Field label={semi ? "Players / clients" : "Player / client name"} hint={semi ? "Separate names with commas" : "Doesn't need to be a community member"} className="sm:col-span-2">
-                <input className="input" name="client_names" list="lesson-clients" defaultValue={l?.client_names.join(", ") ?? p!.client} required />
+                <input className="input" name="client_names" list="lesson-clients" defaultValue={l?.client_names.join(", ") ?? p!.client} onChange={(e) => setNames(e.target.value)} required />
                 <datalist id="lesson-clients">
                   {data.clients.map((c) => (
                     <option key={c} value={c} />
@@ -339,7 +340,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
                 <input className="input" name="price" inputMode="decimal" defaultValue={money.price} onChange={(e) => setMoney({ ...money, price: e.target.value })} />
               </Field>
               <LocationCourt location={money.location} court={l?.court ?? null} wide places={data.places} onLocation={(v) => setMoney({ ...money, location: v })} />
-              <LessonTakeHome lesson={l} rules={data.rules} draft={money} />
+              <LessonTakeHome lesson={l} rules={data.rules} draft={{ ...money, players: semi ? Math.max(2, names.split(/[,\n]/).filter((n) => n.trim()).length) : 1 }} />
               {!l && (
                 <Field label="Repeat" hint={repeat > 1 && /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${repeat} lessons, the last on ${fmtKeyLong(addDays(day, (repeat - 1) * 7))}. Weeks you're already busy are skipped.` : "Book the same time every week, up to six months ahead"} className="sm:col-span-2">
                   <select className="input" value={repeat} onChange={(e) => setRepeat(Number(e.target.value))} aria-label="Repeat">
@@ -602,7 +603,8 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
 
 
 export function ruleText(r: CommissionRule): string {
-  return [r.percent ? `${r.percent}%` : "", r.per_hour_cents ? `${usd(r.per_hour_cents)}/hr` : "", r.per_lesson_cents ? `${usd(r.per_lesson_cents)}/lesson` : ""].filter(Boolean).join(" + ");
+  const rate = [r.percent ? `${r.percent}%` : "", r.per_hour_cents ? `${usd(r.per_hour_cents)}/hr` : "", r.per_lesson_cents ? `${usd(r.per_lesson_cents)}/lesson` : ""].filter(Boolean).join(" + ");
+  return rate && r.max_players ? `${rate}, up to ${r.max_players} players` : rate;
 }
 
 const PERIOD_WORD: Record<Period, string> = { week: "week", month: "month", year: "year" };
@@ -617,17 +619,17 @@ function EarningsHero({ data }: { data: Earnings }) {
     <HeroPanel eyebrow={data.current ? `This ${word}` : data.label}>
       <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
       <p className="mt-1 text-sm text-paper/70">
-        {data.current ? "earned so far, after commission" : "earned, after commission"}
+        {data.current ? "earned so far from lessons and community sessions, after commission" : "earned from lessons and community sessions, after commission"}
         {data.scheduled.lessons > 0 && <span className="text-accent"> · {usd(data.scheduled.net)} more booked</span>}
       </p>
-      {(data.previous.lessons > 0 || t.lessons > 0) && (
+      {(data.previous.lessons + data.previous.sessions > 0 || t.lessons + t.sessions > 0) && (
         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paper/10 px-3 py-1 text-[13px] ring-1 ring-paper/15">
           <span className={cx("font-semibold", diff > 0 ? "text-accent" : diff < 0 ? "text-[#F3B7A8]" : "")}>{diff > 0 ? "▲" : diff < 0 ? "▼" : "="} {usd(Math.abs(diff))}</span>
           <span className="text-paper/65">vs last {word}{data.current ? " at this point" : ""}</span>
         </div>
       )}
       <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
-        <HeroStat value={t.lessons} label={t.lessons === 1 ? "lesson taught" : "lessons taught"} />
+        <HeroStat value={t.lessons + t.sessions} label={t.sessions ? `${t.lessons} ${t.lessons === 1 ? "lesson" : "lessons"} · ${t.sessions} ${t.sessions === 1 ? "session" : "sessions"}` : t.lessons === 1 ? "lesson taught" : "lessons taught"} />
         <HeroStat value={t.hours} label="hours" />
         <HeroStat value={t.hours ? usd(t.per_hour) : "—"} label="per hour" />
         <HeroStat value={usd(t.commission)} label="club commission" />
@@ -692,7 +694,40 @@ function PaidButton({ lessonId, paid }: { lessonId: string; paid: boolean }) {
   );
 }
 
-function LessonMoneyRow({ r }: { r: Earnings["lessons"][number] }) {
+/** Balboa work shows its CourtReserve payday instead of a paid switch. */
+function PaydayBadge({ payday, today }: { payday: string; today: string }) {
+  return payday <= today ? <Badge tone="green">Paid {fmtPayday(payday)}</Badge> : <Badge>Payday {fmtPayday(payday)}</Badge>;
+}
+
+function SessionMoneyRow({ r, today }: { r: Earnings["sessions"][number]; today: string }) {
+  const s = r.session;
+  const m = r.money;
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 md:px-5">
+      <SessionMark type={s.session_type ?? "group"} size={16} />
+      <A href={`/coach/sessions/${s.id}`} className="min-w-0 flex-1 hover:underline">
+        <div className="truncate text-sm font-semibold">{s.session_type ? SESSION_META[s.session_type].label : "Session"}</div>
+        <div className="truncate text-[12.5px] text-ink/55">
+          {fmtDay(s.starts_at)} · {fmtTime(s.starts_at)} · {s.players} {s.players === 1 ? "player" : "players"}
+          {s.coaches > 1 && ` · split ${s.coaches} ways`}
+        </div>
+      </A>
+      <div className="shrink-0 text-right">
+        {m.priced ? (
+          <>
+            <div className="text-sm font-semibold tabular-nums">{usd(m.net)}</div>
+            {m.commission > 0 && <div className="text-[11.5px] text-ink/50 tabular-nums">{usd(m.gross)} − {usd(m.commission)}</div>}
+          </>
+        ) : (
+          <Badge tone="amber">No price</Badge>
+        )}
+      </div>
+      <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{r.payday ? <PaydayBadge payday={r.payday} today={today} /> : !r.done ? <Badge>Upcoming</Badge> : null}</div>
+    </div>
+  );
+}
+
+function LessonMoneyRow({ r, today }: { r: Earnings["lessons"][number]; today: string }) {
   const l = r.lesson;
   const m = r.money;
   return (
@@ -715,7 +750,7 @@ function LessonMoneyRow({ r }: { r: Earnings["lessons"][number] }) {
           <Badge tone="amber">No price</Badge>
         )}
       </div>
-      <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{!r.done ? <Badge>Upcoming</Badge> : m.gross > 0 ? <PaidButton lessonId={l.id} paid={!!l.paid_at} /> : null}</div>
+      <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{r.payday ? <PaydayBadge payday={r.payday} today={today} /> : !r.done ? <Badge>Upcoming</Badge> : m.gross > 0 ? <PaidButton lessonId={l.id} paid={!!l.paid_at} /> : null}</div>
     </div>
   );
 }
@@ -724,7 +759,8 @@ function downloadCsv(data: Earnings) {
   const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
   const rows = [
     ["Date", "Start", "End", "Type", "Players", "Location", "Price", "Commission", "You keep", "Paid"],
-    ...[...data.lessons].reverse().map(({ lesson: l, money: m }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", l.paid_at ? dateKey(l.paid_at) : ""]),
+    ...[...data.lessons].reverse().map(({ lesson: l, money: m, payday }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payday ${payday}` : l.paid_at ? dateKey(l.paid_at) : ""]),
+    ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payday ${payday}` : ""]),
   ];
   const blob = new Blob([rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
@@ -736,6 +772,7 @@ function downloadCsv(data: Earnings) {
 
 function Breakdown({ data }: { data: Earnings }) {
   const max = Math.max(1, ...data.byKind.map((k) => k.net));
+  const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : LESSON_META[k]);
   return (
     <Card>
       <SectionTitle>Breakdown</SectionTitle>
@@ -744,13 +781,13 @@ function Breakdown({ data }: { data: Earnings }) {
           <div key={k.kind}>
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-2">
-                <Dot color={LESSON_META[k.kind].color} /> {LESSON_META[k.kind].label}
-                <span className="text-ink/45">· {k.lessons}</span>
+                <Dot color={meta(k.kind).color} /> {meta(k.kind).label}
+                <span className="text-ink/45">· {k.lessons + k.sessions}</span>
               </span>
               <span className="font-semibold tabular-nums">{usd(k.net)}</span>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-ink/[0.06]">
-              <div className="h-full rounded-full" style={{ width: `${(Math.max(0, k.net) / max) * 100}%`, background: LESSON_META[k.kind].color }} />
+              <div className="h-full rounded-full" style={{ width: `${(Math.max(0, k.net) / max) * 100}%`, background: meta(k.kind).color }} />
             </div>
           </div>
         ))}
@@ -764,7 +801,7 @@ function Breakdown({ data }: { data: Earnings }) {
                 <span className="min-w-0">
                   <span className="block truncate">{p.name}</span>
                   <span className="block text-[12px] text-ink/50">
-                    {p.lessons} {p.lessons === 1 ? "lesson" : "lessons"}
+                    {p.lessons} {p.lessons === 1 ? "lesson or session" : "lessons and sessions"}
                     {p.commission > 0 && ` · ${usd(p.commission)} commission`}
                   </span>
                 </span>
@@ -850,19 +887,45 @@ export function CoachEarnings({ data }: { data: Earnings }) {
           {data.lessons.length ? (
             <div className="card divide-y divide-ink/[0.06]">
               {data.lessons.map((r) => (
-                <LessonMoneyRow key={r.lesson.id} r={r} />
+                <LessonMoneyRow key={r.lesson.id} r={r} today={data.today} />
               ))}
             </div>
           ) : (
             <Empty icon="chart" title={`No lessons this ${word}`} body="Private and semi-private lessons you add to My Schedule show up here with what you earned." action={<LinkButton href="/coach/lessons/new" icon="plus" size="sm">Add lesson</LinkButton>} />
           )}
-          {data.community.sessions > 0 && (
-            <p className="mt-3 flex items-center gap-2 text-[13px] text-ink/55">
-              <SessionMark type="group" size={14} /> Plus {data.community.sessions} community {data.community.sessions === 1 ? "session" : "sessions"} ({data.community.hours} hours), not counted in earnings.
-            </p>
+          {data.sessions.length > 0 && (
+            <div className="mt-6">
+              <SectionTitle action={<span className="text-sm text-ink/55">{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"}</span>}>Community sessions</SectionTitle>
+              <div className="card divide-y divide-ink/[0.06]">
+                {data.sessions.map((r) => (
+                  <SessionMoneyRow key={r.session.id} r={r} today={data.today} />
+                ))}
+              </div>
+              <p className="mt-2 text-[12.5px] text-ink/50">Your share: every booked player times the price, minus the club's commission, split evenly between the coaches.</p>
+            </div>
           )}
         </div>
         <aside className="space-y-4">
+          {data.paydays.length > 0 && (
+            <Card>
+              <SectionTitle>Balboa paydays</SectionTitle>
+              <ul className="space-y-3">
+                {data.paydays.map((p) => (
+                  <li key={p.date} className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{fmtPayday(p.date)}</span>
+                      <span className="block text-[12px] text-ink/50">For {fmtPayWindow(p.from, p.to)}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block font-display text-lg font-semibold tabular-nums">{usd(p.earned)}</span>
+                      {p.booked > 0 && <span className="block text-[12px] text-ink/50">+ {usd(p.booked)} booked</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-[12px] text-ink/45">Paid through CourtReserve: the 1st–15th on the 20th, the 16th–end of month on the 5th.</p>
+            </Card>
+          )}
           <Card>
             <SectionTitle action={data.owed.lessons.length > 0 && <span className="font-display text-lg font-semibold tabular-nums">{usd(data.owed.total)}</span>}>Owed to you</SectionTitle>
             {data.owed.lessons.length ? (
@@ -881,7 +944,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
                 {data.owed.lessons.length > 8 && <p className="px-1 text-[12.5px] text-ink/50">and {data.owed.lessons.length - 8} more</p>}
               </div>
             ) : (
-              <p className="text-sm text-ink/55">All caught up. Every past lesson is marked paid.</p>
+              <p className="text-sm text-ink/55">All caught up. Every past lesson outside Balboa is marked paid.</p>
             )}
           </Card>
           <Breakdown data={data} />

@@ -2235,8 +2235,8 @@
     .sm\:grid-cols-8 {
       grid-template-columns: repeat(8, minmax(0, 1fr));
     }
-    .sm\:grid-cols-\[1\.4fr_1fr_1fr_1fr\] {
-      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+    .sm\:grid-cols-\[1\.3fr_0\.9fr_1fr_1fr_1fr\] {
+      grid-template-columns: 1.3fr 0.9fr 1fr 1fr 1fr;
     }
     .sm\:grid-cols-\[1fr_120px\] {
       grid-template-columns: 1fr 120px;

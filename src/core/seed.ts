@@ -213,8 +213,11 @@ export function demoSeed(now = new Date()): DB {
     bookings,
     lessons,
     coach_calendars: [],
-    // A sample rate so the demo shows commission at work; the live site starts with none.
-    commission_rules: [{ id: "demo-rule-balboa", place: "Balboa", percent: 20, per_hour_cents: 0, per_lesson_cents: 0, created_at: created }],
+    // Balboa's rates: $25 an hour for 4 players or fewer, 30% for bigger groups.
+    commission_rules: [
+      { id: "demo-rule-balboa-small", place: "Balboa", percent: 0, per_hour_cents: 2500, per_lesson_cents: 0, max_players: 4, created_at: created },
+      { id: "demo-rule-balboa", place: "Balboa", percent: 30, per_hour_cents: 0, per_lesson_cents: 0, max_players: null, created_at: created },
+    ],
     clients,
     feedback,
     player_calendars: [],

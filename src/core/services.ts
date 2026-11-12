@@ -501,16 +501,16 @@ export const actions: Record<string, Handler> = {
       const fieldsFor = (day: string) => {
         const start = zonedToUtc(day, input.time);
         const money = {
+          client_names: clients,
           price_cents: input.price,
           starts_at: start.toISOString(),
           ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString(),
           location: input.location,
         };
         // The commission stays as saved unless something it depends on changed, so new club rates don't rewrite old lessons.
-        const same = prev && prev.commission_cents !== null && prev.price_cents === money.price_cents && prev.location === money.location && prev.ends_at === money.ends_at && prev.starts_at === money.starts_at;
+        const same = prev && prev.commission_cents !== null && prev.price_cents === money.price_cents && prev.client_names.length === clients.length && prev.location === money.location && prev.ends_at === money.ends_at && prev.starts_at === money.starts_at;
         return {
           kind: input.kind,
-          client_names: clients,
           ...money,
           court: courtFor(input.location, input.court),
           commission_cents: same ? prev.commission_cents : commissionFor(money, rules),
@@ -812,17 +812,17 @@ export const actions: Record<string, Handler> = {
     admin(ctx);
     // The form sends rows as place_0, percent_0, per_hour_0, per_lesson_0, … Rows without a place are dropped.
     const rows = z
-      .array(z.object({ id: text(80), place: text(80), percent: z.preprocess((v) => (v === "" || v == null ? 0 : Number(v)), z.number({ invalid_type_error: "Commission % must be a number" }).min(0, "Commission % can't be negative").max(100, "Commission % must be at most 100")), per_hour: dollars, per_lesson: dollars }))
-      .parse(Array.from({ length: COMMISSION_ROWS }, (_, i) => ({ id: raw[`id_${i}`], place: raw[`place_${i}`], percent: raw[`percent_${i}`], per_hour: raw[`per_hour_${i}`], per_lesson: raw[`per_lesson_${i}`] })))
+      .array(z.object({ id: text(80), place: text(80), percent: z.preprocess((v) => (v === "" || v == null ? 0 : Number(v)), z.number({ invalid_type_error: "Commission % must be a number" }).min(0, "Commission % can't be negative").max(100, "Commission % must be at most 100")), per_hour: dollars, per_lesson: dollars, max_players: z.preprocess((v) => (v === "" || v == null ? null : Number(v)), z.number({ invalid_type_error: "Players must be a number" }).int("Players must be a whole number").min(1, "Players must be at least 1").max(99).nullable()) }))
+      .parse(Array.from({ length: COMMISSION_ROWS }, (_, i) => ({ id: raw[`id_${i}`], place: raw[`place_${i}`], percent: raw[`percent_${i}`], per_hour: raw[`per_hour_${i}`], per_lesson: raw[`per_lesson_${i}`], max_players: raw[`max_players_${i}`] })))
       .filter((r) => r.place);
     const existing = await ctx.store.list("commission_rules");
     for (const r of existing) if (!rows.some((x) => x.id === r.id)) await ctx.store.remove("commission_rules", r.id);
     for (const r of rows) {
-      const fields = { place: r.place, percent: Math.round(r.percent * 100) / 100, per_hour_cents: r.per_hour ?? 0, per_lesson_cents: r.per_lesson ?? 0 };
+      const fields = { place: r.place, percent: Math.round(r.percent * 100) / 100, per_hour_cents: r.per_hour ?? 0, per_lesson_cents: r.per_lesson ?? 0, max_players: r.max_players };
       if (existing.some((x) => x.id === r.id)) await ctx.store.update("commission_rules", r.id, fields);
       else await ctx.store.insert("commission_rules", { id: uid(), created_at: nowIso(), ...fields } satisfies CommissionRule);
     }
-    return { ok: true, message: "Commission saved. It applies to lessons saved from now on, and to earlier ones at places that had none." };
+    return { ok: true, message: "Commission saved. It applies to lessons saved from now on, to earlier ones at places that had none, and to community sessions." };
   }),
 
   updateSettings: action(

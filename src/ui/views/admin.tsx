@@ -8,7 +8,7 @@ import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSche
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
 import { COURTS, fmtMoney, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
-import { COMMISSION_ROWS, usd } from "@/core/earnings";
+import { COMMISSION_ROWS, fmtPayday, fmtPayWindow, usd } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -76,7 +76,7 @@ const dollarsField = (cents: number | null | undefined) => (cents == null ? "" :
 
 // ───────────────────────── community schedule ─────────────────────────
 
-const plural = (n: number, word: string) => `${n} ${n === 1 ? word : `${word}s`}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 function WeekPulse({ pulse }: { pulse: D<typeof loadAdminSchedule>["pulse"] }) {
   const pct = pulse.capacity ? Math.round((pulse.filled / pulse.capacity) * 100) : 0;
@@ -552,7 +552,6 @@ function CoachChart({ chart, name }: { chart: CoachRow["chart"]; name: string })
 function CoachCard({ c, data }: { c: CoachRow; data: CoachesData }) {
   const word = data.period;
   const e = c.earned;
-  const fill = c.community.capacity ? Math.round((c.community.players / c.community.capacity) * 100) : 0;
   return (
     <Card>
       <div className="flex items-start gap-3">
@@ -572,32 +571,29 @@ function CoachCard({ c, data }: { c: CoachRow; data: CoachesData }) {
         </div>
         <div className="flex flex-col items-end gap-1 text-right">
           <Change now={e.net} before={c.previous} word={word} current={data.current} />
-          {c.booked.lessons > 0 && (
-            <span className="text-[12.5px] text-ink/55">
-              + {usd(c.booked.net)} booked ({plural(c.booked.lessons, "lesson")})
-            </span>
-          )}
+          {c.booked.count > 0 && <span className="text-[12.5px] text-ink/55">+ {usd(c.booked.net)} booked ahead</span>}
         </div>
       </div>
-      {c.chart.some((b) => b.earned + b.booked > 0) ? <CoachChart chart={c.chart} name={c.full_name} /> : <p className="mt-3 text-[13px] text-ink/45">No paid lessons {data.current ? `this ${word}` : `in ${data.label}`}.</p>}
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <CoachStat label="Lessons" value={e.lessons} hint={e.hours ? `${e.hours} hours` : "none taught"} />
-        <CoachStat label="Per hour" value={e.hours ? usd(e.per_hour) : "–"} hint="after commission" />
+      {c.chart.some((b) => b.earned + b.booked > 0) ? <CoachChart chart={c.chart} name={c.full_name} /> : <p className="mt-3 text-[13px] text-ink/45">Nothing earned {data.current ? `this ${word}` : `in ${data.label}`} yet.</p>}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <CoachStat label="Lessons" value={usd(c.lessons.net)} hint={c.lessons.count ? `${plural(c.lessons.count, "lesson")} · ${c.lessons.hours} h` : "none taught"} />
+        <CoachStat label="Community" value={usd(c.community.net)} hint={c.community.count ? `${plural(c.community.count, "session")} · ${plural(c.community.players, "player")}` : "no sessions"} />
         <CoachStat label="Commission" value={usd(e.commission)} hint={data.has_rules ? `of ${usd(e.gross)} charged` : "no rate set yet"} />
-        <CoachStat label="Unpaid" value={usd(c.owed.total)} hint={c.owed.lessons ? `${plural(c.owed.lessons, "past lesson")}` : "all paid"} tone={c.owed.total > 0 ? "warn" : undefined} />
+        <CoachStat label="Next payday" value={c.payday ? usd(c.payday.earned) : "–"} hint={c.payday ? `${fmtPayday(c.payday.date)}${c.payday.booked ? ` · +${usd(c.payday.booked)} booked` : ""}` : "nothing at Balboa"} />
       </div>
-      {c.unpriced > 0 && <p className="mt-2 text-[12px] text-[#8A5A10]">{plural(c.unpriced, "lesson")} this {word} {c.unpriced === 1 ? "has" : "have"} no price, so {c.unpriced === 1 ? "it isn't" : "they aren't"} counted.</p>}
+      {c.owed.total > 0 && (
+        <p className="mt-2 text-[12.5px] text-[#8A5A10]">
+          {usd(c.owed.total)} unpaid from {plural(c.owed.lessons, "lesson")} outside Balboa, not marked paid yet.
+        </p>
+      )}
+      {c.unpriced > 0 && <p className="mt-2 text-[12px] text-[#8A5A10]">{plural(c.unpriced, "lesson or session", "lessons or sessions")} this {word} {c.unpriced === 1 ? "has" : "have"} no price, so {c.unpriced === 1 ? "it isn't" : "they aren't"} counted.</p>}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink/[0.06] pt-3 text-[13px] text-ink/60">
-        <span className="flex items-center gap-1.5">
-          <SessionMark type="group" size={14} />
-          {c.community.sessions ? (
-            <span>
-              {plural(c.community.sessions, "community session")} · {plural(c.community.players, "player")} · {fill}% full · {c.community.hours} h
-            </span>
-          ) : (
-            <span>No community sessions this {word}</span>
-          )}
-        </span>
+        <span>{e.hours ? `${e.hours} h on court · ${usd(e.per_hour)} an hour` : "No hours on court yet"}</span>
+        {c.community.ahead > 0 && (
+          <span className="flex items-center gap-1.5">
+            <SessionMark type="group" size={14} /> {plural(c.community.ahead, "community session")} ahead
+          </span>
+        )}
         <span className="flex items-center gap-1.5">
           <Icon name="users" size={14} /> {plural(c.clients, "client")}
         </span>
@@ -613,7 +609,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
   const t = data.totals;
   return (
     <>
-      <PageHeader title="Coaches" subtitle="What each coach earns from lessons, what's still unpaid, and how their community sessions are doing. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="What each coach earns from lessons and community sessions, after Balboa's commission, and what's coming on the next payday. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
       <Tabs current={data.period} items={(["week", "month", "year"] as const).map((p) => ({ key: p, label: p === "week" ? "Weekly" : p === "month" ? "Monthly" : "Yearly", href: withQuery(base, { period: p, at: data.at }) }))} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <A href={go(data.prev)} className={btn("outline", "sm")} aria-label={`Previous ${word}`}>
@@ -630,18 +626,25 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
       <HeroPanel eyebrow={data.current ? `All coaches · this ${word}` : `All coaches · ${data.label}`}>
         <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
         <p className="mt-1 text-sm text-paper/70">
-          earned from lessons, after commission
+          earned from lessons and community sessions, after commission
           {t.booked > 0 && <span className="text-accent"> · {usd(t.booked)} more booked</span>}
         </p>
         <div className="mt-3">
           <Change now={t.net} before={t.previous} word={word} current={data.current} light />
         </div>
         <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
-          <HeroStat value={t.lessons} label={t.lessons === 1 ? "lesson taught" : "lessons taught"} />
+          <HeroStat value={t.lessons + t.sessions} label={`${plural(t.lessons, "lesson")} · ${plural(t.sessions, "session")}`} />
           <HeroStat value={t.hours} label="hours on court" />
           <HeroStat value={usd(t.commission)} label="club commission" />
-          <HeroStat value={usd(t.owed)} label={t.owed_lessons ? `unpaid · ${plural(t.owed_lessons, "lesson")}` : "unpaid"} />
+          <HeroStat value={data.payday ? usd(data.payday.earned) : "–"} label={data.payday ? `payday ${fmtPayday(data.payday.date)}` : "next payday"} />
         </dl>
+        {data.payday && (
+          <p className="mt-4 text-[12.5px] text-paper/60">
+            Balboa pays through CourtReserve: the {fmtPayday(data.payday.date)} payday covers {fmtPayWindow(data.payday.from, data.payday.to)}
+            {data.payday.booked > 0 && `, with ${usd(data.payday.booked)} more still booked in that window`}.
+            {t.owed > 0 && ` ${usd(t.owed)} from ${plural(t.owed_lessons, "lesson")} elsewhere is still unpaid.`}
+          </p>
+        )}
         {!data.has_rules && (
           <p className="mt-4 text-[12.5px] text-paper/60">
             No club commission rate yet, so coaches keep the full lesson price.{" "}
@@ -671,7 +674,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
           <CoachCard key={c.id} c={c} data={data} />
         ))}
       </div>
-      <p className="mt-4 text-[12.5px] text-ink/45">Earnings count private and semi-private lessons once they've happened. Unpaid is every past lesson not yet marked paid. Community sessions aren't counted as money yet.</p>
+      <p className="mt-4 text-[12.5px] text-ink/45">Earnings count lessons and sessions once they've happened. A community session is every booked player times the price, minus commission, split evenly between its coaches. Balboa pays on the 20th for the 1st–15th and on the 5th for the 16th–end of month.</p>
     </>
   );
 }
@@ -986,20 +989,23 @@ export function AdminSettings({ data }: { data: D<typeof loadSettingsPage> }) {
 
 /** What each club takes from coaches' lessons. Coaches see the result on their Earnings page. */
 function CommissionCard({ rules }: { rules: D<typeof loadSettingsPage>["rules"] }) {
-  const rows = Array.from({ length: COMMISSION_ROWS }, (_, i) => rules[i] ?? (i === 0 && !rules.length ? { id: "", place: "Balboa", percent: 0, per_hour_cents: 0, per_lesson_cents: 0 } : null));
+  const rows = Array.from({ length: COMMISSION_ROWS }, (_, i) => rules[i] ?? (i === 0 && !rules.length ? { id: "", place: "Balboa", percent: 0, per_hour_cents: 0, per_lesson_cents: 0, max_players: null } : null));
   return (
     <Card className="mt-6 max-w-3xl">
       <SectionTitle>Club commission</SectionTitle>
       <p className="-mt-1 mb-4 text-sm text-ink/60">
-        Taken automatically from private and semi-private lessons whose location contains the place name. Use any mix of a percentage, an hourly court fee and a flat fee per lesson. A lesson keeps the commission it was saved with, so changing a rate doesn't rewrite past earnings.
+        Taken automatically from lessons and community sessions whose location contains the place name. Use any mix of a percentage, an hourly court fee and a flat fee per lesson. Set "Up to players" to charge a different rate for small groups: the row with the smallest limit that fits wins, and a row with no limit covers everything bigger. A lesson keeps the commission it was saved with, so changing a rate doesn't rewrite past lesson earnings.
       </p>
       <ActionForm action="saveCommissionRules">
         <div className="space-y-3">
           {rows.map((r, i) => (
-            <div key={r?.id || i} className="grid grid-cols-2 gap-3 sm:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div key={r?.id || i} className="grid grid-cols-2 gap-3 sm:grid-cols-[1.3fr_0.9fr_1fr_1fr_1fr]">
               <input type="hidden" name={`id_${i}`} defaultValue={r?.id ?? ""} />
               <Field label="Place" className="col-span-2 sm:col-span-1">
                 <input className="input" name={`place_${i}`} defaultValue={r?.place ?? ""} placeholder="e.g. Balboa" />
+              </Field>
+              <Field label="Up to players">
+                <input className="input" name={`max_players_${i}`} inputMode="numeric" defaultValue={r?.max_players ?? ""} placeholder="Any" />
               </Field>
               <Field label="% of price">
                 <input className="input" name={`percent_${i}`} inputMode="decimal" defaultValue={r?.percent || ""} placeholder="0" />
