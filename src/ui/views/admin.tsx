@@ -674,7 +674,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
           <CoachCard key={c.id} c={c} data={data} />
         ))}
       </div>
-      <p className="mt-4 text-[12.5px] text-ink/45">Earnings count lessons and sessions once they've happened. A community session is every booked player times the price, minus commission, split evenly between its coaches. Balboa pays on the 20th for the 1st–15th and on the 5th for the 16th–end of month.</p>
+      <p className="mt-4 text-[12.5px] text-ink/45">Earnings count lessons and sessions once they've happened. A community session is every booked player times the price, minus commission worked out court by court, split evenly between its coaches. Balboa pays on the 20th for the 1st–15th and on the 5th for the 16th–end of month.</p>
     </>
   );
 }
@@ -994,7 +994,7 @@ function CommissionCard({ rules }: { rules: D<typeof loadSettingsPage>["rules"] 
     <Card className="mt-6 max-w-3xl">
       <SectionTitle>Club commission</SectionTitle>
       <p className="-mt-1 mb-4 text-sm text-ink/60">
-        Taken automatically from lessons and community sessions whose location contains the place name. Use any mix of a percentage, an hourly court fee and a flat fee per lesson. Set "Up to players" to charge a different rate for small groups: the row with the smallest limit that fits wins, and a row with no limit covers everything bigger. A lesson keeps the commission it was saved with, so changing a rate doesn't rewrite past lesson earnings.
+        Taken automatically from lessons and community sessions whose location contains the place name. Use any mix of a percentage, an hourly court fee and a flat fee per lesson. Rates are per court, so a two-court session is charged court by court. Set "Up to players" to charge a different rate for small groups: the row with the smallest limit that fits wins, and a row with no limit covers everything bigger. A lesson keeps the commission it was saved with, so changing a rate doesn't rewrite past lesson earnings.
       </p>
       <ActionForm action="saveCommissionRules">
         <div className="space-y-3">

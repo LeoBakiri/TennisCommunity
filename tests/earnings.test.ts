@@ -4,7 +4,7 @@ import { MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import { loadCoachEarnings, type LoadCtx } from "../src/core/queries";
-import { buckets, commissionFor, lessonMoney, payday, payWindow, periodLabel, periodRange, sessionShare } from "../src/core/earnings";
+import { buckets, commissionFor, lessonMoney, payday, payWindow, periodLabel, periodRange, playersPerCourt, sessionShare } from "../src/core/earnings";
 import type { Actor, CommissionRule } from "../src/core/types";
 import { addDays, dateKey } from "../src/core/time";
 
@@ -151,4 +151,19 @@ test("Balboa pays on the 20th for the 1st-15th and on the 5th for the 16th-end",
   assert.equal(payday("2026-12-31"), "2027-01-05");
   assert.deepEqual(payWindow("2026-11-20"), { from: "2026-11-01", to: "2026-11-16" });
   assert.deepEqual(payWindow("2027-01-05"), { from: "2026-12-16", to: "2027-01-01" });
+});
+
+test("Balboa commission is per court on two-court sessions", () => {
+  const s = { ...hour, location: "Balboa Tennis Club", price_cents: 4000, coach_ids: ["leo", "kaan"] }; // 90 minutes
+  assert.deepEqual(playersPerCourt(11, 2), [6, 5]);
+  assert.deepEqual(playersPerCourt(7, 2), [4, 3]);
+  assert.deepEqual(playersPerCourt(3, 2), [2, 1]);
+  // 11 players on 2 courts: 6 and 5, both 30%. Same as before: $154 each.
+  assert.equal(sessionShare(s, 11, balboa, 2).net, 15400);
+  // 8 players on 2 courts: 4 and 4, so $25 an hour on each court: 2 x $37.50 = $75 of $320, $122.50 each.
+  assert.deepEqual(sessionShare(s, 8, balboa, 2), { gross: 16000, commission: 3750, net: 12250, priced: true });
+  // 9 players on 2 courts: 5 at 30% ($60) and 4 at $37.50 = $97.50 of $360.
+  assert.equal(sessionShare(s, 9, balboa, 2).commission, Math.round(9750 / 2));
+  // The same 8 players on one court would be 30%.
+  assert.equal(sessionShare(s, 8, balboa, 1).commission, Math.round(9600 / 2));
 });

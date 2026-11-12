@@ -4,7 +4,7 @@ import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, SESSION_META, sessionTitle, uid } from "./util";
-import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, ruleFor, sessionShare, type Money, type Period } from "./earnings";
+import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
@@ -459,6 +459,12 @@ async function sessionsWithPlayers(store: Store, fromKey: string, toKey: string,
 }
 type PlayedSession = Awaited<ReturnType<typeof sessionsWithPlayers>>[number];
 
+/** Courts a session actually uses: the ones it was planned for, but no more than its players fill. */
+const courtsInUse = (s: PlayedSession) => {
+  const plan = courtPlan(s);
+  return Math.max(1, Math.min(plan.courts, Math.ceil(s.booked / plan.size)));
+};
+
 /**
  * A coach's lessons and community sessions as money, the same way for their Earnings page and the admin Coaches page.
  * Work at Balboa is paid through CourtReserve on a payday; anything else the coach marks paid.
@@ -477,11 +483,11 @@ function coachMoney(coachId: string, lessons: Lesson[], sessions: PlayedSession[
   const sessionRows = sessions
     .filter((s) => s.coach_ids.includes(coachId))
     .map((s) => ({
-      session: { id: s.id, session_type: s.session_type, title: s.title, starts_at: s.starts_at, ends_at: s.ends_at, location: s.location, price_cents: s.price_cents, coaches: s.coach_ids.length, players: s.booked },
-      money: sessionShare(s, s.booked, rules),
+      session: { id: s.id, session_type: s.session_type, title: s.title, starts_at: s.starts_at, ends_at: s.ends_at, location: s.location, price_cents: s.price_cents, coaches: s.coach_ids.length, players: s.booked, courts: courtsInUse(s) },
+      money: sessionShare(s, s.booked, rules, courtsInUse(s)),
       done: s.ends_at <= now,
       hours: hours(s.starts_at, s.ends_at),
-      place: ruleFor(s.location, rules, s.booked)?.place ?? null,
+      place: ruleFor(s.location, rules, playersPerCourt(s.booked, courtsInUse(s))[0])?.place ?? null,
       payday: isBalboa(s.location) ? payday(dateKey(s.starts_at)) : null,
     }));
   return { lessonRows, sessionRows };

@@ -709,6 +709,7 @@ function SessionMoneyRow({ r, today }: { r: Earnings["sessions"][number]; today:
         <div className="truncate text-sm font-semibold">{s.session_type ? SESSION_META[s.session_type].label : "Session"}</div>
         <div className="truncate text-[12.5px] text-ink/55">
           {fmtDay(s.starts_at)} · {fmtTime(s.starts_at)} · {s.players} {s.players === 1 ? "player" : "players"}
+          {s.courts > 1 && ` on ${s.courts} courts`}
           {s.coaches > 1 && ` · split ${s.coaches} ways`}
         </div>
       </A>
@@ -760,7 +761,7 @@ function downloadCsv(data: Earnings) {
   const rows = [
     ["Date", "Start", "End", "Type", "Players", "Location", "Price", "Commission", "You keep", "Paid"],
     ...[...data.lessons].reverse().map(({ lesson: l, money: m, payday }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payday ${payday}` : l.paid_at ? dateKey(l.paid_at) : ""]),
-    ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payday ${payday}` : ""]),
+    ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.courts > 1 ? ` on ${s.courts} courts` : ""}${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payday ${payday}` : ""]),
   ];
   const blob = new Blob([rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
@@ -901,7 +902,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
                   <SessionMoneyRow key={r.session.id} r={r} today={data.today} />
                 ))}
               </div>
-              <p className="mt-2 text-[12.5px] text-ink/50">Your share: every booked player times the price, minus the club's commission, split evenly between the coaches.</p>
+              <p className="mt-2 text-[12.5px] text-ink/50">Your share: every booked player times the price, minus the club's commission (worked out court by court), split evenly between the coaches.</p>
             </div>
           )}
         </div>

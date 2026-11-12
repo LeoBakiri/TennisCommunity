@@ -55,14 +55,26 @@ export function lessonMoney(l: Priced & Pick<Lesson, "commission_cents">, rules:
   return { gross, commission, net: gross - commission, priced: l.price_cents !== null };
 }
 
+/** Players on each court, split as evenly as possible: 11 on 2 courts is 6 and 5. */
+export function playersPerCourt(players: number, courts: number): number[] {
+  const n = Math.max(1, Math.min(courts, players || 1));
+  return Array.from({ length: n }, (_, i) => Math.floor(players / n) + (i < players % n ? 1 : 0));
+}
+
 /**
  * One coach's share of a community session: every booked player pays the session price, the club
- * takes its commission for that group size, and the coaches split the rest evenly.
+ * takes its commission court by court (each court's group size picks the rate), and the coaches split the rest evenly.
  */
-export function sessionShare(s: Pick<Session, "price_cents" | "starts_at" | "ends_at" | "location" | "coach_ids">, players: number, rules: CommissionRule[]): Money {
-  const total = (s.price_cents ?? 0) * players;
-  const rule = players > 0 ? ruleFor(s.location, rules, players) : null;
-  const cut = rule ? Math.min(total, commissionUnder(rule, { ...s, price_cents: total })) : 0;
+export function sessionShare(s: Pick<Session, "price_cents" | "starts_at" | "ends_at" | "location" | "coach_ids">, players: number, rules: CommissionRule[], courts = 1): Money {
+  const price = s.price_cents ?? 0;
+  const total = price * players;
+  const cut =
+    players > 0
+      ? playersPerCourt(players, courts).reduce((n, p) => {
+          const rule = ruleFor(s.location, rules, p);
+          return n + (rule ? Math.min(price * p, commissionUnder(rule, { ...s, price_cents: price * p })) : 0);
+        }, 0)
+      : 0;
   const coaches = Math.max(1, s.coach_ids.length);
   const gross = Math.round(total / coaches);
   const commission = Math.round(cut / coaches);
