@@ -445,6 +445,9 @@
   .mb-10 {
     margin-bottom: calc(var(--spacing) * 10);
   }
+  .-ml-3 {
+    margin-left: calc(var(--spacing) * -3);
+  }
   .ml-1 {
     margin-left: var(--spacing);
   }
@@ -459,6 +462,9 @@
   }
   .block {
     display: block;
+  }
+  .contents {
+    display: contents;
   }
   .flex {
     display: flex;
@@ -682,6 +688,9 @@
   .w-full {
     width: 100%;
   }
+  .w-px {
+    width: 1px;
+  }
   .max-w-2xl {
     max-width: var(--container-2xl);
   }
@@ -726,6 +735,9 @@
   }
   .min-w-\[7\.5rem\] {
     min-width: 7.5rem;
+  }
+  .min-w-\[22px\] {
+    min-width: 22px;
   }
   .min-w-\[112px\] {
     min-width: 112px;
@@ -900,11 +912,19 @@
   .gap-x-2 {
     column-gap: calc(var(--spacing) * 2);
   }
+  .gap-x-2\.5 {
+    column-gap: calc(var(--spacing) * 2.5);
+  }
   .gap-x-3 {
     column-gap: calc(var(--spacing) * 3);
   }
   .gap-x-4 {
     column-gap: calc(var(--spacing) * 4);
+  }
+  :where(.-space-x-1\.5 > :not(:last-child)) {
+    --tw-space-x-reverse: 0;
+    margin-inline-start: calc(calc(var(--spacing) * -1.5) * var(--tw-space-x-reverse));
+    margin-inline-end: calc(calc(var(--spacing) * -1.5) * calc(1 - var(--tw-space-x-reverse)));
   }
   .gap-y-1 {
     row-gap: var(--spacing);
@@ -1909,6 +1929,9 @@
       --tw-ring-color: color-mix(in oklab, var(--paper) 15%, transparent);
     }
   }
+  .ring-white {
+    --tw-ring-color: var(--color-white);
+  }
   .ring-offset-2 {
     --tw-ring-offset-width: 2px;
     --tw-ring-offset-shadow: var(--tw-ring-inset,) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
@@ -1976,6 +1999,9 @@
       scale: var(--tw-scale-x) var(--tw-scale-y);
     }
   }
+  .first-letter\:uppercase::first-letter {
+    text-transform: uppercase;
+  }
   .first\:pt-0:first-child {
     padding-top: 0px;
   }
@@ -2026,6 +2052,14 @@
     @supports (color: color-mix(in lab, red, red)) {
       .hover\:bg-ink\/5:hover {
         background-color: color-mix(in oklab, var(--ink) 5%, transparent);
+      }
+    }
+    .hover\:bg-ink\/\[0\.02\]:hover {
+      background-color: var(--ink);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ink\/\[0\.02\]:hover {
+        background-color: color-mix(in oklab, var(--ink) 2%, transparent);
       }
     }
     .hover\:bg-paper:hover {
@@ -2132,6 +2166,9 @@
     .sm\:hidden {
       display: none;
     }
+    .sm\:inline {
+      display: inline;
+    }
     .sm\:inline-flex {
       display: inline-flex;
     }
@@ -2143,6 +2180,9 @@
     }
     .sm\:w-9 {
       width: calc(var(--spacing) * 9);
+    }
+    .sm\:w-32 {
+      width: calc(var(--spacing) * 32);
     }
     .sm\:w-40 {
       width: calc(var(--spacing) * 40);
@@ -2158,12 +2198,6 @@
     }
     .sm\:max-w-md {
       max-width: var(--container-md);
-    }
-    .sm\:flex-1 {
-      flex: 1;
-    }
-    .sm\:shrink-0 {
-      flex-shrink: 0;
     }
     .sm\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2215,9 +2249,6 @@
     }
     .sm\:gap-3 {
       gap: calc(var(--spacing) * 3);
-    }
-    .sm\:gap-4 {
-      gap: calc(var(--spacing) * 4);
     }
     .sm\:rounded-2xl {
       border-radius: var(--radius-2xl);
@@ -3091,6 +3122,11 @@
   inherits: false;
   initial-value: 0;
 }
+@property --tw-space-x-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
 @property --tw-divide-y-reverse {
   syntax: "*";
   inherits: false;
@@ -3333,6 +3369,7 @@
       --tw-skew-x: initial;
       --tw-skew-y: initial;
       --tw-space-y-reverse: 0;
+      --tw-space-x-reverse: 0;
       --tw-divide-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;

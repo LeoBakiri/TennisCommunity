@@ -156,6 +156,73 @@ function ToDecide({ sessions, today }: { sessions: D<typeof loadCoachSchedule>["
   );
 }
 
+/** Who's signed up for the coach's community sessions over the next 8 days, newest sign-ups highlighted. */
+function SignUps({ data, today }: { data: D<typeof loadCoachSchedule>["signups"]; today: string }) {
+  if (!data.sessions.length) return null;
+  const pct = data.capacity ? Math.round((data.booked / data.capacity) * 100) : 0;
+  return (
+    <Card className="mb-5" pad={false}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pt-4 md:px-5">
+        <h2 className="text-[15px] font-semibold">Sign-ups · next 8 days</h2>
+        <div className="text-[12.5px] text-ink/55">
+          <strong className="font-semibold text-ink">{data.booked}/{data.capacity}</strong> spots filled ({pct}%)
+          {data.new_today > 0 && <> · <strong className="font-semibold text-[#2E5A2A]">{data.new_today} new</strong> in the last day</>}
+          {data.waitlist > 0 && <> · {data.waitlist} waiting</>}
+        </div>
+      </div>
+      <ul className="mt-2 divide-y divide-ink/[0.06]">
+        {data.sessions.map((s) => {
+          const fill = Math.min(100, (s.booked / Math.max(1, s.capacity)) * 100);
+          const short = s.minimum > 0 && s.booked < s.minimum;
+          const shown = [...s.players.filter((p) => p.fresh).reverse(), ...s.players.filter((p) => !p.fresh)].slice(0, 5);
+          return (
+            <li key={s.id}>
+              <A href={`/coach/sessions/${s.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-ink/[0.02] md:px-5">
+                <SessionMark type={s.session_type} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{s.title}</span>
+                  <span className="block text-xs text-ink/55 first-letter:uppercase">
+                    {whenWord(s.starts_at, today)} {fmtTime(s.starts_at)}
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {s.players.length === 0 ? (
+                      <span className="text-xs text-ink/45">No one yet</span>
+                    ) : (
+                      <span className="flex -space-x-1.5">
+                        {shown.map((p, i) => (
+                          <span key={i} title={p.fresh ? `${p.name} · new` : p.name} className={cx("rounded-full ring-2", p.fresh ? "ring-accent" : "ring-white")}>
+                            <Avatar name={p.name} size={22} />
+                          </span>
+                        ))}
+                        {s.players.length > shown.length && (
+                          <span className="flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-ink/[0.07] px-1 text-[10px] font-semibold text-ink/60 ring-2 ring-white">+{s.players.length - shown.length}</span>
+                        )}
+                      </span>
+                    )}
+                    {s.fresh > 0 && <Badge tone="green">+{s.fresh} new</Badge>}
+                    {s.waitlist > 0 && <Badge tone="blue">{s.waitlist} waiting</Badge>}
+                  </span>
+                </span>
+                <span className="w-24 shrink-0 sm:w-32">
+                  <span className={cx("block text-right text-xs tabular-nums", short ? "font-medium text-[#8A5A10]" : "text-ink/60")}>
+                    <strong className="text-sm font-semibold text-ink">{s.booked}</strong>/{s.capacity}
+                    <span className="hidden sm:inline">{s.booked >= s.capacity ? " · full" : ` · ${s.capacity - s.booked} open`}</span>
+                  </span>
+                  <span className="relative mt-1 block h-1.5 overflow-hidden rounded-full bg-ink/[0.07]">
+                    <span className={cx("block h-full rounded-full", short ? "bg-[#D29A3A]" : "bg-brand")} style={{ width: `${fill}%` }} />
+                    {s.minimum > 0 && <span className="absolute inset-y-0 w-px bg-ink/40" style={{ left: `${(s.minimum / s.capacity) * 100}%` }} title={`${s.minimum} needed for 2 courts`} />}
+                  </span>
+                </span>
+                <Icon name="right" size={16} className="shrink-0 text-ink/30" />
+              </A>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
   const nav = useNav();
@@ -174,6 +241,7 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
       />
       <CoachHero data={data} />
       <ToDecide sessions={data.to_decide} today={data.today} />
+      <SignUps data={data.signups} today={data.today} />
       {calendarUp && calendarCard}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <WeekNav monday={data.monday} base="/coach" />

@@ -336,6 +336,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     },
     calendar: calendars[0] ?? null,
     live: ctx.store.kind === "supabase",
+    signups: await signupsFor(ctx, soon.filter((s) => s.coach_ids.includes(u.id) && s.status === "published" && s.starts_at > now), L),
     to_decide: twoCourt.filter(needsDecision).map((s) => ({ id: s.id, title: sessionTitle(s), session_type: s.session_type!, starts_at: s.starts_at, booked: s.booked, minimum: courtPlan(s).minimum, decide_by: decideBy(s) })),
   };
 }
@@ -361,6 +362,37 @@ export async function loadCoachSession(ctx: LoadCtx) {
       return { booking: b, player: p ? { id: p.id, full_name: p.full_name, email: p.email, phone: p.phone, emergency_contact: p.emergency_contact } : null };
     });
   return { session: view, roster, isAdmin: isAdmin(u), feedback, started: s.starts_at <= ctx.now.toISOString() };
+}
+
+/** The coach's community sessions over the next 8 days with who signed up and who's new in the last day. */
+async function signupsFor(ctx: LoadCtx, upcoming: Session[], L: Lookups) {
+  const views = await enrich(ctx.store, upcoming, L, null);
+  if (!views.length) return { sessions: [], new_today: 0, booked: 0, capacity: 0, waitlist: 0 };
+  const bookings = (await ctx.store.list("bookings", { in: { field: "session_id", values: views.map((v) => v.id) } })).filter(isActive);
+  const dayAgo = new Date(ctx.now.getTime() - 86400000).toISOString();
+  const sessions = views.map((v) => {
+    const mine = bookings.filter((b) => b.session_id === v.id).sort(by((b) => b.created_at));
+    const players = mine.filter((b) => b.status === "confirmed").map((b) => ({ name: L.profile.get(b.user_id)?.full_name ?? "Player", fresh: b.created_at >= dayAgo }));
+    return {
+      id: v.id,
+      title: sessionTitle(v),
+      session_type: v.session_type!,
+      starts_at: v.starts_at,
+      booked: v.booked,
+      capacity: v.capacity,
+      waitlist: v.waitlist,
+      minimum: courtPlan(v).minimum,
+      fresh: mine.filter((b) => b.created_at >= dayAgo).length,
+      players,
+    };
+  });
+  return {
+    sessions,
+    new_today: sessions.reduce((n, s) => n + s.fresh, 0),
+    booked: sessions.reduce((n, s) => n + s.booked, 0),
+    capacity: sessions.reduce((n, s) => n + s.capacity, 0),
+    waitlist: sessions.reduce((n, s) => n + s.waitlist, 0),
+  };
 }
 
 const CLIENT_PAGE = /^\/coach\/clients\/[\w-]+$/;
