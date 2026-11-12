@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ActionResult } from "@/core/types";
+import type { AssistantReply, Msg, Proposal } from "@/core/assistant";
 
 export interface LinkProps {
   href: string;
@@ -27,6 +28,13 @@ export interface NavApi {
     resetDemo?: () => Promise<void>;
   };
   demo: boolean;
+  /** The coach assistant: the model answers through `ask`; its tools run here, as the signed-in coach. */
+  assistant: {
+    ask: (messages: Msg[]) => Promise<AssistantReply>;
+    read: (name: string, input: Record<string, unknown>) => Promise<unknown>;
+    propose: (name: string, input: Record<string, unknown>) => Promise<Proposal>;
+    contact: (name: string) => Promise<string | null>;
+  };
 }
 
 const NavCtx = createContext<NavApi | null>(null);

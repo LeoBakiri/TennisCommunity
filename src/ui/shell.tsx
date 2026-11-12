@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { A, useNav } from "./nav";
 import { Icon, type IconName } from "./icons";
 import { Avatar, cx } from "./kit";
+import { CoachAssistant } from "./assistant";
+import { canUseAssistant } from "@/core/assistant";
 import { MY_GAME_LAUNCHED } from "@/core/progress";
 import type { Area } from "@/core/routes";
 import type { Role, Settings } from "@/core/types";
@@ -369,6 +371,8 @@ export function PortalShell({ area, meta, children }: { area: PortalArea; meta: 
           </div>
         </main>
       </div>
+
+      {area === "coach" && canUseAssistant(user) && <CoachAssistant firstName={user.full_name.split(" ")[0]} />}
 
       {/* Mobile bottom tabs */}
       {items.length > 1 && (

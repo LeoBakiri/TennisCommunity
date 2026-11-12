@@ -14,6 +14,8 @@ import { PlayerShell, PortalShell, type FrameMeta } from "@/ui/shell";
 import { Empty, LinkButton } from "@/ui/kit";
 import { PullToRefresh } from "@/ui/pull-refresh";
 import { MY_GAME_LAUNCHED } from "@/core/progress";
+import { ASSISTANT_FN, contactFor, propose, runRead, type AssistantReply } from "@/core/assistant";
+import { demoReply } from "@/core/assistant-demo";
 import { VIEWS } from "./registry";
 import { SupabaseAuth, SupabaseStore, type SupaConfig } from "./supabase";
 
@@ -83,6 +85,8 @@ async function currentActor(): Promise<Actor> {
   const { id, identifier } = JSON.parse(raw) as { id: string; identifier: string };
   return { auth_id: id, identifier, user: await store.get("profiles", id) };
 }
+
+const assistantCtx = async () => ({ store, actor: await currentActor(), now: new Date() });
 
 const CALENDAR_FN = "google-calendar";
 /** Push changes to Google right away. If this fails, the queue and the scheduled job retry it. */
@@ -509,6 +513,17 @@ function App() {
             },
       },
       demo: DEMO,
+      assistant: {
+        ask: async (messages) => {
+          if (store.invoke) return store.invoke<AssistantReply>(ASSISTANT_FN, { messages });
+          // The demo has no server, so a scripted stand-in shows how the assistant behaves.
+          if (__DEMO__) return demoReply(messages, new Date());
+          throw new Error("The assistant runs on the live site.");
+        },
+        read: async (name, input) => runRead(await assistantCtx(), name, input),
+        propose: async (name, input) => propose(await assistantCtx(), name, input),
+        contact: async (name) => contactFor(await assistantCtx(), name),
+      },
     }),
     [loc, refresh, refreshAndWait, afterLogin],
   );
