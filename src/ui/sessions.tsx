@@ -256,12 +256,21 @@ export function TakeSpotButton({ s, signedIn }: { s: SessionView; signedIn: bool
 }
 
 /** The badge and buttons for a session the player is booked or waitlisted on. */
-export function MyBookingActions({ s, window }: { s: SessionView; window: number }) {
+/** Where the player stands: booked, on the waitlist, or offering their spot. */
+export function MyBookingStatus({ s }: { s: SessionView }) {
   const mine = s.my_booking!;
+  if (mine.status === "confirmed" && mine.spot_offered_at) return <Badge tone="amber">Spot offered</Badge>;
+  return <BookingBadge status={mine.status} position={mine.waitlist_position} />;
+}
+
+export function MyBookingActions({ s, window, status = true }: { s: SessionView; window: number; status?: boolean }) {
+  const mine = s.my_booking!;
+  // Without the status, the buttons join the caller's row so each one wraps on its own.
+  const wrap = status ? "flex flex-wrap items-center gap-2" : "contents";
   if (mine.status === "confirmed" && mine.spot_offered_at) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="amber">Spot offered</Badge>
+      <div className={wrap}>
+        {status && <MyBookingStatus s={s} />}
         <a href={shareOfferHref(s)} target="_blank" rel="noreferrer" className={btn("ghost", "sm")} title="Share on WhatsApp">
           <Icon name="message" size={15} /> Share
         </a>
@@ -273,8 +282,8 @@ export function MyBookingActions({ s, window }: { s: SessionView; window: number
   }
   const late = mine.status === "confirmed" && hoursUntil(s) < window;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <BookingBadge status={mine.status} position={mine.waitlist_position} />
+    <div className={wrap}>
+      {status && <MyBookingStatus s={s} />}
       {mine.status === "waitlisted" && s.offered > 0 && <TakeSpotButton s={s} signedIn />}
       {late ? <OfferSpotButton bookingId={mine.id} session={s} window={window} /> : <CancelButton bookingId={mine.id} status={mine.status} session={s} position={mine.waitlist_position} />}
     </div>

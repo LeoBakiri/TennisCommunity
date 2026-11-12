@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { A, useAction, useToast } from "../nav";
 import { ballBurst, Icon, SessionMark, TennisBall, type IconName } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Card, cx, Empty, HeroPanel, HeroStat, LinkButton, PageHeader, Place, SectionTitle, Submit } from "../kit";
-import { calendarHref, countdown, courtNote, MyBookingActions, SessionCard, skipTheLine, whenWord } from "../sessions";
+import { calendarHref, countdown, courtNote, MyBookingActions, MyBookingStatus, SessionCard, skipTheLine, whenWord } from "../sessions";
 import { ProfileFields } from "./public";
 import type { FrameMeta } from "../shell";
 import type { BookingRow, CalendarLinks, loadMyGame, loadMySessions, loadProfile, loadSchedule, SessionView } from "@/core/queries";
@@ -262,7 +262,8 @@ function AddToCalendar({ s, links }: { s: SessionView; links: CalendarLinks | nu
   if (!links) {
     return (
       <a href={calendarHref(s)} target="_blank" rel="noreferrer" className={btn("ghost", "sm")} title="Add to Google Calendar">
-        <Icon name="calendar" size={15} /> Add to calendar
+        <Icon name="calendar" size={15} /> <span className="sm:hidden">Calendar</span>
+        <span className="hidden sm:inline">Add to calendar</span>
       </a>
     );
   }
@@ -270,7 +271,8 @@ function AddToCalendar({ s, links }: { s: SessionView; links: CalendarLinks | nu
   return (
     <div className="relative">
       <button type="button" className={btn("ghost", "sm")} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="calendar" size={15} /> Add to calendar
+        <Icon name="calendar" size={15} /> <span className="sm:hidden">Calendar</span>
+        <span className="hidden sm:inline">Add to calendar</span>
       </button>
       {open && (
         <>
@@ -296,18 +298,20 @@ function BookingGroup({ title, rows, window, links }: { title: string; rows: Boo
       <SectionTitle>{title}</SectionTitle>
       <div className="card divide-y divide-ink/[0.06]">
         {rows.map((r) => (
-          <div key={r.booking.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 md:px-5">
-            <div className="min-w-0 sm:flex-1">
-              <div className="flex items-center gap-2 font-semibold">
+          // Status sits with the title and the buttons get their own line, so nothing squeezes the details.
+          <div key={r.booking.id} className="px-4 py-4 md:px-5">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <span className="flex items-center gap-2 font-semibold">
                 <SessionMark type={r.session.session_type} /> {sessionTitle(r.session)}
-              </div>
-              <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
-              <Place p={r.session} className="mt-1 text-sm" />
-              <CourtLine s={r.session} />
+              </span>
+              <MyBookingStatus s={r.session} />
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
+            <div className="mt-0.5 text-sm text-ink/60">{fmtDayRange(r.session.starts_at, r.session.ends_at)}</div>
+            <Place p={r.session} className="mt-1 text-sm" />
+            <CourtLine s={r.session} />
+            <div className="mt-2.5 -ml-3 flex flex-wrap items-center gap-1">
               {r.booking.status === "confirmed" && <AddToCalendar s={r.session} links={links} />}
-              <MyBookingActions s={r.session} window={window} />
+              <MyBookingActions s={r.session} window={window} status={false} />
             </div>
           </div>
         ))}
