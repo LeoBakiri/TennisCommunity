@@ -7,7 +7,7 @@ import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
-import { COURTS, fmtMoney, isBalboa, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
+import { COURTS, fmtMoney, isBalboa, placeOptions, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
 import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -18,30 +18,43 @@ const TIMES = Array.from({ length: 64 }, (_, i) => {
   return `${String(h).padStart(2, "0")}:${m}`;
 });
 
-/** Location, plus a court picker once the location is Balboa. */
+/** Location as a dropdown (BTC, Emerald Hills, past places, or Other), plus a court picker once the location is BTC. */
 export function LocationCourt({ location, court, wide, places, onLocation }: { location: string; court: number | null; wide?: boolean; places?: string[]; onLocation?: (v: string) => void }) {
+  const choices = places ?? placeOptions();
   const [where, setWhere] = useState(shortPlace(location));
+  const [other, setOther] = useState(!!where && !choices.includes(where));
   const balboa = isBalboa(where);
+  const pick = (v: string) => {
+    setWhere(v);
+    onLocation?.(v);
+  };
   return (
     <>
       <Field label="Location" className={wide && !balboa ? "sm:col-span-2" : undefined}>
-        <input
+        <select
           className="input"
-          name="location"
-          list={places ? "known-places" : undefined}
-          value={where}
+          aria-label="Location"
+          value={other ? "__other" : where}
           onChange={(e) => {
-            setWhere(e.target.value);
-            onLocation?.(e.target.value);
+            if (e.target.value === "__other") {
+              setOther(true);
+              pick("");
+            } else {
+              setOther(false);
+              pick(e.target.value);
+            }
           }}
-        />
-        {places && (
-          <datalist id="known-places">
-            {places.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        )}
+        >
+          {!where && !other && <option value="">Pick a place</option>}
+          {choices.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+          <option value="__other">Other…</option>
+        </select>
+        {other && <input className="input mt-2" placeholder="Where?" value={where} onChange={(e) => pick(e.target.value)} autoFocus />}
+        <input type="hidden" name="location" value={where} />
       </Field>
       {balboa && (
         <Field label="Court">
