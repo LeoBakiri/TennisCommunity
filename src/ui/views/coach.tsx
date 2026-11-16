@@ -805,7 +805,7 @@ function BalboaPayNote({ day }: { day: string }) {
     <div className="flex items-center gap-3 rounded-xl bg-ink/[0.04] px-4 py-3 text-[13px] text-ink/70">
       <Icon name="card" size={16} className="shrink-0 text-ink/55" />
       <span>
-        <span className="font-semibold text-ink">Balboa payroll</span>
+        <span className="font-semibold text-ink">BTC payroll</span>
         {ok && ` · ${fmtPayroll(payday(day))}`}
       </span>
     </div>
@@ -1027,7 +1027,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
         <aside className="space-y-4">
           {data.paydays.length > 0 && (
             <Card>
-              <SectionTitle>Balboa payroll</SectionTitle>
+              <SectionTitle>BTC payroll</SectionTitle>
               <ul className="space-y-3">
                 {data.paydays.map((p) => (
                   <li key={p.date} className="flex items-start justify-between gap-3">
@@ -1059,7 +1059,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
                 {data.owed.lessons.length > 8 && <p className="px-1 text-[12.5px] text-ink/50">and {data.owed.lessons.length - 8} more</p>}
               </div>
             ) : (
-              <p className="text-sm text-ink/55">All caught up. Every past lesson outside Balboa is marked paid.</p>
+              <p className="text-sm text-ink/55">All caught up. Every past lesson outside BTC is marked paid.</p>
             )}
           </Card>
           <Breakdown data={data} />

@@ -7,6 +7,7 @@ import { loadCoachClient, loadCoachClients, loadLessonEditor, type LoadCtx } fro
 import { clientSummary, lessonPayday, nextSameWeekday, overlaps, weeklyDates } from "../src/core/clients";
 import type { Actor, Lesson } from "../src/core/types";
 import { addDays, dateKey, zonedToUtc } from "../src/core/time";
+import { BALBOA_FULL, placeLabel, placeOptions } from "../src/core/util";
 
 function setup() {
   const now = new Date();
@@ -157,4 +158,17 @@ test("dragging a lesson moves or resizes it, and won't drop it on something else
   assert.equal((await store.get("lessons", l.id))!.starts_at, moved.starts_at);
   // Another coach can't move it.
   assert.equal((await runAction(await ctx(DEMO_IDS.maya), "moveLesson", { lesson_id: l.id, date: day, time: "11:00", duration_min: 60 })).ok, false);
+});
+
+test("BTC is Balboa: short on coach screens, saved in full so maps and commission still work", async () => {
+  assert.equal(placeLabel({ location: "Balboa Tennis Club, San Diego", court: 2 }), "BTC · Court 2");
+  assert.equal(placeLabel({ location: "Emerald Hills" }), "Emerald Hills");
+  assert.deepEqual(placeOptions("Balboa Tennis Club, San Diego"), ["BTC", "Emerald Hills"]);
+  const { store, ctx } = setup();
+  const leo = await ctx(DEMO_IDS.leo);
+  assert.equal((await runAction(leo, "saveLesson", lessonInput({ location: "btc", court: "3", price: "100" }))).ok, true);
+  const l = (await store.list("lessons", { eq: { coach_id: DEMO_IDS.leo } })).find((x) => x.client_names[0] === "Nadia Brooks")!;
+  assert.equal(l.location, BALBOA_FULL);
+  assert.equal(l.court, 3);
+  assert.ok((l.commission_cents ?? 0) > 0);
 });

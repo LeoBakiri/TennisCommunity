@@ -4,7 +4,7 @@ import { z, ZodError } from "zod";
 import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDay, fmtRange, fmtTime, timeKey, zonedToUtc } from "./time";
-import { courtPlan, isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
+import { courtPlan, fullPlace, isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
@@ -482,7 +482,7 @@ export const actions: Record<string, Handler> = {
       date,
       time,
       duration_min: int(15, 600, "Duration"),
-      location: text(200),
+      location: text(200).transform(fullPlace),
       court,
       price: dollars,
       paid: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
@@ -627,7 +627,7 @@ export const actions: Record<string, Handler> = {
       duration_min: int(15, 600, "Duration"),
       capacity: int(1, 200, "Capacity"),
       price: dollars,
-      location: text(200),
+      location: text(200).transform(fullPlace),
       court,
       coach_ids: ids,
       status: z.enum(["draft", "published"]).default("draft"),

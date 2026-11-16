@@ -40,11 +40,15 @@ export const decideBy = (s: { starts_at: string; decide_by?: string | null }) =>
 
 // Balboa has numbered courts; other locations don't get a court picker.
 export const COURTS = [1, 2, 3, 4] as const;
-export const isBalboa = (location: string) => /balboa/i.test(location);
+export const isBalboa = (location: string) => /balboa|\bbtc\b/i.test(location);
+/** Balboa Tennis Club is "BTC" on coach screens; it's saved under its full name so maps, calendars and commission rules still find it. */
+export const BALBOA_FULL = "Balboa Tennis Club, San Diego";
+export const shortPlace = (location: string) => (isBalboa(location) ? "BTC" : location);
+export const fullPlace = (location: string) => (/^\s*btc\s*$/i.test(location) ? BALBOA_FULL : location.trim());
 /** Places coaches pick from. Emerald Hills has no commission rule, so it takes 0%. */
-export const KNOWN_PLACES = ["Emerald Hills"] as const;
-export const placeOptions = (...extra: (string | null | undefined)[]) => [...new Set([...extra, ...KNOWN_PLACES].filter((x): x is string => !!x))].sort();
-export const placeLabel = (p: { location: string; court?: number | null }) => (p.court ? `${p.location} · Court ${p.court}` : p.location);
+export const KNOWN_PLACES = ["BTC", "Emerald Hills"] as const;
+export const placeOptions = (...extra: (string | null | undefined)[]) => [...new Set([...extra.map((x) => (x ? shortPlace(x) : x)), ...KNOWN_PLACES].filter((x): x is string => !!x))].sort();
+export const placeLabel = (p: { location: string; court?: number | null }) => (p.court ? `${shortPlace(p.location)} · Court ${p.court}` : shortPlace(p.location));
 
 export const sessionTitle = (s: { session_type: SessionType | null; title: string }) => {
   const label = s.session_type ? SESSION_META[s.session_type].label : "Session";

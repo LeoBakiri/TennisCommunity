@@ -2,6 +2,7 @@
 // behind the Earnings page. Pure functions, so the page and the tests share them.
 import type { CommissionRule, Lesson, Session } from "./types";
 import { addDays, dateKey, startOfWeek } from "./time";
+import { fullPlace } from "./util";
 
 export type Period = "week" | "month" | "year";
 export const PERIODS: Period[] = ["week", "month", "year"];
@@ -23,7 +24,7 @@ export const lessonPlayers = (l: { client_names?: string[] }) => Math.max(1, l.c
  * and whose player limit fits. The tightest limit wins, so "up to 4 players" beats a rule with no limit.
  */
 export function ruleFor(location: string, rules: CommissionRule[], players = 1): CommissionRule | null {
-  const where = location.toLowerCase();
+  const where = fullPlace(location).toLowerCase();
   const fits = rules.filter((r) => r.place.trim() && charges(r) && where.includes(r.place.trim().toLowerCase()) && (r.max_players == null || players <= r.max_players));
   return fits.sort((a, b) => (a.max_players ?? Infinity) - (b.max_players ?? Infinity))[0] ?? null;
 }

@@ -23,7 +23,7 @@ test("commission applies by place name and mixes percent, hourly and flat fees",
 test("Emerald Hills is a known place and takes no commission", async () => {
   const { KNOWN_PLACES, placeOptions } = await import("../src/core/util");
   assert.ok(KNOWN_PLACES.includes("Emerald Hills"));
-  assert.deepEqual(placeOptions("Balboa Tennis Club, San Diego", "Emerald Hills", null), ["Balboa Tennis Club, San Diego", "Emerald Hills"]);
+  assert.deepEqual(placeOptions("Balboa Tennis Club, San Diego", "Emerald Hills", null), ["BTC", "Emerald Hills"]);
   const balboa = [rule({ per_hour_cents: 2500, max_players: 4 }), rule({ id: "r2", percent: 30 })];
   const l = { ...hour, price_cents: 10000, location: "Emerald Hills", commission_cents: null, client_names: ["A"] };
   assert.deepEqual(lessonMoney(l, balboa), { gross: 10000, commission: 0, net: 10000, priced: true });

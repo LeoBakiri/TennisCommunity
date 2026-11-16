@@ -7,7 +7,7 @@ import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
-import { COURTS, fmtMoney, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
+import { COURTS, fmtMoney, isBalboa, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
 import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -20,7 +20,7 @@ const TIMES = Array.from({ length: 64 }, (_, i) => {
 
 /** Location, plus a court picker once the location is Balboa. */
 export function LocationCourt({ location, court, wide, places, onLocation }: { location: string; court: number | null; wide?: boolean; places?: string[]; onLocation?: (v: string) => void }) {
-  const [where, setWhere] = useState(location);
+  const [where, setWhere] = useState(shortPlace(location));
   const balboa = isBalboa(where);
   return (
     <>
@@ -583,7 +583,7 @@ function CoachCard({ c, data }: { c: CoachRow; data: CoachesData }) {
       </div>
       {c.owed.total > 0 && (
         <p className="mt-2 text-[12.5px] text-[#8A5A10]">
-          {usd(c.owed.total)} unpaid from {plural(c.owed.lessons, "lesson")} outside Balboa, not marked paid yet.
+          {usd(c.owed.total)} unpaid from {plural(c.owed.lessons, "lesson")} outside BTC, not marked paid yet.
         </p>
       )}
       {c.unpriced > 0 && <p className="mt-2 text-[12px] text-[#8A5A10]">{plural(c.unpriced, "lesson or session", "lessons or sessions")} this {word} {c.unpriced === 1 ? "has" : "have"} no price, so {c.unpriced === 1 ? "it isn't" : "they aren't"} counted.</p>}
@@ -609,7 +609,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
   const t = data.totals;
   return (
     <>
-      <PageHeader title="Coaches" subtitle="What each coach earns from lessons and community sessions, after Balboa's commission, and what's coming on the next payroll. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="What each coach earns from lessons and community sessions, after BTC's commission, and what's coming on the next payroll. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
       <Tabs current={data.period} items={(["week", "month", "year"] as const).map((p) => ({ key: p, label: p === "week" ? "Weekly" : p === "month" ? "Monthly" : "Yearly", href: withQuery(base, { period: p, at: data.at }) }))} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <A href={go(data.prev)} className={btn("outline", "sm")} aria-label={`Previous ${word}`}>
@@ -640,7 +640,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
         </dl>
         {data.payday && (
           <p className="mt-4 text-[12.5px] text-paper/60">
-            Balboa payroll {fmtPayroll(data.payday.date)}
+            BTC payroll {fmtPayroll(data.payday.date)}
             {data.payday.booked > 0 && `: ${usd(data.payday.booked)} more still booked`}.
             {t.owed > 0 && ` ${usd(t.owed)} from ${plural(t.owed_lessons, "lesson")} elsewhere is still unpaid.`}
           </p>
