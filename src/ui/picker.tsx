@@ -47,8 +47,21 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
     setOpen(false);
   };
   // Keep the highlighted row in view, and start long lists (times) at the chosen one.
+  // Scrolls only the menu, never the page: the chosen row starts in the middle, then follows the keyboard.
   useEffect(() => {
-    if (open) list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
+    const box = list.current;
+    if (open && box) {
+      const row = box.querySelector<HTMLElement>(`[data-i="${Math.max(0, options.findIndex((o) => o.value === current))}"]`);
+      if (row) box.scrollTop = row.offsetTop - box.clientHeight / 2 + row.offsetHeight / 2;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  useEffect(() => {
+    const box = list.current;
+    const row = box?.querySelector<HTMLElement>(`[data-i="${active}"]`);
+    if (!open || !box || !row) return;
+    if (row.offsetTop < box.scrollTop) box.scrollTop = row.offsetTop;
+    else if (row.offsetTop + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = row.offsetTop + row.offsetHeight - box.clientHeight;
   }, [open, active]);
 
   const onKey = (e: KeyboardEvent) => {
