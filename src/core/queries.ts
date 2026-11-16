@@ -42,6 +42,7 @@ export interface ScheduleItem {
   href: string;
   detail: string;
   cancelled: boolean;
+  movable?: boolean; // the coach's own lessons can be dragged to a new time
 }
 
 const person = (p: Profile): Person => ({ id: p.id, full_name: p.full_name, role: p.role });
@@ -302,13 +303,21 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
   const monday = weekParam(ctx);
   const nextMonday = addDays(monday, 7);
   const today = dateKey(ctx.now);
-  const [L, rows, lessons, calendars, soon] = await Promise.all([
+  const [L, rows, lessons, calendars, soon, settings, cards, past] = await Promise.all([
     profileMap(ctx.store),
     communityBetween(ctx.store, monday, nextMonday),
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(monday) }, lt: { field: "starts_at", value: startIso(nextMonday) } }),
     ctx.store.list("coach_calendars", { eq: { coach_id: u.id } }),
     communityBetween(ctx.store, today, addDays(today, 8)),
+    getSettings(ctx.store),
+    ctx.store.list("clients", { eq: { coach_id: u.id } }),
+    ctx.store.list("lessons", { eq: { coach_id: u.id } }),
   ]);
+  // Booking straight from the grid: each client's name with what their last private lesson cost and where it was.
+  const last = new Map<string, Lesson>();
+  for (const l of [...past].sort(by((x) => x.starts_at))) if (l.kind === "private") last.set(nameKey(l.client_names[0] ?? ""), l);
+  const quickNames = new Map<string, string>();
+  for (const n of [...cards.map((c) => c.full_name), ...past.flatMap((l) => l.client_names)]) if (!quickNames.has(nameKey(n))) quickNames.set(nameKey(n), n);
   const [sessions, twoCourt] = await Promise.all([
     enrich(ctx.store, rows.filter((s) => s.coach_ids.includes(u.id) && s.status !== "draft"), L, null),
     // Whatever week is on screen, the coach hears about two-court sessions in the next week that are still short.
@@ -321,7 +330,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     }),
     ...lessons.map((l) => {
       const meta = LESSON_META[l.kind];
-      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false };
+      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false, movable: true };
     }),
   ].sort(by((i) => i.starts_at));
   const active = items.filter((i) => !i.cancelled);
@@ -343,6 +352,10 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     },
     calendar: calendars[0] ?? null,
     live: ctx.store.kind === "supabase",
+    quick: {
+      location: settings.default_location,
+      clients: [...quickNames].sort(by(([, n]) => n)).map(([k, name]) => ({ name, id: cards.find((c) => nameKey(c.full_name) === k)?.id ?? "", price: last.get(k)?.price_cents ?? null, location: last.get(k)?.location ?? "" })),
+    },
     signups: await signupsFor(ctx, soon.filter((s) => s.coach_ids.includes(u.id) && s.status === "published" && s.starts_at > now), L),
     to_decide: twoCourt.filter(needsDecision).map((s) => ({ id: s.id, title: sessionTitle(s), session_type: s.session_type!, starts_at: s.starts_at, booked: s.booked, minimum: courtPlan(s).minimum, decide_by: decideBy(s) })),
   };

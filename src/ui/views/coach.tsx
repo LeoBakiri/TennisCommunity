@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
-import { countdown, DecisionCard, WeekGrid, WeekNav, whenWord } from "../sessions";
+import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
+import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWord, type GridSlot } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
@@ -223,9 +223,100 @@ function SignUps({ data, today }: { data: D<typeof loadCoachSchedule>["signups"]
   );
 }
 
+/** Booking straight from the grid: the time is already picked, so it only asks who and how much. */
+function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D<typeof loadCoachSchedule>["quick"]; onClose: () => void }) {
+  const { run, pending } = useAction();
+  const [kind, setKind] = useState<LessonKind>("private");
+  const [names, setNames] = useState("");
+  const [price, setPrice] = useState("");
+  const [priceTyped, setPriceTyped] = useState(false);
+  const [repeat, setRepeat] = useState(1);
+  const key = slot ? `${slot.day} ${slot.start} ${slot.end}` : "";
+  useEffect(() => {
+    setKind("private");
+    setNames("");
+    setPrice("");
+    setPriceTyped(false);
+    setRepeat(1);
+  }, [key]);
+  if (!slot) return null;
+  const semi = kind === "semi_private";
+  const known = semi ? undefined : quick.clients.find((c) => nameKey(c.name) === nameKey(names));
+  const location = known?.location || quick.location;
+  const fields = { kind, date: slot.day, time: slotTime(slot.start), duration: slot.end - slot.start };
+  const typeName = (v: string) => {
+    setNames(v);
+    // A client you've taught before brings their last price along, until you type your own.
+    const c = quick.clients.find((x) => nameKey(x.name) === nameKey(v));
+    if (!priceTyped && !semi) setPrice(c?.price != null ? String(c.price / 100) : "");
+  };
+  return (
+    <Modal open onClose={onClose} title={`${fmtKeyLong(slot.day)} · ${slotLabel(slot)}`}>
+      <form
+        className="space-y-4"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await run("saveLesson", { id: "", kind, client_names: names, date: fields.date, time: fields.time, duration_min: fields.duration, location, court: "", price, notes: "", repeat_weeks: repeat, back: "" });
+          if (r.ok) onClose();
+        }}
+      >
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="Lesson type">
+          {(["private", "semi_private"] as const).map((k) => (
+            <button type="button" key={k} role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={cx("rounded-lg py-2 text-sm font-semibold", kind === k ? "bg-card shadow-sm" : "text-ink/55")}>
+              {LESSON_META[k].label}
+            </button>
+          ))}
+        </div>
+        <Field label={semi ? "Players / clients" : "Player / client name"} hint={semi ? "Separate names with commas" : undefined}>
+          <input className="input" data-autofocus list="quick-lesson-clients" value={names} onChange={(e) => typeName(e.target.value)} required />
+          <datalist id="quick-lesson-clients">
+            {quick.clients.map((c) => (
+              <option key={c.name} value={c.name} />
+            ))}
+          </datalist>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Price (USD)" hint={semi ? "Total for all players" : "Can stay empty"}>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => {
+                setPrice(e.target.value);
+                setPriceTyped(true);
+              }}
+            />
+          </Field>
+          <Field label="Repeat">
+            <select className="input" value={repeat} onChange={(e) => setRepeat(Number(e.target.value))} aria-label="Repeat">
+              <option value={1}>Just this once</option>
+              {[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => (
+                <option key={w} value={w}>
+                  Weekly, {w} weeks
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {location && <p className="text-[12.5px] text-ink/55">At {location}.</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="submit" className={btn("primary")} disabled={pending}>
+            {pending ? <Spinner /> : <Icon name="check" size={16} />} {repeat > 1 ? `Book ${repeat} lessons` : "Book lesson"}
+          </button>
+          <LinkButton href={withQuery("/coach/lessons/new", { ...fields, client: known?.id, price: /^\d+(\.\d{1,2})?$/.test(price) ? price : undefined, location })} variant="ghost">
+            More options
+          </LinkButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
   const addHref = (kind: LessonKind, date?: string, time?: string) => withQuery("/coach/lessons/new", { kind, date, time });
   const nav = useNav();
+  const { run } = useAction();
+  const [draft, setDraft] = useState<GridSlot | null>(null);
   const calendarCard = <GoogleCalendarCard calendar={data.calendar} live={data.live} />;
   // Up top only when it needs the coach; once syncing fine it sits under the week so the calendar shows first.
   const calendarUp = !data.calendar || data.calendar.status === "needs_reconnect" || !!CONNECT_RESULT[nav.search.google];
@@ -253,7 +344,18 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
           ))}
         </div>
       </div>
-      <WeekGrid days={data.days} today={data.today} items={data.items} newHref={(d, t) => addHref("private", d, t)} nowIso={data.nowIso} />
+      <p className="mb-2 hidden text-[12.5px] text-ink/50 md:block">Drag over free time to book a lesson. Drag a lesson to move it, or pull its bottom edge to make it longer or shorter.</p>
+      <WeekGrid
+        days={data.days}
+        today={data.today}
+        items={data.items}
+        newHref={(d, t) => addHref("private", d, t)}
+        nowIso={data.nowIso}
+        draft={draft}
+        onCreate={setDraft}
+        onMove={(item, slot) => run("moveLesson", { lesson_id: item.id, date: slot.day, time: slotTime(slot.start), duration_min: slot.end - slot.start })}
+      />
+      <QuickLesson slot={draft} quick={data.quick} onClose={() => setDraft(null)} />
       {!calendarUp && <div className="mt-5">{calendarCard}</div>}
     </>
   );

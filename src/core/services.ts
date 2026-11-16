@@ -3,7 +3,7 @@
 import { z, ZodError } from "zod";
 import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
-import { addDays, dateKey, fmtDay, fmtTime, timeKey, zonedToUtc } from "./time";
+import { addDays, dateKey, fmtDay, fmtRange, fmtTime, timeKey, zonedToUtc } from "./time";
 import { courtPlan, isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
@@ -549,6 +549,22 @@ export const actions: Record<string, Handler> = {
     },
   ),
 
+  /** Dragging a lesson on the week grid: a new day, start or length, with everything else kept. */
+  moveLesson: action(z.object({ lesson_id: id, date, time, duration_min: int(15, 600, "Duration") }), async (ctx, input) => {
+    const u = staff(ctx);
+    const l = await must(ctx.store.get("lessons", input.lesson_id), "Lesson");
+    if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
+    const start = zonedToUtc(input.date, input.time);
+    const slot = { starts_at: start.toISOString(), ends_at: new Date(start.getTime() + input.duration_min * 60000).toISOString() };
+    if (slot.starts_at === l.starts_at && slot.ends_at === l.ends_at) return { ok: true };
+    const clash = await clashFor(ctx, u.id, slot, l.id);
+    if (clash) throw new UserError(`That time overlaps ${clash}. Pick another time.`);
+    // Same as saving from the form: a new time works the commission out again.
+    const rules = await ctx.store.list("commission_rules");
+    await ctx.store.update("lessons", l.id, { ...slot, commission_cents: commissionFor({ ...l, ...slot }, rules), updated_at: nowIso() });
+    return { ok: true, message: `${l.client_names.join(", ")} moved to ${fmtDay(slot.starts_at)}, ${fmtRange(slot.starts_at, slot.ends_at)}.` };
+  }),
+
   deleteLesson: action(z.object({ lesson_id: id }), async (ctx, input) => {
     const u = staff(ctx);
     const l = await must(ctx.store.get("lessons", input.lesson_id), "Lesson");
@@ -861,7 +877,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "deleteLesson", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

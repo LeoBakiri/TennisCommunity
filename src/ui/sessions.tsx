@@ -546,30 +546,148 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
 
 // ───────────────────────── time grid (coaches) ─────────────────────────
 
-const HOUR_PX = 54;
+const HOUR_PX = 64;
+const SNAP = 30; // minutes: every drag lands on a half hour
 
+/** A stretch of one day on the grid, in minutes from midnight. */
+export interface GridSlot {
+  day: string;
+  start: number;
+  end: number;
+}
+
+export const slotTime = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+export const slotLabel = (s: GridSlot) => `${fmtClock(slotTime(s.start))} – ${fmtClock(slotTime(s.end))}`;
+
+type Drag = { kind: "new"; anchor: number; slot: GridSlot; moved: boolean } | { kind: "move" | "resize"; item: ScheduleItem; from: GridSlot; grab: number; x0: number; y0: number; slot: GridSlot; moved: boolean };
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * The coach's week. On a computer, dragging over empty time picks a slot for a new lesson, dragging a lesson
+ * moves it, and pulling its bottom edge changes its length, all in half-hour steps. A tap picks an hour.
+ */
 export function WeekGrid({
   days,
   today,
   items,
   newHref,
   nowIso,
+  onCreate,
+  onMove,
+  draft,
 }: {
   days: string[];
   today: string;
   items: ScheduleItem[];
   newHref?: (day: string, time: string) => string;
   nowIso?: string;
+  onCreate?: (slot: GridSlot) => void;
+  onMove?: (item: ScheduleItem, slot: GridSlot) => Promise<unknown>;
+  draft?: GridSlot | null;
 }) {
   const mins = items.flatMap((s) => [minutesOfDay(s.starts_at), minutesOfDay(s.ends_at) || 24 * 60]);
   const startH = Math.min(7, ...mins.map((m) => Math.floor(m / 60)));
   const endH = Math.max(21, ...mins.map((m) => Math.ceil(m / 60)));
   const hours = Array.from({ length: endH - startH }, (_, i) => startH + i);
   const height = hours.length * HOUR_PX;
+  const lo = startH * 60;
+  const hi = endH * 60;
   const nowMin = nowIso ? minutesOfDay(nowIso) : null;
   const nowDay = nowIso ? dateKey(nowIso) : null;
   // On a phone, this week's list starts today rather than with days already gone.
   const phoneDays = days.includes(today) ? days.filter((d) => d >= today) : days;
+
+  const [drag, setDragState] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  const setDrag = (d: Drag | null) => {
+    dragRef.current = d;
+    setDragState(d);
+  };
+  const [hover, setHover] = useState<{ day: string; min: number } | null>(null);
+  // Where a lesson was just dropped, shown until the saved schedule comes back.
+  const [placed, setPlaced] = useState<Record<string, GridSlot>>({});
+  const cols = useRef<(HTMLDivElement | null)[]>([]);
+  const skipClick = useRef(false);
+  const swallowClick = () => {
+    skipClick.current = true;
+    setTimeout(() => (skipClick.current = false), 0);
+  };
+
+  const slotOf = (s: ScheduleItem): GridSlot => {
+    const start = minutesOfDay(s.starts_at);
+    return placed[s.id] ?? { day: dateKey(s.starts_at), start, end: start + Math.round((new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 60000) };
+  };
+  const busy = (slot: GridSlot, skipId?: string) =>
+    items.some((i) => {
+      if (i.cancelled || i.id === skipId) return false;
+      const p = slotOf(i);
+      return p.day === slot.day && p.start < slot.end && slot.start < p.end;
+    });
+  const minAt = (col: HTMLElement, y: number) => lo + ((y - col.getBoundingClientRect().top) / HOUR_PX) * 60;
+  const dayAt = (x: number) => {
+    let best = 0;
+    cols.current.forEach((c, i) => {
+      if (c && x >= c.getBoundingClientRect().left) best = i;
+    });
+    return best;
+  };
+  const box = (s: GridSlot) => ({ top: ((s.start - lo) / 60) * HOUR_PX + 1, height: Math.max(26, ((s.end - s.start) / 60) * HOUR_PX - 3) });
+
+  // A click or tap on empty time books an hour, or half an hour when something follows straight after.
+  const pick = (day: string, start: number) => {
+    const hour = { day, start, end: Math.min(hi, start + 60) };
+    const slot = busy(hour) ? { day, start, end: start + SNAP } : hour;
+    if (!busy(slot)) onCreate?.(slot);
+  };
+
+  const grabItem = (kind: "move" | "resize", item: ScheduleItem) => (e: React.PointerEvent) => {
+    if (!onMove || !item.movable || e.pointerType === "touch" || e.button !== 0) return;
+    e.stopPropagation();
+    const from = slotOf(item);
+    const col = cols.current[days.indexOf(from.day)];
+    if (!col) return;
+    dragRef.current = { kind, item, from, grab: minAt(col, e.clientY) - from.start, x0: e.clientX, y0: e.clientY, slot: from, moved: false };
+    const len = from.end - from.start;
+    const move = (ev: PointerEvent) => {
+      const g = dragRef.current;
+      if (!g || g.kind === "new") return;
+      if (!g.moved && Math.hypot(ev.clientX - g.x0, ev.clientY - g.y0) < 5) return;
+      let slot: GridSlot;
+      if (g.kind === "move") {
+        const di = dayAt(ev.clientX);
+        const start = clamp(Math.round((minAt(cols.current[di]!, ev.clientY) - g.grab) / SNAP) * SNAP, lo, Math.max(lo, hi - len));
+        slot = { day: days[di], start, end: start + len };
+      } else {
+        const end = clamp(Math.round(minAt(col, ev.clientY) / SNAP) * SNAP, lo, hi);
+        slot = { ...from, end: Math.max(end, from.start + SNAP) };
+      }
+      setDrag({ ...g, slot, moved: true });
+    };
+    const up = async () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      const g = dragRef.current;
+      setDrag(null);
+      if (!g || g.kind === "new" || !g.moved) return;
+      swallowClick();
+      const same = g.slot.day === from.day && g.slot.start === from.start && g.slot.end === from.end;
+      if (same || busy(g.slot, item.id)) return;
+      setPlaced((p) => ({ ...p, [item.id]: g.slot }));
+      try {
+        await onMove(item, g.slot);
+      } finally {
+        setPlaced((p) => Object.fromEntries(Object.entries(p).filter(([k]) => k !== item.id)));
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  const ghost = drag && (drag.kind === "new" || drag.moved) ? drag.slot : (draft ?? null);
+  const ghostBusy = !!drag && !!ghost && busy(ghost, drag.kind === "new" ? undefined : drag.item.id);
 
   return (
     <>
@@ -614,7 +732,7 @@ export function WeekGrid({
       </div>
       <div className="card hidden overflow-x-auto md:block">
         <div className="min-w-[820px]">
-          <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: `56px repeat(7, 1fr)` }}>
+          <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}>
             <div />
             {days.map((d) => (
               <div key={d} className={cx("border-l border-ink/[0.05] px-2 py-2.5 text-center", d === today && "bg-sage/40")}>
@@ -623,41 +741,104 @@ export function WeekGrid({
               </div>
             ))}
           </div>
-          <div className="relative grid" style={{ gridTemplateColumns: `56px repeat(7, 1fr)`, height }}>
+          <div className={cx("relative grid select-none", drag?.moved && (drag.kind === "resize" ? "cursor-ns-resize" : "cursor-grabbing"))} style={{ gridTemplateColumns: `64px repeat(7, 1fr)`, height }}>
             <div className="relative">
               {hours.map((h, i) => (
-                <div key={h} className="absolute right-2 -translate-y-1/2 text-[11px] text-ink/40 tabular-nums" style={{ top: i * HOUR_PX }}>
-                  {i === 0 ? "" : fmtClock(`${String(h).padStart(2, "0")}:00`)}
+                <div key={h}>
+                  {i > 0 && (
+                    <div className="absolute right-2 -translate-y-1/2 text-[11px] font-medium text-ink/50 tabular-nums" style={{ top: i * HOUR_PX }}>
+                      {fmtClock(`${String(h).padStart(2, "0")}:00`)}
+                    </div>
+                  )}
+                  <div className="absolute right-2 -translate-y-1/2 text-[10px] text-ink/30 tabular-nums" style={{ top: (i + 0.5) * HOUR_PX }}>
+                    {fmtClock(`${String(h).padStart(2, "0")}:30`).replace(/ [AP]M/, "")}
+                  </div>
                 </div>
               ))}
             </div>
-            {days.map((d) => {
-              const dayItems = items.filter((s) => dateKey(s.starts_at) === d);
+            {days.map((d, di) => {
+              const dayItems = items.filter((s) => slotOf(s).day === d);
               return (
-                <div key={d} className={cx("relative border-l border-ink/[0.05]", d === today && "bg-sage/20")}>
+                <div
+                  key={d}
+                  ref={(el) => {
+                    cols.current[di] = el;
+                  }}
+                  className={cx("relative touch-pan-y border-l border-ink/[0.05]", d === today && "bg-sage/20", onCreate && "cursor-cell")}
+                  onPointerDown={(e) => {
+                    if (!onCreate || e.pointerType === "touch" || e.button !== 0 || e.target !== e.currentTarget) return;
+                    const anchor = Math.floor(clamp(minAt(e.currentTarget, e.clientY), lo, hi - SNAP) / SNAP) * SNAP;
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    setHover(null);
+                    setDrag({ kind: "new", anchor, slot: { day: d, start: anchor, end: anchor + SNAP }, moved: false });
+                  }}
+                  onPointerMove={(e) => {
+                    const g = dragRef.current;
+                    const at = Math.floor(clamp(minAt(e.currentTarget, e.clientY), lo, hi - SNAP) / SNAP) * SNAP;
+                    if (g?.kind === "new") {
+                      const start = Math.min(g.anchor, at);
+                      const end = Math.max(g.anchor, at) + SNAP;
+                      if (start !== g.slot.start || end !== g.slot.end) setDrag({ ...g, slot: { day: d, start, end }, moved: true });
+                    } else if (!g && onCreate && e.pointerType !== "touch") {
+                      const free = e.target === e.currentTarget;
+                      if (free ? hover?.day !== d || hover.min !== at : hover) setHover(free ? { day: d, min: at } : null);
+                    }
+                  }}
+                  onPointerUp={() => {
+                    const g = dragRef.current;
+                    if (g?.kind !== "new") return;
+                    setDrag(null);
+                    swallowClick();
+                    if (!g.moved) pick(d, g.anchor);
+                    else if (!busy(g.slot)) onCreate?.(g.slot);
+                  }}
+                  onPointerCancel={() => dragRef.current?.kind === "new" && setDrag(null)}
+                  onPointerLeave={() => setHover(null)}
+                  onClick={(e) => {
+                    // Taps on a touch screen land here; a mouse press was already handled above.
+                    if (skipClick.current || !onCreate || e.target !== e.currentTarget) return;
+                    pick(d, Math.floor(clamp(minAt(e.currentTarget, e.clientY), lo, hi - SNAP) / SNAP) * SNAP);
+                  }}
+                >
                   {hours.map((h, i) => (
-                    <div key={h} className="absolute inset-x-0 border-t border-ink/[0.05]" style={{ top: i * HOUR_PX, height: HOUR_PX }}>
-                      {newHref && (
-                        <A href={newHref(d, `${String(h).padStart(2, "0")}:00`)} className="group block h-full w-full hover:bg-sage/30" aria-label={`Add a lesson on ${d} at ${h}:00`}>
-                          <span className="hidden px-1.5 pt-1 text-[11px] font-medium text-brand group-hover:block">+ Lesson</span>
-                        </A>
-                      )}
+                    <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-ink/[0.07]" style={{ top: i * HOUR_PX, height: HOUR_PX }}>
+                      <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-ink/[0.06]" />
                     </div>
                   ))}
-                  {nowDay === d && nowMin !== null && nowMin >= startH * 60 && nowMin <= endH * 60 && (
-                    <div className="pointer-events-none absolute inset-x-0 z-[5] h-px bg-[#B9574A]" style={{ top: ((nowMin - startH * 60) / 60) * HOUR_PX }}>
+                  {hover?.day === d && !drag && !draft && (
+                    <div className="pointer-events-none absolute inset-x-1 rounded-md bg-sage/50 px-1.5 text-[11px] leading-[30px] font-medium text-brand" style={{ top: ((hover.min - lo) / 60) * HOUR_PX + 1, height: HOUR_PX / 2 - 2 }}>
+                      + {fmtClock(slotTime(hover.min))}
+                    </div>
+                  )}
+                  {nowDay === d && nowMin !== null && nowMin >= lo && nowMin <= hi && (
+                    <div className="pointer-events-none absolute inset-x-0 z-[5] h-px bg-[#B9574A]" style={{ top: ((nowMin - lo) / 60) * HOUR_PX }}>
                       <span className="absolute -top-1 -left-1 h-2 w-2 rounded-full bg-[#B9574A]" />
                     </div>
                   )}
                   {dayItems.map((s) => {
-                    const top = ((minutesOfDay(s.starts_at) - startH * 60) / 60) * HOUR_PX;
-                    const h = Math.max(26, ((new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 3600000) * HOUR_PX - 3);
+                    const p = slotOf(s);
+                    const { top, height: h } = box(p);
+                    const can = !!onMove && !!s.movable;
+                    const lifted = drag && drag.kind !== "new" && drag.moved && drag.item.id === s.id;
+                    const range = placed[s.id] ? slotLabel(p) : fmtRange(s.starts_at, s.ends_at);
+                    const small = h < 44;
                     return (
-                      <div key={s.id} className="absolute inset-x-1 z-[6] hover:z-20" style={{ top: top + 1, height: h }}>
+                      <div
+                        key={s.id}
+                        className={cx("absolute inset-x-1 z-[6] hover:z-20", can && "cursor-grab", lifted && "opacity-35")}
+                        style={{ top, height: h }}
+                        onPointerDown={grabItem("move", s)}
+                        onDragStart={(e) => e.preventDefault()}
+                        onClickCapture={(e) => {
+                          if (!skipClick.current) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                      >
                         <A
                           href={s.href}
-                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${fmtRange(s.starts_at, s.ends_at)}`}
-                          className={cx("relative block h-full overflow-hidden rounded-lg px-2 py-1.5 pl-2.5 text-left text-[12px] leading-tight shadow-sm transition-transform hover:-translate-y-px hover:shadow-md", s.cancelled && "opacity-50")}
+                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${can ? " · drag to move" : ""}`}
+                          className={cx("relative block h-full overflow-hidden rounded-lg px-2 pl-2.5 text-left text-[12px] leading-tight shadow-sm transition-transform hover:-translate-y-px hover:shadow-md", small ? "py-1" : "py-1.5", s.cancelled && "opacity-50")}
                         >
                           <span className="absolute inset-0" style={{ background: s.color, opacity: 0.15 }} />
                           <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: s.color }} />
@@ -666,12 +847,22 @@ export function WeekGrid({
                             {s.session_type && <SessionMark type={s.session_type} size={12} />}
                             <span className="truncate">{s.title}</span>
                           </span>
-                          <span className="relative block truncate text-ink/60">{fmtRange(s.starts_at, s.ends_at)}</span>
+                          {!small && <span className="relative block truncate text-ink/60">{range}</span>}
                           {h > 56 && <span className="relative mt-1 block truncate text-ink/60">{s.cancelled ? <Badge>Cancelled</Badge> : s.detail}</span>}
                         </A>
+                        {can && <span className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" onPointerDown={grabItem("resize", s)} aria-hidden="true" />}
                       </div>
                     );
                   })}
+                  {ghost?.day === d && (
+                    <div
+                      className={cx("pointer-events-none absolute inset-x-1 z-30 overflow-hidden rounded-lg border-2 border-dashed px-2 py-1 text-[11.5px] leading-tight font-semibold shadow-md", ghostBusy ? "border-[#B9574A] bg-[#F5E1DC]/90 text-[#8E3326]" : "border-brand bg-sage/80 text-brand")}
+                      style={box(ghost)}
+                    >
+                      <span className="block truncate">{slotLabel(ghost)}</span>
+                      {ghost.end - ghost.start > SNAP && <span className="block truncate font-medium opacity-75">{ghostBusy ? "You're busy then" : `${(ghost.end - ghost.start) / 60} hr`}</span>}
+                    </div>
+                  )}
                 </div>
               );
             })}

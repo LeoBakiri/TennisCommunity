@@ -6,7 +6,7 @@ import { runAction, type Ctx } from "../src/core/services";
 import { loadCoachClient, loadCoachClients, loadLessonEditor, type LoadCtx } from "../src/core/queries";
 import { clientSummary, nextSameWeekday, overlaps, weeklyDates } from "../src/core/clients";
 import type { Actor, Lesson } from "../src/core/types";
-import { addDays, dateKey } from "../src/core/time";
+import { addDays, dateKey, zonedToUtc } from "../src/core/time";
 
 function setup() {
   const now = new Date();
@@ -120,4 +120,23 @@ test("community players and booking a lesson for one of them", async () => {
   assert.equal(editor.prefill!.duration, 90);
   assert.equal(editor.prefill!.price, "120");
   assert.equal(editor.back, "");
+});
+
+test("dragging a lesson moves or resizes it, and won't drop it on something else", async () => {
+  const { store, ctx } = setup();
+  const leo = await ctx(DEMO_IDS.leo);
+  assert.equal((await runAction(leo, "saveLesson", lessonInput({ client_names: "Drag Me", time: "12:00" }))).ok, true);
+  assert.equal((await runAction(leo, "saveLesson", lessonInput({ client_names: "In The Way", time: "14:00" }))).ok, true);
+  const l = (await store.list("lessons")).find((x) => x.client_names[0] === "Drag Me")!;
+  const day = addDays(free(), 1);
+  assert.equal((await runAction(leo, "moveLesson", { lesson_id: l.id, date: day, time: "09:30", duration_min: 90 })).ok, true);
+  const moved = (await store.get("lessons", l.id))!;
+  assert.equal(moved.starts_at, zonedToUtc(day, "09:30").toISOString());
+  assert.equal(new Date(moved.ends_at).getTime() - new Date(moved.starts_at).getTime(), 90 * 60000);
+  assert.equal(moved.price_cents, l.price_cents);
+  // Onto another lesson: refused, and it stays where it was.
+  assert.equal((await runAction(leo, "moveLesson", { lesson_id: l.id, date: free(), time: "13:30", duration_min: 60 })).ok, false);
+  assert.equal((await store.get("lessons", l.id))!.starts_at, moved.starts_at);
+  // Another coach can't move it.
+  assert.equal((await runAction(await ctx(DEMO_IDS.maya), "moveLesson", { lesson_id: l.id, date: day, time: "11:00", duration_min: 60 })).ok, false);
 });
