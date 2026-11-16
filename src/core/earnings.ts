@@ -183,5 +183,11 @@ export const inRange = (iso: string, from: string, to: string) => {
 /** "Nov 20" for a payday. */
 export const fmtPayday = (key: string) => short(key);
 
+/** "Nov 16–30": the Balboa payroll a payday belongs to (the work days it covers). */
+export function fmtPayroll(pay: string): string {
+  const w = payWindow(pay);
+  return `${short(w.from)}–${Number(addDays(w.to, -1).slice(8, 10))}`;
+}
+
 /** "Nov 1 – 15" for the work days a payday covers (last day included). */
 export const fmtPayWindow = (from: string, last: string) => `${short(from)} – ${Number(last.slice(8, 10))}`;

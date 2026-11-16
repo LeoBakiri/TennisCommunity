@@ -4,7 +4,7 @@ import { MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import { loadCoachEarnings, type LoadCtx } from "../src/core/queries";
-import { buckets, commissionFor, lessonMoney, payday, payWindow, periodLabel, periodRange, playersPerCourt, sessionShare } from "../src/core/earnings";
+import { buckets, commissionFor, fmtPayroll, lessonMoney, payday, payWindow, periodLabel, periodRange, playersPerCourt, sessionShare } from "../src/core/earnings";
 import type { Actor, CommissionRule } from "../src/core/types";
 import { addDays, dateKey } from "../src/core/time";
 
@@ -180,4 +180,10 @@ test("Balboa commission is per court on two-court sessions", () => {
   assert.equal(sessionShare(s, 9, balboa, 2).commission, Math.round(9750 / 2));
   // The same 8 players on one court would be 30%.
   assert.equal(sessionShare(s, 8, balboa, 1).commission, Math.round(9600 / 2));
+});
+
+test("Balboa payroll labels name the work days, not the payday", () => {
+  assert.equal(fmtPayroll(payday("2026-11-03")), "Nov 1–15");
+  assert.equal(fmtPayroll(payday("2026-11-16")), "Nov 16–30");
+  assert.equal(fmtPayroll(payday("2027-02-20")), "Feb 16–28");
 });

@@ -8,7 +8,7 @@ import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSche
 import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
 import { COURTS, fmtMoney, isBalboa, SESSION_META, sessionTitle } from "@/core/util";
-import { COMMISSION_ROWS, fmtPayday, fmtPayWindow, usd } from "@/core/earnings";
+import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -579,7 +579,7 @@ function CoachCard({ c, data }: { c: CoachRow; data: CoachesData }) {
         <CoachStat label="Lessons" value={usd(c.lessons.net)} hint={c.lessons.count ? `${plural(c.lessons.count, "lesson")} · ${c.lessons.hours} h` : "none taught"} />
         <CoachStat label="Community" value={usd(c.community.net)} hint={c.community.count ? `${plural(c.community.count, "session")} · ${plural(c.community.players, "player")}` : "no sessions"} />
         <CoachStat label="Commission" value={usd(e.commission)} hint={data.has_rules ? `of ${usd(e.gross)} charged` : "no rate set yet"} />
-        <CoachStat label="Next payday" value={c.payday ? usd(c.payday.earned) : "–"} hint={c.payday ? `${fmtPayday(c.payday.date)}${c.payday.booked ? ` · +${usd(c.payday.booked)} booked` : ""}` : "nothing at Balboa"} />
+        <CoachStat label="Next payroll" value={c.payday ? usd(c.payday.earned) : "–"} hint={c.payday ? `${fmtPayroll(c.payday.date)}${c.payday.booked ? ` · +${usd(c.payday.booked)} booked` : ""}` : "nothing at Balboa"} />
       </div>
       {c.owed.total > 0 && (
         <p className="mt-2 text-[12.5px] text-[#8A5A10]">
@@ -609,7 +609,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
   const t = data.totals;
   return (
     <>
-      <PageHeader title="Coaches" subtitle="What each coach earns from lessons and community sessions, after Balboa's commission, and what's coming on the next payday. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
+      <PageHeader title="Coaches" subtitle="What each coach earns from lessons and community sessions, after Balboa's commission, and what's coming on the next payroll. To add a coach, open their member page and change their role." actions={<LinkButton href="/admin/members" variant="outline" icon="users">Members</LinkButton>} />
       <Tabs current={data.period} items={(["week", "month", "year"] as const).map((p) => ({ key: p, label: p === "week" ? "Weekly" : p === "month" ? "Monthly" : "Yearly", href: withQuery(base, { period: p, at: data.at }) }))} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <A href={go(data.prev)} className={btn("outline", "sm")} aria-label={`Previous ${word}`}>
@@ -636,12 +636,12 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
           <HeroStat value={t.lessons + t.sessions} label={`${plural(t.lessons, "lesson")} · ${plural(t.sessions, "session")}`} />
           <HeroStat value={t.hours} label="hours on court" />
           <HeroStat value={usd(t.commission)} label="club commission" />
-          <HeroStat value={data.payday ? usd(data.payday.earned) : "–"} label={data.payday ? `payday ${fmtPayday(data.payday.date)}` : "next payday"} />
+          <HeroStat value={data.payday ? usd(data.payday.earned) : "–"} label={data.payday ? `payroll ${fmtPayroll(data.payday.date)}` : "next payroll"} />
         </dl>
         {data.payday && (
           <p className="mt-4 text-[12.5px] text-paper/60">
-            Balboa pays through CourtReserve: the {fmtPayday(data.payday.date)} payday covers {fmtPayWindow(data.payday.from, data.payday.to)}
-            {data.payday.booked > 0 && `, with ${usd(data.payday.booked)} more still booked in that window`}.
+            Balboa payroll {fmtPayroll(data.payday.date)}
+            {data.payday.booked > 0 && `: ${usd(data.payday.booked)} more still booked`}.
             {t.owed > 0 && ` ${usd(t.owed)} from ${plural(t.owed_lessons, "lesson")} elsewhere is still unpaid.`}
           </p>
         )}
