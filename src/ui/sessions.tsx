@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { A, useAction, withQuery } from "./nav";
-import { bookedTakeover, Icon, SessionMark } from "./icons";
+import { bookedTakeover, EventMark, Icon, SessionMark } from "./icons";
 import { ActionButton, ActionForm, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner, Submit } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow, timeKey } from "@/core/time";
@@ -44,7 +44,7 @@ export function WeekNav({ monday, base }: { monday: string; base: string }) {
       <A href={withQuery(base, { week: addDays(monday, 7) })} className={btn("outline", "sm")} aria-label="Next week">
         <Icon name="right" size={16} />
       </A>
-      <span className="ml-1 text-sm font-medium text-ink/70">{fmtWeekRange(monday)}</span>
+      <span className="ml-1.5 font-display text-[17px] font-semibold tracking-tight">{fmtWeekRange(monday)}</span>
     </div>
   );
 }
@@ -709,12 +709,9 @@ export function WeekGrid({
                 <div className="divide-y divide-ink/[0.06]">
                   {list.map((s) => (
                     <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", s.cancelled && "opacity-50")}>
-                      <span className="h-9 w-1 shrink-0 rounded-full" style={{ background: s.color }} />
+                      <EventMark type={s.session_type} semi={s.semi} color={s.color} size={34} />
                       <span className="min-w-0 flex-1">
-                        <span className={cx("flex items-center gap-1.5 text-[15px] font-semibold", s.cancelled && "line-through")}>
-                          {s.session_type && <SessionMark type={s.session_type} size={14} />}
-                          <span className="truncate">{s.title}</span>
-                        </span>
+                        <span className={cx("block truncate text-[15px] font-semibold", s.cancelled && "line-through")}>{s.title}</span>
                         <span className="block truncate text-[13px] text-ink/55">
                           {fmtRange(s.starts_at, s.ends_at)} · {s.label}
                         </span>
@@ -735,9 +732,9 @@ export function WeekGrid({
           <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}>
             <div />
             {days.map((d) => (
-              <div key={d} className={cx("border-l border-ink/[0.05] px-2 py-2.5 text-center", d === today && "bg-sage/40")}>
-                <div className="text-[11px] font-medium text-ink/50 uppercase">{fmtKeyWeekday(d)}</div>
-                <div className={cx("font-display text-lg leading-tight font-semibold tabular-nums", d === today && "text-brand")}>{fmtKeyNum(d)}</div>
+              <div key={d} className="border-l border-ink/[0.05] px-2 py-2 text-center">
+                <div className={cx("text-[11px] font-semibold tracking-wide uppercase", d === today ? "text-brand" : "text-ink/45")}>{fmtKeyWeekday(d)}</div>
+                <div className={cx("mx-auto mt-0.5 flex h-8 w-8 items-center justify-center rounded-full font-display text-[17px] font-semibold tabular-nums", d === today ? "bg-brand text-paper" : d < today ? "text-ink/45" : "text-ink")}>{fmtKeyNum(d)}</div>
               </div>
             ))}
           </div>
@@ -764,7 +761,7 @@ export function WeekGrid({
                   ref={(el) => {
                     cols.current[di] = el;
                   }}
-                  className={cx("relative touch-pan-y border-l border-ink/[0.05]", d === today && "bg-sage/20", onCreate && "cursor-cell")}
+                  className={cx("relative touch-pan-y border-l border-ink/[0.05]", d === today ? "bg-sage/25" : di > 4 && "bg-ink/[0.015]", onCreate && "cursor-cell")}
                   onPointerDown={(e) => {
                     if (!onCreate || e.pointerType === "touch" || e.button !== 0 || e.target !== e.currentTarget) return;
                     const anchor = Math.floor(clamp(minAt(e.currentTarget, e.clientY), lo, hi - SNAP) / SNAP) * SNAP;
@@ -811,8 +808,8 @@ export function WeekGrid({
                     </div>
                   )}
                   {nowDay === d && nowMin !== null && nowMin >= lo && nowMin <= hi && (
-                    <div className="pointer-events-none absolute inset-x-0 z-[5] h-px bg-[#B9574A]" style={{ top: ((nowMin - lo) / 60) * HOUR_PX }}>
-                      <span className="absolute -top-1 -left-1 h-2 w-2 rounded-full bg-[#B9574A]" />
+                    <div className="pointer-events-none absolute inset-x-0 z-[7] h-0.5 bg-[#D9483B]" style={{ top: ((nowMin - lo) / 60) * HOUR_PX - 1 }}>
+                      <span className="absolute -top-[4px] -left-[5px] h-2.5 w-2.5 rounded-full bg-[#D9483B] ring-2 ring-card" />
                     </div>
                   )}
                   {dayItems.map((s) => {
@@ -822,11 +819,12 @@ export function WeekGrid({
                     const lifted = drag && drag.kind !== "new" && drag.moved && drag.item.id === s.id;
                     const range = placed[s.id] ? slotLabel(p) : fmtRange(s.starts_at, s.ends_at);
                     const small = h < 44;
+                    const over = !!nowIso && s.ends_at < nowIso; // already finished: shown paler, as calendars do
                     return (
                       <div
                         key={s.id}
-                        className={cx("absolute inset-x-1 z-[6] hover:z-20", can && "cursor-grab", lifted && "opacity-35")}
-                        style={{ top, height: h }}
+                        className={cx("absolute inset-x-1 z-[6] overflow-hidden rounded-md ring-1 ring-card transition-[filter,box-shadow] hover:z-20 hover:shadow-lg hover:brightness-110", can && "cursor-grab", lifted && "opacity-35")}
+                        style={{ top, height: h, background: s.color, color: "#fff" }}
                         onPointerDown={grabItem("move", s)}
                         onDragStart={(e) => e.preventDefault()}
                         onClickCapture={(e) => {
@@ -838,17 +836,14 @@ export function WeekGrid({
                         <A
                           href={s.href}
                           title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${can ? " · drag to move" : ""}`}
-                          className={cx("relative block h-full overflow-hidden rounded-lg px-2 pl-2.5 text-left text-[12px] leading-tight shadow-sm transition-transform hover:-translate-y-px hover:shadow-md", small ? "py-1" : "py-1.5", s.cancelled && "opacity-50")}
+                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || over) && "opacity-60")}
                         >
-                          <span className="absolute inset-0" style={{ background: s.color, opacity: 0.15 }} />
-                          <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: s.color }} />
-                          {s.session_type && h > 56 && <SessionMark type={s.session_type} size={44} className="absolute right-1.5 bottom-1 opacity-[0.14]" />}
-                          <span className={cx("relative flex items-center gap-1 font-semibold text-ink", s.cancelled && "line-through")}>
-                            {s.session_type && <SessionMark type={s.session_type} size={12} />}
-                            <span className="truncate">{s.title}</span>
+                          <EventMark type={s.session_type} semi={s.semi} color={s.color} size={small ? 15 : 18} invert />
+                          <span className="min-w-0 flex-1">
+                            <span className={cx("block truncate font-semibold", s.cancelled && "line-through")}>{s.title}</span>
+                            {!small && <span className="block truncate opacity-85">{range}</span>}
+                            {h > 56 && <span className="mt-1 block truncate opacity-85">{s.cancelled ? "Cancelled" : s.detail}</span>}
                           </span>
-                          {!small && <span className="relative block truncate text-ink/60">{range}</span>}
-                          {h > 56 && <span className="relative mt-1 block truncate text-ink/60">{s.cancelled ? <Badge>Cancelled</Badge> : s.detail}</span>}
                         </A>
                         {can && <span className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" onPointerDown={grabItem("resize", s)} aria-hidden="true" />}
                       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { A, useAction, useNav, withQuery } from "../nav";
-import { Icon, SessionMark } from "../icons";
+import { EventMark, Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
 import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWord, type GridSlot } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
@@ -73,10 +73,10 @@ function GoogleCalendarCard({ calendar, live }: { calendar: CoachCalendar | null
 }
 
 const LEGEND = [
-  { ...SESSION_META.group, mark: <SessionMark type="group" size={14} /> },
-  { ...SESSION_META.performance_accelerator, mark: <SessionMark type="performance_accelerator" size={14} /> },
-  { ...LESSON_META.private, mark: <Dot color={LESSON_META.private.color} /> },
-  { ...LESSON_META.semi_private, mark: <Dot color={LESSON_META.semi_private.color} /> },
+  { ...SESSION_META.group, mark: <EventMark type="group" color={SESSION_META.group.color} size={18} /> },
+  { ...SESSION_META.performance_accelerator, mark: <EventMark type="performance_accelerator" color={SESSION_META.performance_accelerator.color} size={18} /> },
+  { ...LESSON_META.private, mark: <EventMark color={LESSON_META.private.color} size={18} /> },
+  { ...LESSON_META.semi_private, mark: <EventMark semi color={LESSON_META.semi_private.color} size={18} /> },
 ];
 
 function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
@@ -94,9 +94,7 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
           </h2>
           {next && (
             <A href={next.href} className="mt-2.5 inline-flex max-w-full items-center gap-2 rounded-full bg-paper/10 py-1.5 pr-3 pl-2 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-paper">
-                {next.session_type ? <SessionMark type={next.session_type} size={14} /> : <Dot color={next.color} />}
-              </span>
+              <EventMark type={next.session_type} semi={next.semi} color={next.color} size={24} className="ring-1 ring-paper/40" />
               <span className="truncate">
                 {next.title} · {fmtRange(next.starts_at, next.ends_at)}
               </span>

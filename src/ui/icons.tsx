@@ -95,14 +95,24 @@ const marks: Record<SessionType, string[]> = {
 };
 
 /** Stands in for the colour dot wherever a session's type is shown. */
-export function SessionMark({ type, size = 16, className = "" }: { type: SessionType | null; size?: number; className?: string }) {
+export function SessionMark({ type, size = 16, className = "", fill }: { type: SessionType | null; size?: number; className?: string; fill?: string }) {
   const t = type ?? "group";
   return (
-    <svg width={(size * 5) / 6} height={size} viewBox="0 0 100 120" fill={SESSION_META[t].color} fillRule="evenodd" aria-hidden="true" className={`shrink-0 ${className}`}>
+    <svg width={(size * 5) / 6} height={size} viewBox="0 0 100 120" fill={fill ?? SESSION_META[t].color} fillRule="evenodd" aria-hidden="true" className={`shrink-0 ${className}`}>
       {marks[t].map((d) => (
         <path key={d} d={d} />
       ))}
     </svg>
+  );
+}
+
+/** A round badge for anything on a coach's calendar: the palm or rocket for a session, one or two people for a lesson. */
+export function EventMark({ type, semi, color, size = 20, invert, className = "" }: { type?: SessionType | null; semi?: boolean; color: string; size?: number; invert?: boolean; className?: string }) {
+  const [bg, fg] = invert ? ["#fff", color] : [color, "#fff"];
+  return (
+    <span className={`inline-flex shrink-0 items-center justify-center rounded-full ${className}`} style={{ width: size, height: size, background: bg, color: fg }} aria-hidden="true">
+      {type ? <SessionMark type={type} size={size * 0.66} fill={fg} /> : <Icon name={semi ? "users" : "user"} size={size * 0.62} strokeWidth={2.4} />}
+    </span>
   );
 }
 

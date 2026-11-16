@@ -43,6 +43,7 @@ export interface ScheduleItem {
   detail: string;
   cancelled: boolean;
   movable?: boolean; // the coach's own lessons can be dragged to a new time
+  semi?: boolean; // a semi-private lesson, drawn with two people
 }
 
 const person = (p: Profile): Person => ({ id: p.id, full_name: p.full_name, role: p.role });
@@ -330,7 +331,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     }),
     ...lessons.map((l) => {
       const meta = LESSON_META[l.kind];
-      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false, movable: true };
+      return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false, movable: true, semi: l.kind === "semi_private" };
     }),
   ].sort(by((i) => i.starts_at));
   const active = items.filter((i) => !i.cancelled);
