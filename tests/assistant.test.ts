@@ -109,6 +109,9 @@ test("changing, paying for and cancelling a lesson, and only your own", async ()
   assert.deepEqual([dateKey(moved.starts_at), timeKey(moved.starts_at), moved.price_cents, moved.client_names], [free(), "14:30", 12000, ["Rachel Green"]]);
   assert.equal(moved.notes, "Second serve. Bring the speed gun."); // untouched fields stay
 
+  // Balboa is paid through CourtReserve on payday, so there's nothing to mark; elsewhere there is.
+  await assert.rejects(propose(leo, "mark_lesson_paid", { lesson_id: rachel.lesson_id }), /CourtReserve/);
+  await store.update("lessons", rachel.lesson_id, { location: "Emerald Hills" });
   const pay = await propose(leo, "mark_lesson_paid", { lesson_id: rachel.lesson_id });
   assert.ok((await runAction(leo, pay.action, pay.input)).ok);
   assert.ok((await store.get("lessons", rachel.lesson_id))!.paid_at);

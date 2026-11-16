@@ -6,7 +6,7 @@ import type { Actor, Lesson } from "./types";
 import type { Store } from "./store";
 import { loadCoachEarnings } from "./queries";
 import { getSettings } from "./services";
-import { clientSummary, sameName } from "./clients";
+import { clientSummary, lessonPayday, sameName } from "./clients";
 import { PERIODS, type Period } from "./earnings";
 import { addDays, dateKey, fmtDay, fmtTime, isDateKey, timeKey, zonedToUtc } from "./time";
 import { LESSON_META, placeLabel, sessionTitle } from "./util";
@@ -77,7 +77,7 @@ const lessonView = (l: Lesson) => ({
   location: l.location,
   court: l.court,
   price: dollars(l.price_cents),
-  paid: !!l.paid_at,
+  paid: lessonPayday(l) ? `Balboa: paid through CourtReserve on ${lessonPayday(l)}` : !!l.paid_at,
   notes: l.notes,
 });
 
@@ -254,6 +254,8 @@ export async function propose(ctx: AssistantCtx, name: string, input: Record<str
   }
   if (name === "mark_lesson_paid") {
     const l = await ownLesson(ctx, input.lesson_id);
+    const pay = lessonPayday(l);
+    if (pay) throw new ToolError(`Balboa lessons aren't marked paid: CourtReserve pays them on payday (${pay} for this one).`);
     const paid = input.paid !== false;
     return { title: paid ? "Mark a lesson paid" : "Mark a lesson unpaid", lines: [`${l.client_names.join(", ")} · ${fmtDay(l.starts_at)} at ${fmtTime(l.starts_at)}`, money(dollars(l.price_cents))], confirm: paid ? "Mark paid" : "Mark unpaid", action: "setLessonPaid", input: { lesson_id: l.id, paid: paid ? "yes" : "no" } };
   }

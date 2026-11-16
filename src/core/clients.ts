@@ -2,12 +2,16 @@
 // Lessons name their players, so a client is matched to lessons by name, ignoring case.
 // Pure functions, so the pages and the tests share them.
 import type { CommissionRule, Lesson } from "./types";
-import { lessonMoney } from "./earnings";
-import { addDays, weekdayOf } from "./time";
+import { lessonMoney, payday } from "./earnings";
+import { addDays, dateKey, weekdayOf } from "./time";
+import { isBalboa } from "./util";
 
 export const nameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
 export const sameName = (a: string, b: string) => nameKey(a) === nameKey(b);
 export const hasClient = (l: Pick<Lesson, "client_names">, name: string) => l.client_names.some((n) => sameName(n, name));
+
+/** Balboa lessons are paid through CourtReserve on a payday, so they have no paid switch. Null for lessons elsewhere. */
+export const lessonPayday = (l: Pick<Lesson, "location" | "starts_at">) => (isBalboa(l.location ?? "") ? payday(dateKey(l.starts_at)) : null);
 
 /** No lesson booked, but one in the last month: worth a message to book the next one. */
 export const REBOOK_DAYS = 30;
@@ -33,7 +37,10 @@ export function clientSummary<L extends Dated>(name: string, lessons: L[], rules
   const last = past.at(-1) ?? null;
   const days_since = last ? Math.floor((now.getTime() - new Date(last.starts_at).getTime()) / 86400000) : null;
   const status: ClientStatus = upcoming.length ? "booked" : days_since === null ? "new" : days_since <= REBOOK_DAYS ? "rebook" : "lapsed";
-  const owedLessons = past.filter((l) => !l.paid_at && (l.price_cents ?? 0) > 0);
+  const today = dateKey(now);
+  // Balboa counts as paid once its payday passes and is never owed; elsewhere the coach marks it paid.
+  const isPaid = (l: L) => { const pay = lessonPayday(l); return pay ? pay <= today : !!l.paid_at; };
+  const owedLessons = past.filter((l) => !lessonPayday(l) && !l.paid_at && (l.price_cents ?? 0) > 0);
   return {
     lessons: past.length,
     upcoming: upcoming.length,
@@ -43,7 +50,7 @@ export function clientSummary<L extends Dated>(name: string, lessons: L[], rules
     next: upcoming[0] ?? null,
     days_since,
     status,
-    paid: Math.round(past.filter((l) => l.paid_at).reduce((n, l) => n + share(l), 0)),
+    paid: Math.round(past.filter(isPaid).reduce((n, l) => n + share(l), 0)),
     owed: Math.round(owedLessons.reduce((n, l) => n + share(l), 0)),
     owed_lessons: owedLessons.length,
     // How often they come, from their last eight lessons: "every 7 days".

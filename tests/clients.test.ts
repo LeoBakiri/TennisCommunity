@@ -4,7 +4,7 @@ import { MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import { loadCoachClient, loadCoachClients, loadLessonEditor, type LoadCtx } from "../src/core/queries";
-import { clientSummary, nextSameWeekday, overlaps, weeklyDates } from "../src/core/clients";
+import { clientSummary, lessonPayday, nextSameWeekday, overlaps, weeklyDates } from "../src/core/clients";
 import type { Actor, Lesson } from "../src/core/types";
 import { addDays, dateKey, zonedToUtc } from "../src/core/time";
 
@@ -46,6 +46,24 @@ test("a client's summary: status, money split on semi-privates, and how often th
   assert.equal(clientSummary("Zoe", lessons, [], now).status, "new");
 });
 
+test("Balboa lessons are paid on the CourtReserve payday, never marked paid or owed", async () => {
+  const balboa = (iso: string) => lesson({ ...at(iso), location: "Balboa Tennis Club" });
+  assert.equal(lessonPayday(balboa("2026-11-15T18:00:00.000Z")), "2026-11-20");
+  assert.equal(lessonPayday(balboa("2026-11-16T18:00:00.000Z")), "2026-12-05");
+  assert.equal(lessonPayday(lesson({ ...at("2026-11-16T18:00:00.000Z"), location: "Emerald Hills" })), null);
+  const lessons = [balboa("2026-11-02T18:00:00.000Z"), balboa("2026-11-17T18:00:00.000Z")];
+  const s = clientSummary("Ana", lessons, [], new Date("2026-11-21T00:00:00.000Z"));
+  assert.equal(s.paid, 10000); // the Nov 2 lesson, paid on Nov 20; the Nov 17 one waits for Dec 5
+  assert.equal(s.owed, 0);
+  const { store, ctx } = setup();
+  const leo = await ctx(DEMO_IDS.leo);
+  assert.equal((await runAction(leo, "saveLesson", lessonInput({ paid: "on" }))).ok, true);
+  const l = (await store.list("lessons", { eq: { coach_id: DEMO_IDS.leo } })).find((x) => x.client_names[0] === "Nadia Brooks")!;
+  assert.equal(l.paid_at, null);
+  const r = await runAction(leo, "setLessonPaid", { lesson_id: l.id, paid: "yes" });
+  assert.equal(r.ok, false);
+});
+
 test("dates for booking ahead", () => {
   assert.deepEqual(weeklyDates("2026-11-04", 3), ["2026-11-04", "2026-11-11", "2026-11-18"]);
   assert.equal(nextSameWeekday("2026-10-28", "2026-11-03"), "2026-11-04"); // a Wednesday, the day after a Tuesday
@@ -59,7 +77,7 @@ test("weekly booking adds every week, skips clashes and marks only the first pai
   const leo = await ctx(DEMO_IDS.leo);
   // Something already in week 2.
   assert.equal((await runAction(leo, "saveLesson", lessonInput({ client_names: "Someone Else", date: addDays(free(), 7), time: "12:30" }))).ok, true);
-  const r = await runAction(leo, "saveLesson", lessonInput({ repeat_weeks: 4, paid: "on" }));
+  const r = await runAction(leo, "saveLesson", lessonInput({ repeat_weeks: 4, paid: "on", location: "Emerald Hills" }));
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.match((r as { message: string }).message, /^3 weekly lessons added\. Skipped .+: you're busy then\.$/);
   const mine = (await store.list("lessons", { eq: { coach_id: DEMO_IDS.leo } })).filter((l) => l.client_names[0] === "Nadia Brooks").sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1));

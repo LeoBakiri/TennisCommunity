@@ -94,7 +94,12 @@ test("marking paid is the coach's own, and only for their lessons", async () => 
   const { store, ctx } = setup();
   const leo = await ctx(DEMO_IDS.leo);
   const maya = await ctx(DEMO_IDS.maya);
-  const [mine] = await store.list("lessons", { eq: { coach_id: DEMO_IDS.leo } });
+  const [first] = await store.list("lessons", { eq: { coach_id: DEMO_IDS.leo } });
+  // Balboa is paid through CourtReserve, so it can't be marked; a lesson elsewhere can.
+  await store.update("lessons", first.id, { location: "Balboa Tennis Club" });
+  assert.equal((await runAction(leo, "setLessonPaid", { lesson_id: first.id, paid: "yes" })).ok, false);
+  await store.update("lessons", first.id, { location: "Emerald Hills" });
+  const mine = (await store.get("lessons", first.id))!;
   assert.equal((await runAction(maya, "setLessonPaid", { lesson_id: mine.id, paid: "yes" })).ok, false);
   assert.equal((await runAction(leo, "setLessonPaid", { lesson_id: mine.id, paid: "no" })).ok, true);
   assert.equal((await store.get("lessons", mine.id))!.paid_at, null);

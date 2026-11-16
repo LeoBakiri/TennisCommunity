@@ -7,9 +7,9 @@ import { LocationCourt, TimeSelect } from "./admin";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
-import { LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
-import { commissionUnder, fmtPayday, fmtPayWindow, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
-import { CLIENT_STATUS, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
+import { isBalboa, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
+import { commissionUnder, fmtPayday, fmtPayWindow, payday, payWindow, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
+import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
@@ -454,7 +454,11 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
                 </Field>
               )}
               <div className="sm:col-span-2">
-                <Toggle name="paid" defaultChecked={!!l?.paid_at} label="Paid" hint={repeat > 1 ? "Marks only the first lesson paid. Unpaid past lessons show under Owed to you in Earnings." : "Turn on once the player has paid you. Unpaid past lessons show under Owed to you in Earnings."} />
+                {isBalboa(money.location) ? (
+                  <BalboaPayNote day={day} repeat={repeat} />
+                ) : (
+                  <Toggle name="paid" defaultChecked={!!l?.paid_at} label="Paid" hint={repeat > 1 ? "Marks only the first lesson paid. Unpaid past lessons show under Owed to you in Earnings." : "Turn on once the player has paid you. Unpaid past lessons show under Owed to you in Earnings."} />
+                )}
               </div>
               <Field label="Notes" hint="What you worked on and what's next. Shows on the client's card." className="sm:col-span-2">
                 <textarea className="input" name="notes" defaultValue={l?.notes ?? ""} />
@@ -791,6 +795,22 @@ function PaidButton({ lessonId, paid }: { lessonId: string; paid: boolean }) {
     <ActionButton action="setLessonPaid" input={{ lesson_id: lessonId, paid: "yes" }} variant="outline" size="sm">
       Mark paid
     </ActionButton>
+  );
+}
+
+/** On the lesson form, Balboa lessons say when CourtReserve pays them instead of a paid switch. */
+function BalboaPayNote({ day, repeat }: { day: string; repeat: number }) {
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(day);
+  const pay = ok ? payday(day) : null;
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-ink/[0.04] px-4 py-3">
+      <Icon name="card" size={16} className="mt-0.5 shrink-0 text-ink/55" />
+      <p className="text-[13px] text-ink/70">
+        <span className="font-semibold text-ink">Paid through CourtReserve{pay ? ` on ${fmtPayday(pay)}` : ""}.</span>{" "}
+        {pay ? `That payday covers ${fmtPayWindow(payWindow(pay).from, addDays(payWindow(pay).to, -1))}. ` : ""}
+        Balboa pays the 1st–15th on the 20th and the 16th–end of month on the 5th{repeat > 1 ? ", so weekly lessons land on whichever payday covers each date" : ""}. Nothing to mark.
+      </p>
+    </div>
   );
 }
 
@@ -1290,7 +1310,7 @@ function ClientLessonRow({ r, clientId }: { r: ClientData["lessons"][number]; cl
           </div>
         </A>
         <div className="shrink-0 text-right text-sm font-semibold tabular-nums">{r.money.priced ? usd(r.money.gross) : <Badge tone="amber">No price</Badge>}</div>
-        <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{!r.done ? <Badge>Upcoming</Badge> : r.money.gross > 0 ? <PaidButton lessonId={l.id} paid={!!l.paid_at} /> : null}</div>
+        <div className="hidden w-[104px] shrink-0 justify-end sm:flex">{lessonPayday(l) ? <PaydayBadge payday={lessonPayday(l)!} today={dateKey(new Date())} /> : !r.done ? <Badge>Upcoming</Badge> : r.money.gross > 0 ? <PaidButton lessonId={l.id} paid={!!l.paid_at} /> : null}</div>
       </div>
       {l.notes && <p className="mt-2 ml-5 border-l-2 border-sage pl-3 text-[13px] whitespace-pre-line text-ink/70">{l.notes}</p>}
     </div>

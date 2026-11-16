@@ -514,7 +514,8 @@ export const actions: Record<string, Handler> = {
           ...money,
           court: courtFor(input.location, input.court),
           commission_cents: same ? prev.commission_cents : commissionFor(money, rules),
-          paid_at: input.paid ? (prev?.paid_at ?? nowIso()) : null,
+          // Balboa is paid through CourtReserve on payday, so only lessons elsewhere are marked paid.
+          paid_at: input.paid && !isBalboa(input.location) ? (prev?.paid_at ?? nowIso()) : null,
           notes: input.notes,
           updated_at: nowIso(),
         };
@@ -577,6 +578,7 @@ export const actions: Record<string, Handler> = {
     const u = staff(ctx);
     const l = await must(ctx.store.get("lessons", input.lesson_id), "Lesson");
     if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can change it.");
+    if (isBalboa(l.location)) throw new UserError("Balboa lessons are paid through CourtReserve on payday, so there's nothing to mark.");
     await ctx.store.update("lessons", l.id, { paid_at: input.paid === "yes" ? nowIso() : null });
     return { ok: true, message: input.paid === "yes" ? "Marked paid." : "Marked unpaid." };
   }),
