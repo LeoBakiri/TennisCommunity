@@ -4,6 +4,7 @@ import { EventMark, Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, Place, SectionTitle, Spinner, Stat, Submit, Tabs, Toggle } from "../kit";
 import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWord, type GridSlot } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
+import { ClientCombobox, Dropdown } from "../picker";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
@@ -379,6 +380,11 @@ function LessonTakeHome({ lesson, rules, draft }: { lesson: Lesson | null; rules
   );
 }
 
+const fmtLength = (m: number) => (m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} hr ${m % 60} min` : `${m / 60} ${m === 60 ? "hour" : "hours"}`);
+/** Common lesson lengths, plus the lesson's own if it's unusual. */
+const durationOptions = (current: number) =>
+  [...new Set([30, 45, 60, 75, 90, 120, current])].filter((m) => m > 0).sort((a, b) => a - b).map((m) => ({ value: String(m), label: fmtLength(m) }));
+
 export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
   const l = data.lesson;
   const p = data.prefill;
@@ -411,12 +417,7 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
                 ))}
               </div>
               <Field label={semi ? "Players / clients" : "Player / client name"} hint={semi ? "Separate names with commas" : "Doesn't need to be a community member"} className="sm:col-span-2">
-                <input className="input" name="client_names" list="lesson-clients" defaultValue={l?.client_names.join(", ") ?? p!.client} onChange={(e) => setNames(e.target.value)} required />
-                <datalist id="lesson-clients">
-                  {data.clients.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
+                <ClientCombobox name="client_names" defaultValue={l?.client_names.join(", ") ?? p!.client} clients={data.clients} multi={semi} onChange={setNames} required />
                 {cards.length > 0 && (
                   <span className="mt-1.5 flex flex-wrap gap-x-3 text-[12.5px]">
                     {cards.map((c) => (
@@ -433,24 +434,20 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
               <Field label="Start time (Pacific)">
                 <TimeSelect name="time" value={time} />
               </Field>
-              <Field label="Duration (minutes)">
-                <input className="input" type="number" name="duration_min" min={15} step={15} defaultValue={duration} onChange={(e) => setMoney({ ...money, minutes: Number(e.target.value) || 0 })} />
+              <Field label="Duration">
+                <Dropdown name="duration_min" label="Duration" value={String(money.minutes)} onChange={(v) => setMoney({ ...money, minutes: Number(v) })} options={durationOptions(duration)} />
               </Field>
-              <Field label="Price (USD)" hint={semi ? "Total for all players" : "Leave empty if it's not set yet"}>
-                <input className="input" name="price" inputMode="decimal" defaultValue={money.price} onChange={(e) => setMoney({ ...money, price: e.target.value })} />
+              <Field label="Price" hint={semi ? "Total for all players" : "Leave empty if it's not set yet"}>
+                <span className="relative block">
+                  <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[15px] text-ink/45">$</span>
+                  <input className="input pl-7" name="price" inputMode="decimal" placeholder="0" defaultValue={money.price} onChange={(e) => setMoney({ ...money, price: e.target.value })} />
+                </span>
               </Field>
               <LocationCourt location={money.location} court={l?.court ?? null} wide places={data.places} onLocation={(v) => setMoney({ ...money, location: v })} />
               <LessonTakeHome lesson={l} rules={data.rules} draft={{ ...money, players: semi ? Math.max(2, names.split(/[,\n]/).filter((n) => n.trim()).length) : 1 }} />
               {!l && (
                 <Field label="Repeat" hint={repeat > 1 && /^\d{4}-\d{2}-\d{2}$/.test(day) ? `${repeat} lessons, the last on ${fmtKeyLong(addDays(day, (repeat - 1) * 7))}. Weeks you're already busy are skipped.` : "Book the same time every week, up to six months ahead"} className="sm:col-span-2">
-                  <select className="input" value={repeat} onChange={(e) => setRepeat(Number(e.target.value))} aria-label="Repeat">
-                    <option value={1}>Just this once</option>
-                    {[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => (
-                      <option key={w} value={w}>
-                        Every week for {w} weeks
-                      </option>
-                    ))}
-                  </select>
+                  <Dropdown label="Repeat" value={String(repeat)} onChange={(v) => setRepeat(Number(v))} options={[{ value: "1", label: "Just this once" }, ...[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => ({ value: String(w), label: `Every week for ${w} weeks` }))]} />
                 </Field>
               )}
               <div className="sm:col-span-2">

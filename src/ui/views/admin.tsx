@@ -3,6 +3,7 @@ import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
 import { DecisionCard, priceLabel, whenWord } from "../sessions";
+import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
@@ -31,41 +32,22 @@ export function LocationCourt({ location, court, wide, places, onLocation }: { l
   return (
     <>
       <Field label="Location" className={wide && !balboa ? "sm:col-span-2" : undefined}>
-        <select
-          className="input"
-          aria-label="Location"
+        <Dropdown
+          label="Location"
           value={other ? "__other" : where}
-          onChange={(e) => {
-            if (e.target.value === "__other") {
-              setOther(true);
-              pick("");
-            } else {
-              setOther(false);
-              pick(e.target.value);
-            }
+          placeholder="Pick a place"
+          options={[...choices.map((c) => ({ value: c, label: c, hint: isBalboa(c) ? "Courts 1–4" : undefined })), { value: "__other", label: "Other…" }]}
+          onChange={(v) => {
+            setOther(v === "__other");
+            pick(v === "__other" ? "" : v);
           }}
-        >
-          {!where && !other && <option value="">Pick a place</option>}
-          {choices.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-          <option value="__other">Other…</option>
-        </select>
+        />
         {other && <input className="input mt-2" placeholder="Where?" value={where} onChange={(e) => pick(e.target.value)} autoFocus />}
         <input type="hidden" name="location" value={where} />
       </Field>
       {balboa && (
         <Field label="Court">
-          <select className="input" name="court" defaultValue={court ?? ""}>
-            <option value="">Not set yet</option>
-            {COURTS.map((n) => (
-              <option key={n} value={n}>
-                Court {n}
-              </option>
-            ))}
-          </select>
+          <Dropdown name="court" label="Court" defaultValue={court ? String(court) : ""} options={[{ value: "", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
         </Field>
       )}
     </>
@@ -74,15 +56,7 @@ export function LocationCourt({ location, court, wide, places, onLocation }: { l
 
 export function TimeSelect({ name, value }: { name: string; value: string }) {
   const opts = TIMES.includes(value) ? TIMES : [value, ...TIMES];
-  return (
-    <select className="input" name={name} defaultValue={value}>
-      {opts.map((t) => (
-        <option key={t} value={t}>
-          {fmtClock(t)}
-        </option>
-      ))}
-    </select>
-  );
+  return <Dropdown name={name} label="Start time" defaultValue={value} options={opts.map((t) => ({ value: t, label: fmtClock(t) }))} />;
 }
 
 const dollarsField = (cents: number | null | undefined) => (cents == null ? "" : cents / 100);
