@@ -287,9 +287,6 @@
   .top-16 {
     top: calc(var(--spacing) * 16);
   }
-  .top-full {
-    top: 100%;
-  }
   .-right-1 {
     right: calc(var(--spacing) * -1);
   }
@@ -583,9 +580,6 @@
   }
   .h-screen {
     height: 100vh;
-  }
-  .max-h-72 {
-    max-height: calc(var(--spacing) * 72);
   }
   .max-h-\[92vh\] {
     max-height: 92vh;

@@ -8,7 +8,7 @@ import { ClientCombobox, Dropdown } from "../picker";
 import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
-import { isBalboa, LESSON_META, lessonTitle, placeLabel, SESSION_META, sessionTitle } from "@/core/util";
+import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle } from "@/core/util";
 import { commissionUnder, fmtPayroll, payday, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
@@ -222,7 +222,7 @@ function SignUps({ data, today }: { data: D<typeof loadCoachSchedule>["signups"]
   );
 }
 
-/** Booking straight from the grid: the time is already picked, so it only asks who and how much. */
+/** Booking straight from the grid: the time is already picked, so it asks who, where and how much. */
 function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D<typeof loadCoachSchedule>["quick"]; onClose: () => void }) {
   const { run, pending } = useAction();
   const [kind, setKind] = useState<LessonKind>("private");
@@ -230,6 +230,8 @@ function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D
   const [price, setPrice] = useState("");
   const [priceTyped, setPriceTyped] = useState(false);
   const [repeat, setRepeat] = useState(1);
+  const [place, setPlace] = useState<string | null>(null); // null until the coach picks one
+  const [court, setCourt] = useState("");
   const key = slot ? `${slot.day} ${slot.start} ${slot.end}` : "";
   useEffect(() => {
     setKind("private");
@@ -237,11 +239,15 @@ function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D
     setPrice("");
     setPriceTyped(false);
     setRepeat(1);
+    setPlace(null);
+    setCourt("");
   }, [key]);
   if (!slot) return null;
   const semi = kind === "semi_private";
   const known = semi ? undefined : quick.clients.find((c) => nameKey(c.name) === nameKey(names));
-  const location = known?.location || quick.location;
+  // A client's last place comes along with their name, until the coach picks one.
+  const auto = known?.location || quick.location;
+  const location = place ?? auto;
   const fields = { kind, date: slot.day, time: slotTime(slot.start), duration: slot.end - slot.start };
   const typeName = (v: string) => {
     setNames(v);
@@ -249,13 +255,25 @@ function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D
     const c = quick.clients.find((x) => nameKey(x.name) === nameKey(v));
     if (!priceTyped && !semi) setPrice(c?.price != null ? String(c.price / 100) : "");
   };
+  const mins = fields.duration;
   return (
-    <Modal open onClose={onClose} title={`${fmtKeyLong(slot.day)} · ${slotLabel(slot)}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        <span className="block">
+          {fmtKeyLong(slot.day)}
+          <span className="mt-0.5 block text-sm font-normal text-ink/55">
+            {slotLabel(slot)} · {mins % 60 ? `${mins} min` : `${mins / 60} ${mins === 60 ? "hour" : "hours"}`}
+          </span>
+        </span>
+      }
+    >
       <form
         className="space-y-4"
         onSubmit={async (e) => {
           e.preventDefault();
-          const r = await run("saveLesson", { id: "", kind, client_names: names, date: fields.date, time: fields.time, duration_min: fields.duration, location, court: "", price, notes: "", repeat_weeks: repeat, back: "" });
+          const r = await run("saveLesson", { id: "", kind, client_names: names, date: fields.date, time: fields.time, duration_min: fields.duration, location, court: isBalboa(location) ? court : "", price, notes: "", repeat_weeks: repeat, back: "" });
           if (r.ok) onClose();
         }}
       >
@@ -266,39 +284,31 @@ function QuickLesson({ slot, quick, onClose }: { slot: GridSlot | null; quick: D
             </button>
           ))}
         </div>
-        <Field label={semi ? "Players / clients" : "Player / client name"} hint={semi ? "Separate names with commas" : undefined}>
-          <input className="input" data-autofocus list="quick-lesson-clients" value={names} onChange={(e) => typeName(e.target.value)} required />
-          <datalist id="quick-lesson-clients">
-            {quick.clients.map((c) => (
-              <option key={c.name} value={c.name} />
-            ))}
-          </datalist>
+        <Field label={semi ? "Players" : "Player"} hint={semi ? "Separate names with commas" : undefined}>
+          <ClientCombobox value={names} onChange={typeName} clients={quick.clients.map((c) => c.name)} multi={semi} required autoFocus />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Price (USD)" hint={semi ? "Total for all players" : "Can stay empty"}>
-            <input
-              className="input"
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => {
-                setPrice(e.target.value);
-                setPriceTyped(true);
-              }}
-            />
+          <LocationCourt key={place === null ? auto : "picked"} location={location} court={null} wide span="col-span-2" places={placeOptions(quick.location, auto)} onLocation={setPlace} onCourt={setCourt} />
+          <Field label="Price" hint={semi ? "Total for all players" : undefined}>
+            <span className="relative block">
+              <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[15px] text-ink/45">$</span>
+              <input
+                className="input pl-7"
+                inputMode="decimal"
+                placeholder="0"
+                value={price}
+                onChange={(e) => {
+                  setPrice(e.target.value);
+                  setPriceTyped(true);
+                }}
+              />
+            </span>
           </Field>
           <Field label="Repeat">
-            <select className="input" value={repeat} onChange={(e) => setRepeat(Number(e.target.value))} aria-label="Repeat">
-              <option value={1}>Just this once</option>
-              {[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => (
-                <option key={w} value={w}>
-                  Weekly, {w} weeks
-                </option>
-              ))}
-            </select>
+            <Dropdown label="Repeat" value={String(repeat)} onChange={(v) => setRepeat(Number(v))} options={[{ value: "1", label: "Just once" }, ...[2, 3, 4, 6, 8, 10, 12, 16, 20, 26].map((w) => ({ value: String(w), label: `Weekly, ${w} weeks` }))]} />
           </Field>
         </div>
-        {location && <p className="text-[12.5px] text-ink/55">At {location}.</p>}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <button type="submit" className={btn("primary")} disabled={pending}>
             {pending ? <Spinner /> : <Icon name="check" size={16} />} {repeat > 1 ? `Book ${repeat} lessons` : "Book lesson"}
           </button>

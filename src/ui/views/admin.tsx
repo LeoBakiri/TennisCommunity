@@ -20,7 +20,7 @@ const TIMES = Array.from({ length: 64 }, (_, i) => {
 });
 
 /** Location as a dropdown (BTC, Emerald Hills, past places, or Other), plus a court picker once the location is BTC. */
-export function LocationCourt({ location, court, wide, places, onLocation }: { location: string; court: number | null; wide?: boolean; places?: string[]; onLocation?: (v: string) => void }) {
+export function LocationCourt({ location, court, wide, places, onLocation, onCourt, span = "sm:col-span-2" }: { location: string; court: number | null; wide?: boolean; places?: string[]; onLocation?: (v: string) => void; onCourt?: (v: string) => void; span?: string }) {
   const choices = places ?? placeOptions();
   const [where, setWhere] = useState(shortPlace(location));
   const [other, setOther] = useState(!!where && !choices.includes(where));
@@ -31,7 +31,7 @@ export function LocationCourt({ location, court, wide, places, onLocation }: { l
   };
   return (
     <>
-      <Field label="Location" className={wide && !balboa ? "sm:col-span-2" : undefined}>
+      <Field label="Location" className={wide && !balboa ? span : undefined}>
         <Dropdown
           label="Location"
           value={other ? "__other" : where}
@@ -47,7 +47,7 @@ export function LocationCourt({ location, court, wide, places, onLocation }: { l
       </Field>
       {balboa && (
         <Field label="Court">
-          <Dropdown name="court" label="Court" defaultValue={court ? String(court) : ""} options={[{ value: "", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
+          <Dropdown name="court" label="Court" defaultValue={court ? String(court) : ""} onChange={onCourt} options={[{ value: "", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
         </Field>
       )}
     </>

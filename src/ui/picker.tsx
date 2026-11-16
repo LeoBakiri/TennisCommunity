@@ -1,24 +1,58 @@
 // Styled dropdowns for forms: a select-like Dropdown and a name ClientCombobox.
 // They replace the browser's own popups (select menus and datalist suggestions), which look different on every device.
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import { Avatar, cx } from "./kit";
 
 export type Option = { value: string; label: ReactNode; hint?: ReactNode };
 
-/** Closes a popover on a click or tap outside it. */
-function useOutside(ref: React.RefObject<HTMLElement | null>, open: boolean, close: () => void) {
+/** Closes a popover on a click or tap outside the field and its menu. */
+function useOutside(refs: RefObject<HTMLElement | null>[], open: boolean, close: () => void) {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
+      if (!refs.some((r) => r.current?.contains(e.target as Node))) close();
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
-  }, [open, close, ref]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, close]);
 }
 
-const MENU = "absolute left-0 right-0 top-full z-40 mt-1.5 max-h-72 overflow-y-auto overscroll-contain rounded-xl border border-ink/10 bg-card p-1 shadow-[0_12px_32px_-8px_rgba(30,36,32,0.22)]";
+const MENU = "fixed z-[60] overflow-y-auto overscroll-contain rounded-xl border border-ink/10 bg-card p-1 shadow-[0_12px_32px_-8px_rgba(30,36,32,0.22)]";
+
+type Spot = { left: number; width: number; top?: number; bottom?: number; maxHeight: number };
+/** Under the field, or above it when there's more room there (bottom of a popup or a phone screen). */
+function spotFor(el: HTMLElement | null): Spot | null {
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const below = window.innerHeight - r.bottom - 12;
+  const above = r.top - 12;
+  const up = below < 220 && above > below;
+  return { left: r.left, width: r.width, ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }), maxHeight: Math.min(288, up ? above : below) };
+}
+
+/** The menu floats on the page itself, so popups and scrolling cards never cut it off. */
+function Floating({ anchor, menu, id, children }: { anchor: RefObject<HTMLElement | null>; menu: RefObject<HTMLDivElement | null>; id: string; children: ReactNode }) {
+  const [spot, setSpot] = useState<Spot | null>(() => spotFor(anchor.current));
+  useEffect(() => {
+    const place = () => setSpot(spotFor(anchor.current));
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [anchor]);
+  if (!spot) return null;
+  return createPortal(
+    <div ref={menu} id={id} role="listbox" className={MENU} style={spot}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
 const ROW = "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[14.5px] text-ink";
 
 /**
@@ -34,7 +68,7 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
   const close = () => setOpen(false);
-  useOutside(box, open, close);
+  useOutside([box, list], open, close);
   const chosen = options.find((o) => o.value === current);
 
   const show = () => {
@@ -70,6 +104,7 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
       return show();
     }
     if (!open) return;
+    if (e.key === "Escape") e.nativeEvent.stopPropagation(); // close the menu, not the popup around it
     if (e.key === "Escape" || e.key === "Tab") return close();
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -100,7 +135,7 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
         <Icon name="down" size={16} className={cx("shrink-0 text-ink/45 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div ref={list} id={id} role="listbox" className={MENU}>
+        <Floating anchor={box} menu={list} id={id}>
           {options.map((o, i) => {
             const on = o.value === current;
             return (
@@ -121,7 +156,7 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
               </button>
             );
           })}
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -131,14 +166,17 @@ export function Dropdown({ name, value, defaultValue, onChange, options, placeho
  * Name field with the coach's clients suggested as they type.
  * With `multi`, names are comma separated and suggestions complete the name being typed.
  */
-export function ClientCombobox({ name, defaultValue, clients, multi, onChange, required }: { name: string; defaultValue: string; clients: string[]; multi?: boolean; onChange?: (v: string) => void; required?: boolean }) {
-  const [text, setText] = useState(defaultValue);
+export function ClientCombobox({ name, defaultValue, value, clients, multi, onChange, required, autoFocus }: { name?: string; defaultValue?: string; value?: string; clients: string[]; multi?: boolean; onChange?: (v: string) => void; required?: boolean; autoFocus?: boolean }) {
+  const [own, setOwn] = useState(defaultValue ?? "");
+  const text = value ?? own;
+  const setText = setOwn;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
-  useOutside(box, open, () => setOpen(false));
+  const menu = useRef<HTMLDivElement>(null);
+  useOutside([box, menu], open, () => setOpen(false));
 
   const parts = text.split(",");
   const typed = (multi ? parts[parts.length - 1] : text).trim().toLowerCase();
@@ -167,7 +205,10 @@ export function ClientCombobox({ name, defaultValue, clients, multi, onChange, r
     } else if (e.key === "Enter") {
       e.preventDefault();
       pick(matches[Math.min(active, matches.length - 1)]);
-    } else if (e.key === "Escape" || e.key === "Tab") setOpen(false);
+    } else if (e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Escape") e.nativeEvent.stopPropagation();
+      setOpen(false);
+    }
   };
   const bold = (c: string) => {
     if (!typed) return c;
@@ -192,6 +233,7 @@ export function ClientCombobox({ name, defaultValue, clients, multi, onChange, r
         value={text}
         required={required}
         autoComplete="off"
+        data-autofocus={autoFocus || undefined}
         role="combobox"
         aria-expanded={showing}
         aria-controls={id}
@@ -206,7 +248,7 @@ export function ClientCombobox({ name, defaultValue, clients, multi, onChange, r
         onKeyDown={onKey}
       />
       {showing && (
-        <div id={id} role="listbox" className={MENU}>
+        <Floating anchor={box} menu={menu} id={id}>
           <p className="px-3 pt-1.5 pb-1 text-[11px] font-semibold tracking-wide text-ink/40 uppercase">Your clients</p>
           {matches.map((c, i) => (
             <button
@@ -224,7 +266,7 @@ export function ClientCombobox({ name, defaultValue, clients, multi, onChange, r
               <span className="min-w-0 truncate">{bold(c)}</span>
             </button>
           ))}
-        </div>
+        </Floating>
       )}
     </div>
   );
