@@ -47,7 +47,7 @@ export function DemoBar({ meta }: { meta: FrameMeta }) {
   const nav = useNav();
   const [busy, setBusy] = useState(false);
   if (!meta.demo || !nav.auth.demoAs) return null;
-  const roleLabel: Record<Role, string> = { member: "Player", coach: "Coach", admin: "Admin" };
+  const roleLabel: Record<Role, string> = { member: "Member", coach: "Coach", admin: "Admin" };
   return (
     <div className="relative z-40 bg-ink text-paper">
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 text-[12.5px]">
@@ -226,18 +226,18 @@ function navFor(area: PortalArea): NavItem[] {
 const SHORT_LABEL: Record<string, string> = { "Community Schedule": "Schedule" };
 
 const PORTALS: { area: Area; label: string; href: string; roles: Role[] }[] = [
-  { area: "member", label: "Player", href: "/schedule", roles: ["member", "coach", "admin"] },
+  { area: "member", label: "Member", href: "/schedule", roles: ["member", "coach", "admin"] },
   { area: "coach", label: "Coach", href: "/coach", roles: ["coach", "admin"] },
   { area: "admin", label: "Admin", href: "/admin", roles: ["admin"] },
 ];
 
-// Coaches and admins get player pages inside this shell too, so the switcher stays put.
+// Coaches and admins get member pages inside this shell too, so the switcher stays put.
 type PortalArea = "member" | "coach" | "admin";
 
 const HOME: Record<PortalArea, string> = { member: "/schedule", coach: "/coach", admin: "/admin" };
 
 const THEME: Record<PortalArea, { side: string; muted: string; active: string; hover: string; label: string; light: boolean }> = {
-  member: { side: "bg-sage/80 border-r border-ink/[0.07]", muted: "text-ink/55", active: "bg-card text-brand shadow-sm", hover: "hover:bg-card/60", label: "Player", light: false },
+  member: { side: "bg-sage/80 border-r border-ink/[0.07]", muted: "text-ink/55", active: "bg-card text-brand shadow-sm", hover: "hover:bg-card/60", label: "Member", light: false },
   coach: { side: "bg-sage/80 border-r border-ink/[0.07]", muted: "text-ink/55", active: "bg-card text-brand shadow-sm", hover: "hover:bg-card/60", label: "Coach", light: false },
   admin: { side: "bg-brand", muted: "text-paper/55", active: "bg-paper/12 text-paper", hover: "hover:bg-paper/[0.07]", label: "Admin", light: true },
 };

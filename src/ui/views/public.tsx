@@ -127,7 +127,7 @@ export function LoginView({ meta }: { meta: FrameMeta }) {
                       <Avatar name={u.full_name} size={32} />
                       <span className="flex-1">
                         <span className="block text-sm font-semibold">{u.full_name}</span>
-                        <span className="block text-xs text-ink/55">{u.role === "admin" ? "Admin" : u.role === "coach" ? "Coach" : "Player"}</span>
+                        <span className="block text-xs text-ink/55">{u.role === "admin" ? "Admin" : u.role === "coach" ? "Coach" : "Member"}</span>
                       </span>
                       <Icon name="arrow" size={16} className="text-ink/40" />
                     </button>

@@ -697,7 +697,7 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
         </form>
         <select className="input !w-auto" value={data.role} onChange={(e) => nav.push(withQuery("/admin/members", { q: data.q, role: e.target.value }))} aria-label="Role">
           <option value="">Everyone</option>
-          <option value="member">Players</option>
+          <option value="member">Members</option>
           <option value="coach">Coaches</option>
           <option value="admin">Admins</option>
         </select>
@@ -809,7 +809,7 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
                 </Field>
                 <Field label="Role" hint="Coaches get My Schedule; admins also get this admin area.">
                   <select className="input" name="role" defaultValue={p.role} disabled={isMe}>
-                    <option value="member">Player</option>
+                    <option value="member">Member</option>
                     <option value="coach">Coach</option>
                     <option value="admin">Admin</option>
                   </select>

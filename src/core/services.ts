@@ -736,7 +736,7 @@ export const actions: Record<string, Handler> = {
   adminAddBooking: action(z.object({ session_id: id, user_id: id, mode: z.enum(["auto", "confirmed", "waitlisted"]).default("auto") }), async (ctx, input) => {
     admin(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
-    const user = await must(ctx.store.get("profiles", input.user_id), "Player");
+    const user = await must(ctx.store.get("profiles", input.user_id), "Member");
     const b = await placeBooking(ctx, s, user, input.mode === "auto" ? undefined : input.mode);
     return { ok: true, message: `${user.full_name} added (${b.status}).` };
   }),
@@ -780,7 +780,7 @@ export const actions: Record<string, Handler> = {
     z.object({ user_id: id, ...profileFields, emergency_contact: text(200), role: z.enum(["member", "coach", "admin"]), status: z.enum(["active", "inactive"]) }),
     async (ctx, input) => {
       const a = admin(ctx);
-      const p = await must(ctx.store.get("profiles", input.user_id), "Player");
+      const p = await must(ctx.store.get("profiles", input.user_id), "Member");
       if (p.id === a.id && input.role !== "admin") throw new UserError("You can't remove your own admin access.");
       if (p.id === a.id && input.status !== "active") throw new UserError("You can't make your own account inactive.");
       const contact = cleanContact(input);
@@ -804,7 +804,7 @@ export const actions: Record<string, Handler> = {
   adminRemoveMember: action(z.object({ user_id: id }), async (ctx, input) => {
     const a = admin(ctx);
     if (input.user_id === a.id) throw new UserError("You can't remove your own account.");
-    const p = await must(ctx.store.get("profiles", input.user_id), "Player");
+    const p = await must(ctx.store.get("profiles", input.user_id), "Member");
     if (ctx.store.rpc) {
       // The database function also deletes the login, which the browser can't reach.
       await ctx.store.rpc("admin_remove_member", { p_user_id: p.id });
