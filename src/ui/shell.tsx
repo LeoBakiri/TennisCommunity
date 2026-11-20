@@ -260,9 +260,13 @@ export function PortalShell({ area, meta, children }: { area: PortalArea; meta: 
 
   // Plain functions, not components: a component defined here would be rebuilt on every
   // render, and a link rebuilt between press and release loses the click.
+  // Admins mostly live in Coach and Admin, so Member shrinks to a small link under the tabs.
+  const miniMember = user.role === "admin";
+  const tabs = miniMember ? portals.filter((p) => p.area !== "member") : portals;
   const switcher = (dark: boolean) => (
-    <div className={cx("grid gap-1 rounded-xl p-1", dark ? "bg-paper/10" : "bg-ink/[0.06]")} style={{ gridTemplateColumns: `repeat(${portals.length}, 1fr)` }} role="tablist" aria-label="Switch view">
-      {portals.map((p) => (
+    <div className="space-y-1.5">
+    <div className={cx("grid gap-1 rounded-xl p-1", dark ? "bg-paper/10" : "bg-ink/[0.06]")} style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }} role="tablist" aria-label="Switch view">
+      {tabs.map((p) => (
         <A
           key={p.area}
           href={p.href}
@@ -275,6 +279,21 @@ export function PortalShell({ area, meta, children }: { area: PortalArea; meta: 
           {p.label}
         </A>
       ))}
+    </div>
+    {miniMember && (
+      <A
+        href={HOME.member}
+        aria-current={area === "member" ? "page" : undefined}
+        className={cx(
+          "ml-auto flex w-fit items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors",
+          area === "member"
+            ? dark ? "bg-accent text-ink" : "bg-card text-ink shadow-sm"
+            : dark ? "text-paper/55 hover:text-paper" : "text-ink/45 hover:text-ink",
+        )}
+      >
+        <Icon name="eye" size={12} /> Member view
+      </A>
+    )}
     </div>
   );
 
