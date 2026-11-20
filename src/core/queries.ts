@@ -1,5 +1,5 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Client, Clinic, ClinicCover, CommissionRule, Feedback, Lesson, LessonKind, Profile, Session, SessionType, Skill } from "./types";
+import type { Actor, Booking, Client, Clinic, ClinicCover, CommissionRule, Feedback, Lesson, LessonKind, Paycheck, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { canSchedule, coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
@@ -590,6 +590,21 @@ function upcomingPaydays(rows: MoneyRow[], today: string, count = 2) {
   });
 }
 
+/**
+ * BTC paydays that have already come, for the coach to type in what reached the bank after tax:
+ * the ones inside the period, or just the latest when looking at a current period that has none.
+ */
+function pastPaydays(rows: MoneyRow[], today: string, range: { from: string; to: string }, current: boolean, saved: Paycheck[]) {
+  const all = [...new Set([...rows.map((r) => r.payday), ...saved.map((p) => p.payday)].filter((d): d is string => !!d && d <= today))].sort();
+  let dates = all.filter((d) => d >= range.from && d < range.to);
+  if (current && !dates.length && all.length) dates = [all[all.length - 1]];
+  return dates.reverse().map((date) => ({
+    date,
+    earned: addMoney(rows.filter((r) => r.payday === date).map((r) => r.money)).net,
+    take_home: saved.find((p) => p.payday === date)?.take_home_cents ?? null,
+  }));
+}
+
 /** How far back and ahead to load community sessions: the period, the one before it, and the open paydays. */
 const sessionSpan = (before: { from: string }, range: { to: string }, today: string) => ({ from: [before.from, addDays(today, -35)].sort()[0], to: [range.to, addDays(today, 50)].sort()[1] });
 
@@ -603,11 +618,13 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   // A year back covers the previous period and any lesson still waiting to be paid.
   const since = [before.from, addDays(today, -400)].sort()[0];
   const span = sessionSpan(before, range, today);
-  const [lessons, rules, sessions, mineClinics] = await Promise.all([
+  const [lessons, rules, sessions, mineClinics, paychecks] = await Promise.all([
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(since) }, order: { field: "starts_at" } }),
     ctx.store.list("commission_rules"),
     sessionsWithPlayers(ctx.store, span.from, span.to, u.id),
     myClinics(ctx.store, u.id),
+    // Empty until the paychecks migration has run, so the page still loads.
+    ctx.store.list("paychecks", { eq: { coach_id: u.id } }).catch(() => [] as Paycheck[]),
   ]);
   const now = ctx.now.toISOString();
   const { lessonRows: rows, sessionRows } = coachMoney(u.id, lessons, sessions, rules, now);
@@ -696,6 +713,7 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     clinics: clinicsIn.sort(by((r) => r.session.starts_at, -1)),
     owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
     paydays: upcomingPaydays([...rows, ...sessionRows, ...clinicRows], today),
+    paychecks: pastPaydays([...rows, ...sessionRows, ...clinicRows], today, range, inRange(now, range.from, range.to), paychecks),
     rules,
   };
 }

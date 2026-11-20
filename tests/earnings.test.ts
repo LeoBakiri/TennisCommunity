@@ -203,3 +203,23 @@ test("Balboa payroll labels name the work days, not the payday", () => {
   assert.equal(fmtPayroll(payday("2026-11-16")), "Nov 16–30");
   assert.equal(fmtPayroll(payday("2027-02-20")), "Feb 16–28");
 });
+
+test("a coach saves what a paid BTC payroll left after tax", async () => {
+  const { store, ctx, load, now } = setup();
+  const leo = await ctx(DEMO_IDS.leo);
+  const before = await loadCoachEarnings(await load(DEMO_IDS.leo, { period: "year" }));
+  const p = before.paychecks[0];
+  assert.ok(p && p.date <= dateKey(now) && p.take_home === null && p.earned > 0);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: "$1,234.56" })).ok, true);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: "1200" })).ok, true);
+  const rows = await store.list("paychecks", { eq: { coach_id: DEMO_IDS.leo } });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].take_home_cents, 120000);
+  const after = await loadCoachEarnings(await load(DEMO_IDS.leo, { period: "year" }));
+  assert.equal(after.paychecks.find((x) => x.date === p.date)!.take_home, 120000);
+  // Not a payday, or not paid yet: refused. Empty clears it.
+  assert.equal((await runAction(leo, "savePaycheck", { payday: addDays(p.date, 1), take_home: "10" })).ok, false);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: "2099-01-05", take_home: "10" })).ok, false);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: "" })).ok, true);
+  assert.equal((await store.list("paychecks")).length, 0);
+});

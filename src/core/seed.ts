@@ -225,6 +225,7 @@ export function demoSeed(now = new Date()): DB {
     clients,
     clinics,
     clinic_covers: [{ id: "00000000-0000-4000-e100-000000000001", clinic_id: clinics[1].id, coach_id: DEMO_IDS.leo, day: addDays(monday, -5), covered_by: "Kaan", created_at: created }],
+    paychecks: [],
     feedback,
     player_calendars: [],
   };

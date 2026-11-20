@@ -10,7 +10,7 @@ import { CLINIC_COLOR, COVERED_COLOR, isOneOff, WEEKDAYS, weekdayOf, weekdayPlur
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle, shortPlace } from "@/core/util";
-import { commissionUnder, fmtPayroll, payday, PERIODS, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
+import { commissionUnder, fmtPayday, fmtPayroll, payday, PERIODS, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
@@ -1109,20 +1109,65 @@ function Breakdown({ data }: { data: Earnings }) {
   );
 }
 
+/** A BTC payroll that has been paid: before tax, and what reached the bank once the coach types it in. */
+function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
+  const [editing, setEditing] = useState(false);
+  const saved = p.take_home !== null;
+  const tax = saved && p.earned > 0 ? Math.round((1 - p.take_home! / p.earned) * 100) : null;
+  return (
+    <li>
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0 text-sm">
+          <span className="block font-semibold">BTC payroll</span>
+          <span className="block text-[12.5px] text-ink/55">
+            {fmtPayroll(p.date)} · paid {fmtPayday(p.date)}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block font-display text-lg font-semibold tabular-nums">{usd(saved ? p.take_home! : p.earned)}</span>
+          <span className="block text-[12px] text-ink/50">{saved ? "after tax" : "before tax"}</span>
+        </span>
+      </div>
+      {saved && !editing ? (
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-[12.5px] text-ink/55">
+          <span>
+            {usd(p.earned)} before tax{tax !== null && tax > 0 ? ` · ${tax}% tax` : ""}
+          </span>
+          <button type="button" className="font-semibold text-ink/70 hover:underline" onClick={() => setEditing(true)}>
+            Edit
+          </button>
+        </div>
+      ) : (
+        <ActionForm action="savePaycheck" hidden={{ payday: p.date }} className="mt-2" onDone={(r) => r.ok && setEditing(false)}>
+          <div className="flex items-end gap-2">
+            <Field label="What you got after tax" className="min-w-0 flex-1">
+              <input className="input" name="take_home" inputMode="decimal" placeholder="$0.00" defaultValue={saved ? (p.take_home! / 100).toFixed(2) : ""} autoFocus={editing} />
+            </Field>
+            <Submit variant="outline">Save</Submit>
+          </div>
+        </ActionForm>
+      )}
+    </li>
+  );
+}
+
 /** BTC payroll periods, plus lessons elsewhere the player still has to pay for. */
-function GettingPaid({ data }: { data: Earnings }) {
+function GettingPaid({ data: all }: { data: Earnings }) {
+  // On payday itself, that payroll shows once, under the paid ones where its take-home goes.
+  const data = { ...all, paydays: all.paydays.filter((p) => p.date > all.today) };
   const owed = data.owed.lessons;
   // Lessons outside BTC this period: the player pays the coach directly.
   const direct = data.lessons.filter((r) => !r.payday && r.money.priced);
   const directDone = direct.filter((r) => r.done).reduce((n, r) => n + r.money.net, 0);
   const directAhead = direct.filter((r) => !r.done).reduce((n, r) => n + r.money.net, 0);
   const places = [...new Set(direct.map((r) => r.place ?? r.lesson.location).filter(Boolean))].join(", ");
-  if (!data.paydays.length && !owed.length && !direct.length) return null;
+  if (!data.paydays.length && !data.paychecks.length && !owed.length && !direct.length) return null;
+  const kept = data.paychecks.filter((p) => p.take_home !== null);
   return (
     <Card>
       <SectionTitle>Getting paid</SectionTitle>
       {direct.length > 0 && (
-        <div className={cx("flex items-start justify-between gap-3", data.paydays.length > 0 && "mb-3")}>
+        <div className={cx("flex items-start justify-between gap-3", (data.paydays.length > 0 || data.paychecks.length > 0) && "mb-3")}>
           <span className="min-w-0 text-sm">
             <span className="block font-semibold">Outside BTC</span>
             <span className="block truncate text-[12.5px] text-ink/55">
@@ -1152,8 +1197,21 @@ function GettingPaid({ data }: { data: Earnings }) {
           ))}
         </ul>
       )}
+      {data.paychecks.length > 0 && (
+        <ul className={cx("space-y-4", (data.paydays.length > 0 || direct.length > 0) && "mt-4 border-t border-ink/[0.07] pt-4")}>
+          {data.paychecks.map((p) => (
+            <PaycheckRow key={p.date} p={p} />
+          ))}
+        </ul>
+      )}
+      {kept.length > 1 && (
+        <div className="mt-4 flex items-center justify-between gap-3 border-t border-ink/[0.07] pt-4 text-sm">
+          <span className="font-semibold">Take-home total</span>
+          <span className="font-display text-lg font-semibold tabular-nums">{usd(kept.reduce((n, p) => n + p.take_home!, 0))}</span>
+        </div>
+      )}
       {owed.length > 0 && (
-        <div className={cx((data.paydays.length > 0 || direct.length > 0) && "mt-4 border-t border-ink/[0.07] pt-4")}>
+        <div className={cx((data.paydays.length > 0 || data.paychecks.length > 0 || direct.length > 0) && "mt-4 border-t border-ink/[0.07] pt-4")}>
           <div className="mb-1 flex items-center justify-between gap-3 text-sm">
             <span className="font-semibold">Owed to you</span>
             <span className="font-display text-lg font-semibold tabular-nums">{usd(data.owed.total)}</span>

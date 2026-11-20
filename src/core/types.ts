@@ -130,6 +130,16 @@ export interface ClinicCover {
   created_at: string;
 }
 
+/** What actually reached the coach's bank for one BTC payroll, after tax. Typed in by the coach. */
+export interface Paycheck {
+  id: string;
+  coach_id: string;
+  payday: string; // date key: the 5th or the 20th
+  take_home_cents: number;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Someone a coach teaches privately. Lessons find their clients by name, ignoring case. */
 export interface Client {
   id: string;
@@ -195,6 +205,7 @@ export interface DB {
   clients: Client[];
   clinics: Clinic[];
   clinic_covers: ClinicCover[];
+  paychecks: Paycheck[];
   feedback: Feedback[];
   player_calendars: PlayerCalendar[];
 }
