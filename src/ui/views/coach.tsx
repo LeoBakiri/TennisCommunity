@@ -1123,15 +1123,17 @@ function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
             {fmtPayroll(p.date)} · paid {fmtPayday(p.date)}
           </span>
         </span>
-        <span className="shrink-0 text-right">
-          <span className="block font-display text-lg font-semibold tabular-nums">{usd(saved ? p.take_home! : p.earned)}</span>
-          <span className="block text-[12px] text-ink/50">{saved ? "after tax" : "before tax"}</span>
-        </span>
+        {(saved || p.earned > 0) && (
+          <span className="shrink-0 text-right">
+            <span className="block font-display text-lg font-semibold tabular-nums">{usd(saved ? p.take_home! : p.earned)}</span>
+            <span className="block text-[12px] text-ink/50">{saved ? "after tax" : "before tax"}</span>
+          </span>
+        )}
       </div>
       {saved && !editing ? (
         <div className="mt-1.5 flex items-center justify-between gap-2 text-[12.5px] text-ink/55">
           <span>
-            {usd(p.earned)} before tax{tax !== null && tax > 0 ? ` · ${tax}% tax` : ""}
+            {p.earned > 0 ? `${usd(p.earned)} before tax` : ""}{tax !== null && tax > 0 ? ` · ${tax}% tax` : ""}
           </span>
           <button type="button" className="font-semibold text-ink/70 hover:underline" onClick={() => setEditing(true)}>
             Edit

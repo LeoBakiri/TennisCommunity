@@ -595,9 +595,12 @@ function upcomingPaydays(rows: MoneyRow[], today: string, count = 2) {
  * the ones inside the period, or just the latest when looking at a current period that has none.
  */
 function pastPaydays(rows: MoneyRow[], today: string, range: { from: string; to: string }, current: boolean, saved: Paycheck[]) {
-  const all = [...new Set([...rows.map((r) => r.payday), ...saved.map((p) => p.payday)].filter((d): d is string => !!d && d <= today))].sort();
+  // The latest payday always counts, even when the app has no work recorded for it.
+  const [y, m, d] = today.split("-").map(Number);
+  const latest = d >= 20 ? `${today.slice(0, 7)}-20` : d >= 5 ? `${today.slice(0, 7)}-05` : new Date(Date.UTC(y, m - 2, 20)).toISOString().slice(0, 10);
+  const all = [...new Set([latest, ...rows.map((r) => r.payday), ...saved.map((p) => p.payday)].filter((d): d is string => !!d && d <= today))].sort();
   let dates = all.filter((d) => d >= range.from && d < range.to);
-  if (current && !dates.length && all.length) dates = [all[all.length - 1]];
+  if (current && !dates.length) dates = [latest];
   return dates.reverse().map((date) => ({
     date,
     earned: addMoney(rows.filter((r) => r.payday === date).map((r) => r.money)).net,

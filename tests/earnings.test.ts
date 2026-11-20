@@ -223,3 +223,14 @@ test("a coach saves what a paid BTC payroll left after tax", async () => {
   assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: "" })).ok, true);
   assert.equal((await store.list("paychecks")).length, 0);
 });
+
+test("the latest payroll is there to fill in even with no work recorded for it", async () => {
+  const { store, load, now } = setup();
+  for (const l of await store.list("lessons")) await store.remove("lessons", l.id);
+  for (const s of await store.list("sessions")) await store.remove("sessions", s.id);
+  for (const c of await store.list("clinics")) await store.remove("clinics", c.id);
+  const data = await loadCoachEarnings(await load(DEMO_IDS.leo, { period: "week" }));
+  assert.equal(data.paychecks.length, 1);
+  const p = data.paychecks[0];
+  assert.ok(p.date <= dateKey(now) && /-(05|20)$/.test(p.date) && p.earned === 0 && p.take_home === null);
+});
