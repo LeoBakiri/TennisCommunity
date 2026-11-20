@@ -11,6 +11,9 @@ export function priceLabel(s: Pick<SessionView, "price_cents">) {
   return s.price_cents === 0 ? "Free" : fmtMoney(s.price_cents);
 }
 
+/** Diagonal lines over a night that isn't on for the coach (a clinic someone else covered). */
+const HATCH = "repeating-linear-gradient(135deg, rgba(255,255,255,0.32) 0 3px, transparent 3px 9px)";
+
 export const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
 const sessionLabel = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].label;
 const takeoverDetails = (s: SessionView) => ({ label: sessionLabel(s), color: sessionColor(s), day: fmtDayLong(s.starts_at), time: fmtRange(s.starts_at, s.ends_at) });
@@ -711,7 +714,7 @@ export function WeekGrid({
                     <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", (s.cancelled || s.faded) && "opacity-50")}>
                       <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={34} />
                       <span className="min-w-0 flex-1">
-                        <span className={cx("block truncate text-[15px] font-semibold", s.cancelled && "line-through")}>{s.title}</span>
+                        <span className={cx("block truncate text-[15px] font-semibold", (s.cancelled || s.faded) && "line-through")}>{s.title}</span>
                         <span className="block truncate text-[13px] text-ink/55">
                           {fmtRange(s.starts_at, s.ends_at)} · {s.label}
                         </span>
@@ -824,7 +827,7 @@ export function WeekGrid({
                       <div
                         key={s.id}
                         className={cx("absolute inset-x-1 z-[6] overflow-hidden rounded-md ring-1 ring-card transition-[filter,box-shadow] hover:z-20 hover:shadow-lg hover:brightness-110", can && "cursor-grab", lifted && "opacity-35")}
-                        style={{ top, height: h, background: s.color, color: "#fff" }}
+                        style={{ top, height: h, background: s.faded ? `${HATCH}, ${s.color}` : s.color, color: "#fff" }}
                         onPointerDown={grabItem("move", s)}
                         onDragStart={(e) => e.preventDefault()}
                         onClickCapture={(e) => {
@@ -836,7 +839,7 @@ export function WeekGrid({
                         <A
                           href={s.href}
                           title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${can ? " · drag to move" : ""}`}
-                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || s.faded || over) && "opacity-60")}
+                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || over) && "opacity-60")}
                         >
                           <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={small ? 15 : 18} invert />
                           <span className="min-w-0 flex-1">
