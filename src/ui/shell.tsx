@@ -7,10 +7,11 @@ import { canUseAssistant } from "@/core/assistant";
 import { MY_GAME_LAUNCHED } from "@/core/progress";
 import type { Area } from "@/core/routes";
 import type { Role, Settings } from "@/core/types";
+import { canSchedule } from "@/core/services";
 
 export interface FrameMeta {
   settings: Settings;
-  user: { id: string; full_name: string; role: Role; email: string | null } | null;
+  user: { id: string; full_name: string; role: Role; email: string | null; schedule_access?: boolean } | null;
   signedIn: boolean;
   demo: { users: { id: string; full_name: string; role: Role }[] } | null;
 }
@@ -124,7 +125,7 @@ function UserMenu({ meta }: { meta: FrameMeta }) {
                   <Icon name="whistle" size={16} /> Coach
                 </A>
               )}
-              {user.role === "admin" && (
+              {canSchedule(user) && (
                 <A href="/admin" className={itemClass}>
                   <Icon name="settings" size={16} /> Admin
                 </A>
@@ -207,7 +208,7 @@ export function PlayerShell({ meta, children }: { meta: FrameMeta; children: Rea
 
 type NavItem = { href: string; label: string; icon: IconName };
 
-function navFor(area: PortalArea): NavItem[] {
+function navFor(area: PortalArea, user: { role: Role }): NavItem[] {
   if (area === "member") return PLAYER_TABS;
   if (area === "coach")
     return [
@@ -215,6 +216,8 @@ function navFor(area: PortalArea): NavItem[] {
       { href: "/coach/clients", label: "Clients", icon: "users" },
       { href: "/coach/earnings", label: "Earnings", icon: "chart" },
     ];
+  // A coach with schedule access sees only the Community Schedule in Admin.
+  if (user.role !== "admin") return [{ href: "/admin", label: "Community Schedule", icon: "calendar" }];
   return [
     { href: "/admin", label: "Community Schedule", icon: "calendar" },
     { href: "/admin/coaches", label: "Coaches", icon: "whistle" },
@@ -252,11 +255,11 @@ export function PortalShell({ area, meta, children }: { area: PortalArea; meta: 
   const path = rawPath === "/" ? "/schedule" : rawPath;
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
-  const items = navFor(area);
+  const user = meta.user!;
+  const items = navFor(area, user);
   const t = THEME[area];
   const s = meta.settings;
-  const user = meta.user!;
-  const portals = PORTALS.filter((p) => p.roles.includes(user.role));
+  const portals = PORTALS.filter((p) => p.roles.includes(user.role) || (p.area === "admin" && canSchedule(user)));
 
   // Plain functions, not components: a component defined here would be rebuilt on every
   // render, and a link rebuilt between press and release loses the click.

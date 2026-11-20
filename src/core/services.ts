@@ -27,8 +27,10 @@ export const seatsUsed = (bs: Booking[]) => bs.filter(holdsSeat).reduce((n, b) =
 
 export const isStaff = (p: Profile | null | undefined) => !!p && (p.role === "coach" || p.role === "admin");
 export const isAdmin = (p: Profile | null | undefined) => !!p && p.role === "admin";
+/** Admins, and coaches given the Community Schedule in Admin (nothing else there). */
+export const canSchedule = (p: Pick<Profile, "role" | "schedule_access"> | null | undefined) => !!p && (p.role === "admin" || (p.role === "coach" && !!p.schedule_access));
 export const coachesSession = (p: Profile | null | undefined, s: Session) =>
-  !!p && (p.role === "admin" || (p.role === "coach" && s.coach_ids.includes(p.id)));
+  !!p && (canSchedule(p) || (p.role === "coach" && s.coach_ids.includes(p.id)));
 
 function me(ctx: Ctx): Profile {
   const u = ctx.actor.user;
@@ -44,6 +46,11 @@ function staff(ctx: Ctx): Profile {
 function admin(ctx: Ctx): Profile {
   const u = me(ctx);
   if (!isAdmin(u)) throw new UserError("Administrators only.");
+  return u;
+}
+function scheduler(ctx: Ctx): Profile {
+  const u = me(ctx);
+  if (!canSchedule(u)) throw new UserError("Only admins can change the Community Schedule.");
   return u;
 }
 
@@ -636,7 +643,7 @@ export const actions: Record<string, Handler> = {
       repeat_weeks: int(0, 26, "Repeat").default(0),
     }),
     async (ctx, input) => {
-      admin(ctx);
+      scheduler(ctx);
       const settings = await getSettings(ctx.store);
       const start = zonedToUtc(input.date, input.time);
       const location = input.location || settings.default_location;
@@ -694,7 +701,7 @@ export const actions: Record<string, Handler> = {
   ),
 
   setSessionStatus: action(z.object({ session_id: id, status: z.enum(["draft", "published", "cancelled"]), reason: text(300) }), async (ctx, input) => {
-    admin(ctx);
+    scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
     if (input.status === "cancelled") {
       const active = (await ctx.store.list("bookings", { eq: { session_id: s.id } })).filter(isActive);
@@ -716,7 +723,7 @@ export const actions: Record<string, Handler> = {
   }),
 
   duplicateSession: action(z.object({ session_id: id, days: int(0, 365, "Days").default(7) }), async (ctx, input) => {
-    admin(ctx);
+    scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
     const shift = (iso: string) => zonedToUtc(addDays(dateKey(iso), input.days), timeKey(iso)).toISOString();
     const copy: Session = { ...s, id: uid(), starts_at: shift(s.starts_at), ends_at: shift(s.ends_at), status: "draft", created_at: nowIso() };
@@ -725,7 +732,7 @@ export const actions: Record<string, Handler> = {
   }),
 
   deleteSession: action(z.object({ session_id: id }), async (ctx, input) => {
-    admin(ctx);
+    scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
     const bookings = await ctx.store.list("bookings", { eq: { session_id: s.id } });
     if (bookings.length) throw new UserError("This session has bookings — cancel it instead.");
@@ -734,7 +741,7 @@ export const actions: Record<string, Handler> = {
   }),
 
   adminAddBooking: action(z.object({ session_id: id, user_id: id, mode: z.enum(["auto", "confirmed", "waitlisted"]).default("auto") }), async (ctx, input) => {
-    admin(ctx);
+    scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
     const user = await must(ctx.store.get("profiles", input.user_id), "Member");
     const b = await placeBooking(ctx, s, user, input.mode === "auto" ? undefined : input.mode);
@@ -742,7 +749,7 @@ export const actions: Record<string, Handler> = {
   }),
 
   promoteBooking: action(z.object({ booking_id: id }), async (ctx, input) => {
-    admin(ctx);
+    scheduler(ctx);
     const b = await must(ctx.store.get("bookings", input.booking_id), "Booking");
     if (b.status !== "waitlisted") throw new UserError("Only waitlisted players can be moved in.");
     await ctx.store.exclusive(`session:${b.session_id}`, async () => {
@@ -777,7 +784,7 @@ export const actions: Record<string, Handler> = {
   }),
 
   adminUpdateMember: action(
-    z.object({ user_id: id, ...profileFields, emergency_contact: text(200), role: z.enum(["member", "coach", "admin"]), status: z.enum(["active", "inactive"]) }),
+    z.object({ user_id: id, ...profileFields, emergency_contact: text(200), role: z.enum(["member", "coach", "admin"]), status: z.enum(["active", "inactive"]), schedule_access: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()).default(false) }),
     async (ctx, input) => {
       const a = admin(ctx);
       const p = await must(ctx.store.get("profiles", input.user_id), "Member");
@@ -796,6 +803,8 @@ export const actions: Record<string, Handler> = {
         emergency_contact: input.emergency_contact,
         role: input.role,
         status: input.status,
+        // Only a coach can hold it; admins already have the whole area. Left out when unchanged, so this saves before its migration runs.
+        ...((input.role === "coach" && input.schedule_access) !== !!p.schedule_access ? { schedule_access: input.role === "coach" && input.schedule_access } : {}),
       });
       return { ok: true, message: "Member updated." };
     },

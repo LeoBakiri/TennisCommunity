@@ -94,7 +94,12 @@ export function guard(area: Area, actor: Actor, path: string): string | null {
   if (!u || !u.onboarded) return `/onboarding?next=${next}`;
   if (area === "coach" && u.role !== "coach" && u.role !== "admin") return "/schedule";
   if (!MY_GAME_LAUNCHED && /^\/my-game(\/|$)/.test(path) && u.role !== "admin") return "/schedule";
-  if (area === "admin" && u.role !== "admin") return u.role === "coach" ? "/coach" : "/schedule";
+  if (area === "admin" && u.role !== "admin") {
+    // A coach with schedule access gets the Community Schedule and its session pages, nothing else.
+    const schedulePage = path === "/admin" || path.startsWith("/admin?") || path.startsWith("/admin/sessions/");
+    if (u.role === "coach" && u.schedule_access && schedulePage) return null;
+    return u.role === "coach" ? (u.schedule_access ? "/admin" : "/coach") : "/schedule";
+  }
   return null;
 }
 

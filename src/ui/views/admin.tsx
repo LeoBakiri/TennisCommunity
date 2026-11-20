@@ -400,9 +400,13 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
                 <div key={r.booking.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <Avatar name={r.player?.full_name ?? "?"} size={34} />
                   <div className="min-w-0 flex-1">
-                    <A href={`/admin/members/${r.player?.id}`} className="text-sm font-semibold hover:underline">
-                      {r.player?.full_name}
-                    </A>
+                    {data.fullAdmin ? (
+                      <A href={`/admin/members/${r.player?.id}`} className="text-sm font-semibold hover:underline">
+                        {r.player?.full_name}
+                      </A>
+                    ) : (
+                      <span className="text-sm font-semibold">{r.player?.full_name}</span>
+                    )}
                     <div className="truncate text-xs text-ink/50">{r.player?.email ?? r.player?.phone}</div>
                   </div>
                   {r.booking.status === "confirmed" && r.booking.spot_offered_at && <Badge tone="amber">Offering spot</Badge>}
@@ -822,6 +826,15 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
                   </select>
                   {isMe && <input type="hidden" name="status" value={p.status} />}
                 </Field>
+                {p.role === "coach" && (
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-ink/12 bg-card px-3 py-2.5 text-sm sm:col-span-2 has-[:checked]:border-brand has-[:checked]:bg-sage/40">
+                    <input type="checkbox" name="schedule_access" defaultChecked={!!p.schedule_access} className="check mt-0.5" />
+                    <span>
+                      <span className="font-semibold">Can run the Community Schedule</span>
+                      <span className="block text-ink/55">Gets an Admin tab with only the Community Schedule: create, edit, publish and cancel sessions, and add or remove players. No Coaches, Members or Settings.</span>
+                    </span>
+                  </label>
+                )}
               </div>
               <Submit className="mt-5">Save</Submit>
             </ActionForm>

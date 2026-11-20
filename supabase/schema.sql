@@ -53,6 +53,7 @@ create table if not exists public.profiles (
   onboarded boolean not null default false,
   weekly_goal int not null default 1 check (weekly_goal between 1 and 3), -- sessions a week the player aims for
   leaderboard_hidden boolean not null default false,
+  schedule_access boolean not null default false, -- coach who may run the Community Schedule (20261120_schedule_access.sql)
   created_at timestamptz not null default now()
 );
 create index if not exists profiles_email_idx on public.profiles (lower(email));
@@ -235,9 +236,16 @@ language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.profiles where id = uid and role in ('coach','admin'))
 $$;
 
-create or replace function public.coaches_session(sid uuid) returns boolean
+create or replace function public.can_schedule() returns boolean
 language sql stable security definer set search_path = public as $$
   select public.is_admin() or exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'coach' and status = 'active' and schedule_access
+  )
+$$;
+
+create or replace function public.coaches_session(sid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.can_schedule() or exists (
     select 1 from public.sessions s where s.id = sid and auth.uid() = any (s.coach_ids) and public.is_staff()
   )
 $$;
@@ -332,11 +340,11 @@ create policy profiles_delete on public.profiles for delete using (public.is_adm
 -- sessions: published community sessions are visible to all; staff see all
 create policy sessions_read on public.sessions for select
   using ((status <> 'draft' and visibility = 'public' and session_type is not null) or public.is_staff() or public.has_booking(id));
-create policy sessions_write on public.sessions for all using (public.is_admin()) with check (public.is_admin());
+create policy sessions_write on public.sessions for all using (public.can_schedule()) with check (public.can_schedule());
 
 -- bookings: players see their own; staff see all. Players create/cancel via functions only.
 create policy bookings_read on public.bookings for select using (user_id = auth.uid() or public.is_staff());
-create policy bookings_admin on public.bookings for all using (public.is_admin()) with check (public.is_admin());
+create policy bookings_admin on public.bookings for all using (public.can_schedule()) with check (public.can_schedule());
 create policy bookings_coach_attendance on public.bookings for update to authenticated
   using (public.coaches_session(session_id)) with check (public.coaches_session(session_id));
 

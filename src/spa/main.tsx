@@ -167,7 +167,7 @@ async function frameMeta(actor: Actor): Promise<FrameMeta> {
   }
   return {
     settings,
-    user: u ? { id: u.id, full_name: u.full_name, role: u.role, email: u.email } : null,
+    user: u ? { id: u.id, full_name: u.full_name, role: u.role, email: u.email, schedule_access: u.schedule_access } : null,
     signedIn: !!u?.onboarded,
     demo,
   };

@@ -2,7 +2,7 @@
 import type { Actor, Booking, Client, CommissionRule, Feedback, Lesson, LessonKind, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
-import { coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
+import { canSchedule, coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
@@ -382,7 +382,7 @@ export async function loadCoachSession(ctx: LoadCtx) {
       const p = L.profile.get(b.user_id);
       return { booking: b, player: p ? { id: p.id, full_name: p.full_name, email: p.email, phone: p.phone, emergency_contact: p.emergency_contact } : null };
     });
-  return { session: view, roster, isAdmin: isAdmin(u), feedback, started: s.starts_at <= ctx.now.toISOString() };
+  return { session: view, roster, isAdmin: canSchedule(u), feedback, started: s.starts_at <= ctx.now.toISOString() };
 }
 
 /** The coach's community sessions over the next 8 days with who signed up and who's new in the last day. */
@@ -812,8 +812,10 @@ export async function loadSessionEditor(ctx: LoadCtx) {
     group: { capacity: settings.default_group_capacity, price_cents: settings.default_group_price_cents, duration_min: settings.default_group_duration_min },
     performance_accelerator: { capacity: settings.default_pa_capacity, price_cents: settings.default_pa_price_cents, duration_min: settings.default_pa_duration_min },
   };
+  const fullAdmin = isAdmin(ctx.actor.user);
   if (ctx.params.id === "new") {
     return {
+      fullAdmin,
       session: null,
       roster: [],
       coaches,
@@ -836,7 +838,7 @@ export async function loadSessionEditor(ctx: LoadCtx) {
       const p = L.profile.get(b.user_id);
       return { booking: b, player: p ? { ...person(p), email: p.email, phone: p.phone } : null };
     });
-  return { session: view, roster, coaches, members, defaults, places, prefill: null };
+  return { fullAdmin, session: view, roster, coaches, members, defaults, places, prefill: null };
 }
 
 export async function loadAdminCoaches(ctx: LoadCtx) {
