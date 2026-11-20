@@ -4,8 +4,8 @@ import type { CommissionRule, Lesson, Session } from "./types";
 import { addDays, dateKey, startOfWeek } from "./time";
 import { fullPlace } from "./util";
 
-export type Period = "week" | "month" | "year";
-export const PERIODS: Period[] = ["week", "month", "year"];
+export type Period = "day" | "week" | "month" | "year";
+export const PERIODS: Period[] = ["day", "week", "month", "year"];
 
 /** How many club commission rows the admin settings form shows. */
 export const COMMISSION_ROWS = 4;
@@ -129,6 +129,7 @@ export interface PeriodRange {
 }
 
 export function periodRange(period: Period, at: string): PeriodRange {
+  if (period === "day") return { from: at, to: addDays(at, 1), prev: addDays(at, -1), next: addDays(at, 1) };
   if (period === "week") {
     const from = startOfWeek(at);
     return { from, to: addDays(from, 7), prev: addDays(from, -7), next: addDays(from, 7) };
@@ -147,14 +148,16 @@ const short = (key: string) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${Number(
 export function periodLabel(period: Period, at: string): string {
   const { from, to } = periodRange(period, at);
   if (period === "year") return from.slice(0, 4);
+  if (period === "day") return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(`${from}T12:00:00Z`).getUTCDay()]}, ${short(from)}, ${from.slice(0, 4)}`;
   if (period === "month") return `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(from.slice(5, 7)) - 1]} ${from.slice(0, 4)}`;
   const last = addDays(to, -1);
   return `${short(from)} – ${from.slice(5, 7) === last.slice(5, 7) ? Number(last.slice(8, 10)) : short(last)}, ${last.slice(0, 4)}`;
 }
 
-/** The chart's columns: days of a week, weeks of a month, months of a year. */
+/** The chart's columns: the day itself, days of a week, weeks of a month, months of a year. */
 export function buckets(period: Period, at: string): { key: string; label: string; from: string; to: string }[] {
   const { from, to } = periodRange(period, at);
+  if (period === "day") return [{ key: from, label: short(from), from, to }];
   if (period === "week") {
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(from, i);

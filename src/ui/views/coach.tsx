@@ -10,7 +10,7 @@ import { CLINIC_COLOR, COVERED_COLOR, isOneOff, WEEKDAYS, weekdayOf, weekdayPlur
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle, shortPlace } from "@/core/util";
-import { commissionUnder, fmtPayroll, payday, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
+import { commissionUnder, fmtPayroll, payday, PERIODS, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
 
@@ -874,7 +874,10 @@ export function ruleText(r: CommissionRule): string {
   return rate && r.max_players ? `${rate}, up to ${r.max_players} players` : rate;
 }
 
-const PERIOD_WORD: Record<Period, string> = { week: "week", month: "month", year: "year" };
+const PERIOD_WORD: Record<Period, string> = { day: "day", week: "week", month: "month", year: "year" };
+/** "today", "this week", "this month", "this year". */
+const thisPeriod = (p: Period) => (p === "day" ? "today" : `this ${PERIOD_WORD[p]}`);
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 type Earnings = D<typeof loadCoachEarnings>;
 
@@ -885,7 +888,7 @@ function EarningsHero({ data }: { data: Earnings }) {
   const diff = t.net - data.previous.net;
   const ahead = data.scheduled.net;
   return (
-    <HeroPanel eyebrow={data.current ? `This ${word}` : data.label}>
+    <HeroPanel eyebrow={data.current ? cap(thisPeriod(data.period)) : data.label}>
       <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
       <p className="mt-1 text-sm text-paper/70">
         {data.current ? "earned so far, after commission" : "earned, after commission"}
@@ -895,7 +898,7 @@ function EarningsHero({ data }: { data: Earnings }) {
           </>
         )}
       </p>
-      {(data.previous.lessons + data.previous.sessions + data.previous.clinics > 0 || t.lessons + t.sessions + t.clinics > 0) && (
+      {data.period !== "day" && (data.previous.lessons + data.previous.sessions + data.previous.clinics > 0 || t.lessons + t.sessions + t.clinics > 0) && (
         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paper/10 px-3 py-1 text-[13px] ring-1 ring-paper/15">
           <span className={cx("font-semibold", diff > 0 ? "text-accent" : diff < 0 ? "text-[#F3B7A8]" : "")}>{diff > 0 ? "▲" : diff < 0 ? "▼" : "="} {usd(Math.abs(diff))}</span>
           <span className="text-paper/65">vs last {word}{data.current ? " at this point" : ""}</span>
@@ -912,7 +915,7 @@ function EarningsHero({ data }: { data: Earnings }) {
 
 function EarningsChart({ data }: { data: Earnings }) {
   const max = Math.max(1, ...data.chart.map((b) => b.earned + b.scheduled));
-  const title = { week: "By day", month: "By week", year: "By month" }[data.period];
+  const title = { day: "Today", week: "By day", month: "By week", year: "By month" }[data.period];
   return (
     <Card className="mb-6">
       <SectionTitle
@@ -1123,7 +1126,7 @@ function GettingPaid({ data }: { data: Earnings }) {
           <span className="min-w-0 text-sm">
             <span className="block font-semibold">Outside BTC</span>
             <span className="block truncate text-[12.5px] text-ink/55">
-              {data.current ? `This ${PERIOD_WORD[data.period]}` : data.label}
+              {data.current ? cap(thisPeriod(data.period)) : data.label}
               {places && ` · ${places}`}
             </span>
           </span>
@@ -1186,7 +1189,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
     ...data.lessons.map((r) => ({ at: r.lesson.starts_at, node: <LessonMoneyRow key={`l${r.lesson.id}`} r={r} today={data.today} /> })),
     ...data.sessions.map((r) => ({ at: r.session.starts_at, node: <SessionMoneyRow key={`s${r.session.id}`} r={r} today={data.today} /> })),
     ...data.clinics.filter((r) => !r.session.covered_by).map((r) => ({ at: r.session.starts_at, node: <ClinicMoneyRow key={`c${r.session.id}_${r.session.day}`} r={r} today={data.today} /> })),
-  ].sort((a, b) => (data.period === "week" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
+  ].sort((a, b) => (data.period === "week" || data.period === "day" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
   return (
     <>
       <PageHeader
@@ -1202,13 +1205,13 @@ export function CoachEarnings({ data }: { data: Earnings }) {
           </>
         }
       />
-      <Tabs current={data.period} items={(["week", "month", "year"] as const).map((p) => ({ key: p, label: p === "week" ? "Weekly" : p === "month" ? "Monthly" : "Yearly", href: withQuery(base, { period: p, at: data.at }) }))} />
+      <Tabs current={data.period} items={PERIODS.map((p) => ({ key: p, label: { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" }[p], href: withQuery(base, { period: p, at: data.at }) }))} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <A href={go(data.prev)} className={btn("outline", "sm")} aria-label={`Previous ${word}`}>
           <Icon name="left" size={16} />
         </A>
         <A href={withQuery(base, { period: data.period })} className={btn("outline", "sm")}>
-          This {word}
+          {data.period === "day" ? "Today" : `This ${word}`}
         </A>
         <A href={go(data.next)} className={btn("outline", "sm")} aria-label={`Next ${word}`}>
           <Icon name="right" size={16} />
@@ -1219,7 +1222,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
       {unpriced.length > 0 && (
         <div className="mb-5">
           <Notice tone="warn">
-            {unpriced.length === 1 ? "1 lesson" : `${unpriced.length} lessons`} this {word} {unpriced.length === 1 ? "has" : "have"} no price, so {unpriced.length === 1 ? "it isn't" : "they aren't"} counted:{" "}
+            {unpriced.length === 1 ? "1 lesson" : `${unpriced.length} lessons`} {thisPeriod(data.period)} {unpriced.length === 1 ? "has" : "have"} no price, so {unpriced.length === 1 ? "it isn't" : "they aren't"} counted:{" "}
             {unpriced.slice(0, 4).map((r, i) => (
               <span key={r.lesson.id}>
                 {i > 0 && ", "}
@@ -1232,10 +1235,10 @@ export function CoachEarnings({ data }: { data: Earnings }) {
           </Notice>
         </div>
       )}
-      <EarningsChart data={data} />
+      {data.period !== "day" && <EarningsChart data={data} />}
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div>
-          <SectionTitle action={<span className="text-sm text-ink/55">{items.length}</span>}>{data.current ? `This ${word}` : data.label}</SectionTitle>
+          <SectionTitle action={<span className="text-sm text-ink/55">{items.length}</span>}>{data.current ? cap(thisPeriod(data.period)) : data.label}</SectionTitle>
           {items.length ? (
             <div className="card divide-y divide-ink/[0.06]">
               {items.map((i) => i.node)}
@@ -1247,7 +1250,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
               )}
             </div>
           ) : (
-            <Empty icon="chart" title={`Nothing this ${word}`} body="Lessons, community sessions and clinics show up here with what you earned." action={<LinkButton href="/coach/lessons/new" icon="plus" size="sm">Add lesson</LinkButton>} />
+            <Empty icon="chart" title={`Nothing ${thisPeriod(data.period)}`} body="Lessons, community sessions and clinics show up here with what you earned." action={<LinkButton href="/coach/lessons/new" icon="plus" size="sm">Add lesson</LinkButton>} />
           )}
         </div>
         <aside className="space-y-4">

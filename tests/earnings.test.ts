@@ -43,6 +43,9 @@ test("periods: weeks start Monday, months split into weeks, years into months", 
   assert.equal(periodLabel("week", "2026-11-04"), "Nov 2 – 8, 2026");
   assert.equal(periodLabel("week", "2026-11-30"), "Nov 30 – Dec 6, 2026");
   assert.equal(periodLabel("month", "2026-11-04"), "November 2026");
+  assert.deepEqual(periodRange("day", "2026-11-30"), { from: "2026-11-30", to: "2026-12-01", prev: "2026-11-29", next: "2026-12-01" });
+  assert.equal(periodLabel("day", "2026-11-20"), "Fri, Nov 20, 2026");
+  assert.equal(buckets("day", "2026-11-20").length, 1);
   const weeks = buckets("month", "2026-11-04");
   assert.equal(weeks[0].from, "2026-11-01"); // Nov 1 2026 is a Sunday: a one-day first column
   assert.equal(weeks[1].from, "2026-11-02");
