@@ -3,7 +3,7 @@ import type { Actor, Booking, Client, Clinic, ClinicCover, CommissionRule, Feedb
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { canSchedule, coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
-import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
+import { BALBOA_FULL, by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { allClinicDates, CLINIC_COLOR, COVERED_COLOR, clinicDates, clinicMoney, clinicPayday, type ClinicDate } from "./clinics";
@@ -551,15 +551,16 @@ function coachMoney(coachId: string, lessons: Lesson[], sessions: PlayedSession[
       place: ruleFor(l.location, rules, lessonPlayers(l))?.place ?? null,
       payday: isBalboa(l.location) ? payday(dateKey(l.starts_at)) : null,
     }));
+  // Community sessions are BTC's: its commission and its payroll, whatever the location says.
   const sessionRows = sessions
     .filter((s) => s.coach_ids.includes(coachId))
     .map((s) => ({
       session: { id: s.id, session_type: s.session_type, title: s.title, starts_at: s.starts_at, ends_at: s.ends_at, location: s.location, price_cents: s.price_cents, coaches: s.coach_ids.length, players: s.booked, courts: courtsInUse(s) },
-      money: sessionShare(s, s.booked, rules, courtsInUse(s)),
+      money: sessionShare({ ...s, location: BALBOA_FULL }, s.booked, rules, courtsInUse(s)),
       done: s.ends_at <= now,
       hours: hours(s.starts_at, s.ends_at),
-      place: ruleFor(s.location, rules, playersPerCourt(s.booked, courtsInUse(s))[0])?.place ?? null,
-      payday: isBalboa(s.location) ? payday(dateKey(s.starts_at)) : null,
+      place: ruleFor(BALBOA_FULL, rules, playersPerCourt(s.booked, courtsInUse(s))[0])?.place ?? null,
+      payday: payday(dateKey(s.starts_at)),
     }));
   return { lessonRows, sessionRows };
 }

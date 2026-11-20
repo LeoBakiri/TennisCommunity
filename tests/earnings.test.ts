@@ -132,6 +132,19 @@ test("the earnings page counts only the coach's own lessons, after commission", 
   assert.ok(data.paydays.length > 0 && data.paydays.every((p) => p.date >= dateKey(new Date())));
 });
 
+test("community sessions are BTC's: its commission and payroll, even with another location typed", async () => {
+  const { store, load } = setup();
+  const sessions = await store.list("sessions");
+  const mine = sessions.filter((s) => s.coach_ids.includes(DEMO_IDS.leo));
+  for (const s of mine) await store.update("sessions", s.id, { location: "Morley Field" });
+  const data = await loadCoachEarnings(await load(DEMO_IDS.leo, { period: "year" }));
+  assert.ok(data.sessions.length > 0);
+  for (const r of data.sessions) {
+    assert.equal(r.payday, payday(dateKey(r.session.starts_at)));
+    if (r.session.players > 0 && r.money.priced) assert.ok(r.money.commission > 0, "BTC's commission comes off");
+  }
+});
+
 // Balboa: $25 an hour for 4 players or fewer, 30% for 5 or more.
 const balboa = [rule({ id: "small", per_hour_cents: 2500, max_players: 4 }), rule({ id: "big", percent: 30 })];
 
