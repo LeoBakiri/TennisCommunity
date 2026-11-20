@@ -350,6 +350,12 @@
   .z-\[7\] {
     z-index: 7;
   }
+  .z-\[9\] {
+    z-index: 9;
+  }
+  .z-\[25\] {
+    z-index: 25;
+  }
   .z-\[60\] {
     z-index: 60;
   }
@@ -1011,6 +1017,9 @@
   }
   .overscroll-contain {
     overscroll-behavior: contain;
+  }
+  .overscroll-x-contain {
+    overscroll-behavior-x: contain;
   }
   .rounded {
     border-radius: 0.25rem;
@@ -2283,9 +2292,6 @@
       --tw-brightness: brightness(110%);
       filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
     }
-  }
-  .active\:bg-paper:active {
-    background-color: var(--paper);
   }
   .has-\[\:checked\]\:border-brand:has(:is(:checked)) {
     border-color: var(--brand);

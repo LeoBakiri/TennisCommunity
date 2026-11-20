@@ -551,6 +551,8 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
 
 const HOUR_PX = 64;
 const SNAP = 30; // minutes: every drag lands on a half hour
+const TIME_COL = 52;
+const COLS = `${TIME_COL}px repeat(7, minmax(0, 1fr))`;
 
 /** A stretch of one day on the grid, in minutes from midnight. */
 export interface GridSlot {
@@ -569,12 +571,12 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 /**
  * The coach's week. On a computer, dragging over empty time picks a slot for a new lesson, dragging a lesson
  * moves it, and pulling its bottom edge changes its length, all in half-hour steps. A tap picks an hour.
+ * Phones get the same grid, scrolled sideways, with the times pinned on the left.
  */
 export function WeekGrid({
   days,
   today,
   items,
-  newHref,
   nowIso,
   onCreate,
   onMove,
@@ -583,7 +585,6 @@ export function WeekGrid({
   days: string[];
   today: string;
   items: ScheduleItem[];
-  newHref?: (day: string, time: string) => string;
   nowIso?: string;
   onCreate?: (slot: GridSlot) => void;
   onMove?: (item: ScheduleItem, slot: GridSlot) => Promise<unknown>;
@@ -598,8 +599,14 @@ export function WeekGrid({
   const hi = endH * 60;
   const nowMin = nowIso ? minutesOfDay(nowIso) : null;
   const nowDay = nowIso ? dateKey(nowIso) : null;
-  // On a phone, this week's list starts today rather than with days already gone.
-  const phoneDays = days.includes(today) ? days.filter((d) => d >= today) : days;
+  // On a phone only two or three days fit, so the week opens scrolled to today.
+  const scroller = useRef<HTMLDivElement>(null);
+  const todayAt = days.indexOf(today);
+  useEffect(() => {
+    const el = scroller.current;
+    const col = cols.current[todayAt];
+    if (el && col && todayAt > 0 && el.scrollWidth > el.clientWidth) el.scrollLeft = col.offsetLeft - TIME_COL;
+  }, [todayAt, days[0]]);
 
   const [drag, setDragState] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -694,46 +701,10 @@ export function WeekGrid({
 
   return (
     <>
-      {/* Phones: a simple day-by-day list */}
-      <div className="space-y-4 md:hidden">
-        {phoneDays.map((d) => {
-          const list = items.filter((s) => dateKey(s.starts_at) === d);
-          return (
-            <section key={d} className="card overflow-hidden">
-              <div className={cx("flex items-center justify-between border-b border-ink/[0.06] px-4 py-2.5", d === today ? "bg-sage/50" : "bg-paper/60")}>
-                <h3 className="text-sm font-semibold">{fmtKeyLong(d)}</h3>
-                {newHref && (
-                  <A href={newHref(d, "08:00")} className="rounded-lg p-1 text-brand" aria-label={`Add a lesson on ${fmtKeyLong(d)}`}>
-                    <Icon name="plus" size={18} />
-                  </A>
-                )}
-              </div>
-              {list.length ? (
-                <div className="divide-y divide-ink/[0.06]">
-                  {list.map((s) => (
-                    <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", (s.cancelled || s.faded) && "opacity-50")}>
-                      <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={34} />
-                      <span className="min-w-0 flex-1">
-                        <span className={cx("block truncate text-[15px] font-semibold", (s.cancelled || s.faded) && "line-through")}>{s.title}</span>
-                        <span className="block truncate text-[13px] text-ink/55">
-                          {fmtRange(s.starts_at, s.ends_at)} · {s.label}
-                        </span>
-                      </span>
-                      <Icon name="right" size={16} className="text-ink/30" />
-                    </A>
-                  ))}
-                </div>
-              ) : (
-                <p className="px-4 py-3 text-sm text-ink/40">Nothing scheduled</p>
-              )}
-            </section>
-          );
-        })}
-      </div>
-      <div className="card hidden overflow-x-auto md:block">
+      <div ref={scroller} className="card overflow-x-auto overscroll-x-contain">
         <div className="min-w-[820px]">
-          <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}>
-            <div />
+          <div className="sticky top-0 z-10 grid border-b border-ink/[0.07] bg-card" style={{ gridTemplateColumns: COLS }}>
+            <div className="sticky left-0 z-[9] bg-card" />
             {days.map((d) => (
               <div key={d} className="border-l border-ink/[0.05] px-2 py-2 text-center">
                 <div className={cx("text-[11px] font-semibold tracking-wide uppercase", d === today ? "text-brand" : "text-ink/45")}>{fmtKeyWeekday(d)}</div>
@@ -741,8 +712,8 @@ export function WeekGrid({
               </div>
             ))}
           </div>
-          <div className={cx("relative grid select-none", drag?.moved && (drag.kind === "resize" ? "cursor-ns-resize" : "cursor-grabbing"))} style={{ gridTemplateColumns: `64px repeat(7, 1fr)`, height }}>
-            <div className="relative">
+          <div className={cx("relative grid select-none", drag?.moved && (drag.kind === "resize" ? "cursor-ns-resize" : "cursor-grabbing"))} style={{ gridTemplateColumns: COLS, height }}>
+            <div className="sticky left-0 z-[25] bg-card">
               {hours.map((h, i) => (
                 <div key={h}>
                   {i > 0 && (

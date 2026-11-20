@@ -360,12 +360,12 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
           ))}
         </div>
       </div>
+      <p className="mb-2 text-[12.5px] text-ink/50 md:hidden">Tap free time to book a lesson. Swipe sideways for the rest of the week.</p>
       <p className="mb-2 hidden text-[12.5px] text-ink/50 md:block">Drag over free time to book a lesson. Drag a lesson to move it, or pull its bottom edge to make it longer or shorter.</p>
       <WeekGrid
         days={data.days}
         today={data.today}
         items={data.items}
-        newHref={(d, t) => addHref("private", d, t)}
         nowIso={data.nowIso}
         draft={draft}
         onCreate={setDraft}
