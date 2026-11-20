@@ -6,7 +6,7 @@ import { canSchedule, coachesSession, getSettings, holdsSeat, isActive, isAdmin,
 import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
-import { allClinicDates, CLINIC_COLOR, clinicDates, clinicMoney, clinicPayday, type ClinicDate } from "./clinics";
+import { allClinicDates, CLINIC_COLOR, COVERED_COLOR, clinicDates, clinicMoney, clinicPayday, type ClinicDate } from "./clinics";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
@@ -60,7 +60,7 @@ const clinicItem = (d: ClinicDate): ScheduleItem => ({
   id: `${d.clinic.id}_${d.day}`,
   title: d.clinic.title,
   label: d.cover ? coveredWord(d) : "Club Clinic",
-  color: CLINIC_COLOR,
+  color: d.cover ? COVERED_COLOR : CLINIC_COLOR,
   starts_at: d.starts_at,
   ends_at: d.ends_at,
   href: `/coach/clinics/${d.clinic.id}?day=${d.day}`,

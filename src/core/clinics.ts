@@ -7,6 +7,8 @@ import { payday, type Money } from "./earnings";
 
 export const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 export const CLINIC_COLOR = "#3E6E8E";
+/** A night someone else covered: grey on the schedule and in Earnings. */
+export const COVERED_COLOR = "#9A9F9B";
 
 /** Monday = 0 … Sunday = 6, for a date key. */
 export const weekdayOf = (day: string) => (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7;

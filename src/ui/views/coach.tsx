@@ -6,7 +6,7 @@ import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWo
 import { LocationCourt, TimeSelect } from "./admin";
 import { ClientCombobox, Dropdown } from "../picker";
 import type { loadClinicEditor, loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
-import { CLINIC_COLOR, WEEKDAYS, weekdayOf, weekdayPlural } from "@/core/clinics";
+import { CLINIC_COLOR, COVERED_COLOR, WEEKDAYS, weekdayOf, weekdayPlural } from "@/core/clinics";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle, shortPlace } from "@/core/util";
@@ -998,7 +998,7 @@ function ClinicMoneyRow({ r, today }: { r: Earnings["clinics"][number]; today: s
   const c = r.session;
   return (
     <div className={cx("flex items-center gap-3 px-4 py-3 md:px-5", c.covered_by && "opacity-60")}>
-      <Dot color={CLINIC_COLOR} className="shrink-0" />
+      <Dot color={c.covered_by ? COVERED_COLOR : CLINIC_COLOR} className="shrink-0" />
       <A href={`/coach/clinics/${c.id}?day=${c.day}`} className="min-w-0 flex-1 hover:underline">
         <div className="truncate text-sm font-semibold">{c.title}</div>
         <div className="truncate text-[12.5px] text-ink/55">

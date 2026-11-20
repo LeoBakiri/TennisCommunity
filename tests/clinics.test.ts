@@ -65,6 +65,7 @@ test("adding a clinic, covering a night and seeing it on the schedule and in Ear
   assert.equal(cover.ok, true, JSON.stringify(cover));
   const after = await loadCoachSchedule(await load(DEMO_IDS.leo, {}, { week: c.starts_on }));
   assert.equal(after.items.find((i) => i.id === `${c.id}_${c.starts_on}`)?.faded, true);
+  assert.equal(after.items.find((i) => i.id === `${c.id}_${c.starts_on}`)?.color, "#9A9F9B"); // grey once covered
   const page = await loadClinicEditor(await load(DEMO_IDS.leo, { id: c.id }, { day: c.starts_on }));
   assert.equal(page.day, c.starts_on);
   assert.equal(page.nights.find((n) => n.day === c.starts_on)?.covered_by, "Kaan");
