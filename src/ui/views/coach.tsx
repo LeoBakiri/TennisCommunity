@@ -878,22 +878,22 @@ const PERIOD_WORD: Record<Period, string> = { week: "week", month: "month", year
 
 type Earnings = D<typeof loadCoachEarnings>;
 
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-/** "3 lessons · 2 sessions · 2 clinics", leaving out what's zero (lessons always shown). */
-const taughtLabel = (t: { lessons: number; sessions: number; clinics: number }) =>
-  [count(t.lessons, "lesson"), t.sessions ? count(t.sessions, "session") : "", t.clinics ? count(t.clinics, "clinic") : ""].filter(Boolean).join(" · ");
-const earnedFrom = (t: { clinics: number }) => (t.clinics ? "lessons, sessions and clinics" : "lessons and community sessions");
 
 function EarningsHero({ data }: { data: Earnings }) {
   const t = data.totals;
   const word = PERIOD_WORD[data.period];
   const diff = t.net - data.previous.net;
+  const ahead = data.scheduled.net;
   return (
     <HeroPanel eyebrow={data.current ? `This ${word}` : data.label}>
       <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
       <p className="mt-1 text-sm text-paper/70">
-        {data.current ? `earned so far from ${earnedFrom(t)}, after commission` : `earned from ${earnedFrom(t)}, after commission`}
-        {data.scheduled.lessons + data.scheduled.clinics > 0 && <span className="text-accent"> · {usd(data.scheduled.net)} more booked</span>}
+        {data.current ? "earned so far, after commission" : "earned, after commission"}
+        {ahead > 0 && (
+          <>
+            <span className="text-accent"> · {usd(ahead)} still to come</span> · {usd(t.net + ahead)} for the {word}
+          </>
+        )}
       </p>
       {(data.previous.lessons + data.previous.sessions + data.previous.clinics > 0 || t.lessons + t.sessions + t.clinics > 0) && (
         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paper/10 px-3 py-1 text-[13px] ring-1 ring-paper/15">
@@ -901,11 +901,10 @@ function EarningsHero({ data }: { data: Earnings }) {
           <span className="text-paper/65">vs last {word}{data.current ? " at this point" : ""}</span>
         </div>
       )}
-      <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
-        <HeroStat value={t.lessons + t.sessions + t.clinics} label={t.sessions || t.clinics ? taughtLabel(t) : t.lessons === 1 ? "lesson taught" : "lessons taught"} />
+      <dl className="mt-6 grid max-w-md grid-cols-3 gap-2">
         <HeroStat value={t.hours} label="hours" />
         <HeroStat value={t.hours ? usd(t.per_hour) : "—"} label="per hour" />
-        <HeroStat value={usd(t.commission)} label="club commission" />
+        <HeroStat value={usd(t.commission)} label="commission" />
       </dl>
     </HeroPanel>
   );
@@ -1078,13 +1077,16 @@ function downloadCsv(data: Earnings) {
 }
 
 function Breakdown({ data }: { data: Earnings }) {
-  const max = Math.max(1, ...data.byKind.map((k) => k.net));
+  const kinds = data.byKind.filter((k) => k.lessons + k.sessions + k.clinics > 0);
+  if (!kinds.length) return null;
+  const max = Math.max(1, ...kinds.map((k) => k.net));
+  const total = kinds.reduce((n, k) => n + k.net, 0);
   const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : k === "clinic" ? { label: "Club clinics", color: CLINIC_COLOR } : LESSON_META[k]);
   return (
     <Card>
-      <SectionTitle>Breakdown</SectionTitle>
+      <SectionTitle action={<span className="font-display text-lg font-semibold tabular-nums">{usd(total)}</span>}>Breakdown</SectionTitle>
       <div className="space-y-3">
-        {data.byKind.map((k) => (
+        {kinds.map((k) => (
           <div key={k.kind}>
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-2">
@@ -1099,37 +1101,53 @@ function Breakdown({ data }: { data: Earnings }) {
           </div>
         ))}
       </div>
-      {data.byPlace.length > 0 && (
-        <div className="mt-5 border-t border-ink/[0.07] pt-4">
-          <h3 className="mb-2 text-[13px] font-medium text-ink/55">By place</h3>
-          <div className="space-y-2">
-            {data.byPlace.map((p) => (
-              <div key={p.name} className="flex items-start justify-between gap-3 text-sm">
-                <span className="min-w-0">
-                  <span className="block truncate">{p.name}</span>
-                  <span className="block text-[12px] text-ink/50">
-                    {p.lessons} {p.lessons === 1 ? "lesson or session" : "lessons and sessions"}
-                    {p.commission > 0 && ` · ${usd(p.commission)} commission`}
-                  </span>
-                </span>
-                <span className="shrink-0 font-semibold tabular-nums">{usd(p.net)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {data.scheduled.net > 0 && <p className="mt-4 text-[12px] text-ink/45">Includes {usd(data.scheduled.net)} still to come.</p>}
+    </Card>
+  );
+}
+
+/** BTC payroll periods, plus lessons elsewhere the player still has to pay for. */
+function GettingPaid({ data }: { data: Earnings }) {
+  const owed = data.owed.lessons;
+  if (!data.paydays.length && !owed.length) return null;
+  return (
+    <Card>
+      <SectionTitle>Getting paid</SectionTitle>
+      {data.paydays.length > 0 && (
+        <ul className="space-y-3">
+          {data.paydays.map((p) => (
+            <li key={p.date} className="flex items-start justify-between gap-3">
+              <span className="min-w-0 text-sm">
+                <span className="block font-semibold">BTC payroll</span>
+                <span className="block text-[12.5px] text-ink/55">{fmtPayroll(p.date)}</span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block font-display text-lg font-semibold tabular-nums">{usd(p.earned)}</span>
+                {p.booked > 0 && <span className="block text-[12px] text-ink/50">+ {usd(p.booked)} to come</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
-      {data.clients.length > 0 && (
-        <div className="mt-5 border-t border-ink/[0.07] pt-4">
-          <h3 className="mb-2 text-[13px] font-medium text-ink/55">Top players</h3>
-          <div className="space-y-2">
-            {data.clients.map((c) => (
-              <div key={c.name} className="flex items-center gap-2.5 text-sm">
-                <Avatar name={c.name} size={26} />
-                <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                <span className="text-[12px] text-ink/45">{c.lessons}×</span>
-                <span className="w-16 shrink-0 text-right font-semibold tabular-nums">{usd(c.net)}</span>
+      {owed.length > 0 && (
+        <div className={cx(data.paydays.length > 0 && "mt-4 border-t border-ink/[0.07] pt-4")}>
+          <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+            <span className="font-semibold">Owed to you</span>
+            <span className="font-display text-lg font-semibold tabular-nums">{usd(data.owed.total)}</span>
+          </div>
+          <div className="-mx-1 space-y-1">
+            {owed.slice(0, 8).map(({ lesson: l, money: m }) => (
+              <div key={l.id} className="flex items-center gap-2 rounded-lg px-1 py-1.5">
+                <A href={`/coach/lessons/${l.id}`} className="min-w-0 flex-1 hover:underline">
+                  <div className="truncate text-sm font-medium">{lessonTitle(l)}</div>
+                  <div className="text-[12px] text-ink/50">
+                    {fmtDay(l.starts_at)} · {usd(m.gross)}
+                  </div>
+                </A>
+                <PaidButton lessonId={l.id} paid={false} />
               </div>
             ))}
+            {owed.length > 8 && <p className="px-1 text-[12.5px] text-ink/50">and {owed.length - 8} more</p>}
           </div>
         </div>
       )}
@@ -1142,6 +1160,13 @@ export function CoachEarnings({ data }: { data: Earnings }) {
   const word = PERIOD_WORD[data.period];
   const go = (at: string) => withQuery(base, { period: data.period, at });
   const unpriced = data.totals.unpriced;
+  // Everything in one list: oldest first for a week (reads like the chart), newest first for longer periods.
+  const covered = data.clinics.filter((r) => r.session.covered_by);
+  const items = [
+    ...data.lessons.map((r) => ({ at: r.lesson.starts_at, node: <LessonMoneyRow key={`l${r.lesson.id}`} r={r} today={data.today} /> })),
+    ...data.sessions.map((r) => ({ at: r.session.starts_at, node: <SessionMoneyRow key={`s${r.session.id}`} r={r} today={data.today} /> })),
+    ...data.clinics.filter((r) => !r.session.covered_by).map((r) => ({ at: r.session.starts_at, node: <ClinicMoneyRow key={`c${r.session.id}_${r.session.day}`} r={r} today={data.today} /> })),
+  ].sort((a, b) => (data.period === "week" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
   return (
     <>
       <PageHeader
@@ -1190,94 +1215,24 @@ export function CoachEarnings({ data }: { data: Earnings }) {
       <EarningsChart data={data} />
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div>
-          <SectionTitle action={<span className="text-sm text-ink/55">{data.lessons.length} {data.lessons.length === 1 ? "lesson" : "lessons"}</span>}>Lessons</SectionTitle>
-          {data.lessons.length ? (
+          <SectionTitle action={<span className="text-sm text-ink/55">{items.length}</span>}>{data.current ? `This ${word}` : data.label}</SectionTitle>
+          {items.length ? (
             <div className="card divide-y divide-ink/[0.06]">
-              {data.lessons.map((r) => (
-                <LessonMoneyRow key={r.lesson.id} r={r} today={data.today} />
-              ))}
+              {items.map((i) => i.node)}
+              {covered.length > 0 && (
+                <div className="flex items-center gap-3 px-4 py-2.5 text-[12.5px] text-ink/50 md:px-5">
+                  <Dot color={COVERED_COLOR} className="shrink-0" />
+                  {covered.length === 1 ? "1 clinic night" : `${covered.length} clinic nights`} covered by someone else
+                </div>
+              )}
             </div>
           ) : (
-            <Empty icon="chart" title={`No lessons this ${word}`} body="Private and semi-private lessons you add to My Schedule show up here with what you earned." action={<LinkButton href="/coach/lessons/new" icon="plus" size="sm">Add lesson</LinkButton>} />
-          )}
-          {data.sessions.length > 0 && (
-            <div className="mt-6">
-              <SectionTitle action={<span className="text-sm text-ink/55">{data.sessions.length} {data.sessions.length === 1 ? "session" : "sessions"}</span>}>Community sessions</SectionTitle>
-              <div className="card divide-y divide-ink/[0.06]">
-                {data.sessions.map((r) => (
-                  <SessionMoneyRow key={r.session.id} r={r} today={data.today} />
-                ))}
-              </div>
-              <p className="mt-2 text-[12.5px] text-ink/50">Your share: every booked player times the price, minus the club's commission (worked out court by court), split evenly between the coaches.</p>
-            </div>
-          )}
-          {data.clinics.length > 0 && (
-            <div className="mt-6">
-              <SectionTitle action={<span className="text-sm text-ink/55">{count(data.clinics.length, "clinic")}</span>}>Club clinics</SectionTitle>
-              <div className="card divide-y divide-ink/[0.06]">
-                {data.clinics.map((r) => (
-                  <ClinicMoneyRow key={`${r.session.id}_${r.session.day}`} r={r} today={data.today} />
-                ))}
-              </div>
-              <p className="mt-2 text-[12.5px] text-ink/50">The flat pay before tax, with no commission. Nights someone else covered count as $0.</p>
-            </div>
+            <Empty icon="chart" title={`Nothing this ${word}`} body="Lessons, community sessions and clinics show up here with what you earned." action={<LinkButton href="/coach/lessons/new" icon="plus" size="sm">Add lesson</LinkButton>} />
           )}
         </div>
         <aside className="space-y-4">
-          {data.paydays.length > 0 && (
-            <Card>
-              <SectionTitle>BTC payroll</SectionTitle>
-              <ul className="space-y-3">
-                {data.paydays.map((p) => (
-                  <li key={p.date} className="flex items-start justify-between gap-3">
-                    <span className="min-w-0 text-sm font-semibold">{fmtPayroll(p.date)}</span>
-                    <span className="shrink-0 text-right">
-                      <span className="block font-display text-lg font-semibold tabular-nums">{usd(p.earned)}</span>
-                      {p.booked > 0 && <span className="block text-[12px] text-ink/50">+ {usd(p.booked)} booked</span>}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-          <Card>
-            <SectionTitle action={data.owed.lessons.length > 0 && <span className="font-display text-lg font-semibold tabular-nums">{usd(data.owed.total)}</span>}>Owed to you</SectionTitle>
-            {data.owed.lessons.length ? (
-              <div className="-mx-1 space-y-1">
-                {data.owed.lessons.slice(0, 8).map(({ lesson: l, money: m }) => (
-                  <div key={l.id} className="flex items-center gap-2 rounded-lg px-1 py-1.5">
-                    <A href={`/coach/lessons/${l.id}`} className="min-w-0 flex-1 hover:underline">
-                      <div className="truncate text-sm font-medium">{lessonTitle(l)}</div>
-                      <div className="text-[12px] text-ink/50">
-                        {fmtDay(l.starts_at)} · {usd(m.gross)}
-                      </div>
-                    </A>
-                    <PaidButton lessonId={l.id} paid={false} />
-                  </div>
-                ))}
-                {data.owed.lessons.length > 8 && <p className="px-1 text-[12.5px] text-ink/50">and {data.owed.lessons.length - 8} more</p>}
-              </div>
-            ) : (
-              <p className="text-sm text-ink/55">All caught up. Every past lesson outside BTC is marked paid.</p>
-            )}
-          </Card>
+          <GettingPaid data={data} />
           <Breakdown data={data} />
-          <Card>
-            <SectionTitle>Club commission</SectionTitle>
-            {data.rules.length ? (
-              <ul className="space-y-1 text-sm text-ink/70">
-                {data.rules.map((r) => (
-                  <li key={r.id} className="flex justify-between gap-3">
-                    <span>{r.place}</span>
-                    <span className="font-medium">{ruleText(r) || "None"}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-ink/55">No club commission is set yet, so you keep the full price.</p>
-            )}
-            <p className="mt-2 text-[12px] text-ink/45">Applied automatically by lesson location. Set by the admin.</p>
-          </Card>
         </aside>
       </div>
     </>
