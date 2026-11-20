@@ -652,17 +652,19 @@ export const actions: Record<string, Handler> = {
   }),
 
   /** What reached the bank for one BTC payroll, after tax. Empty clears it. */
-  savePaycheck: action(z.object({ payday: date, take_home: dollars }), async (ctx, input) => {
+  savePaycheck: action(z.object({ payday: date, take_home: dollars, gross: dollars.optional().transform((v) => v ?? null) }), async (ctx, input) => {
     const u = staff(ctx);
     if (!/-(05|20)$/.test(input.payday)) throw new UserError("BTC pays on the 5th and the 20th.");
     if (input.payday > dateKey(ctx.now)) throw new UserError("That payroll hasn't been paid yet.");
     const have = await ctx.store.list("paychecks", { eq: { coach_id: u.id, payday: input.payday } });
+    if (input.take_home === null && input.gross !== null) throw new UserError("Add what you got after tax too.");
+    if (input.gross !== null && input.take_home !== null && input.take_home > input.gross) throw new UserError("After tax can't be more than before tax.");
     if (input.take_home === null) {
       for (const x of have) await ctx.store.remove("paychecks", x.id);
       return { ok: true, message: "Take-home cleared." };
     }
-    if (have[0]) await ctx.store.update("paychecks", have[0].id, { take_home_cents: input.take_home, updated_at: nowIso() });
-    else await ctx.store.insert("paychecks", { id: uid(), coach_id: u.id, payday: input.payday, take_home_cents: input.take_home, created_at: nowIso(), updated_at: nowIso() });
+    if (have[0]) await ctx.store.update("paychecks", have[0].id, { take_home_cents: input.take_home, gross_cents: input.gross, updated_at: nowIso() });
+    else await ctx.store.insert("paychecks", { id: uid(), coach_id: u.id, payday: input.payday, take_home_cents: input.take_home, gross_cents: input.gross, created_at: nowIso(), updated_at: nowIso() });
     return { ok: true, message: "Take-home saved." };
   }),
 

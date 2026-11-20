@@ -1113,7 +1113,9 @@ function Breakdown({ data }: { data: Earnings }) {
 function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
   const [editing, setEditing] = useState(false);
   const saved = p.take_home !== null;
-  const tax = saved && p.earned > 0 ? Math.round((1 - p.take_home! / p.earned) * 100) : null;
+  // The pay stub's before-tax amount wins over the app's own total.
+  const before = p.gross ?? (p.earned > 0 ? p.earned : null);
+  const tax = saved && before ? Math.round((1 - p.take_home! / before) * 100) : null;
   return (
     <li>
       <div className="flex items-start justify-between gap-3">
@@ -1123,9 +1125,9 @@ function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
             {fmtPayroll(p.date)} · paid {fmtPayday(p.date)}
           </span>
         </span>
-        {(saved || p.earned > 0) && (
+        {(saved || before !== null) && (
           <span className="shrink-0 text-right">
-            <span className="block font-display text-lg font-semibold tabular-nums">{usd(saved ? p.take_home! : p.earned)}</span>
+            <span className="block font-display text-lg font-semibold tabular-nums">{usd(saved ? p.take_home! : before!)}</span>
             <span className="block text-[12px] text-ink/50">{saved ? "after tax" : "before tax"}</span>
           </span>
         )}
@@ -1133,7 +1135,8 @@ function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
       {saved && !editing ? (
         <div className="mt-1.5 flex items-center justify-between gap-2 text-[12.5px] text-ink/55">
           <span>
-            {p.earned > 0 ? `${usd(p.earned)} before tax` : ""}{tax !== null && tax > 0 ? ` · ${tax}% tax` : ""}
+            {before !== null ? `${usd(before)} before tax` : ""}
+            {tax !== null && tax > 0 ? ` · ${tax}% tax` : ""}
           </span>
           <button type="button" className="font-semibold text-ink/70 hover:underline" onClick={() => setEditing(true)}>
             Edit
@@ -1141,10 +1144,15 @@ function PaycheckRow({ p }: { p: Earnings["paychecks"][number] }) {
         </div>
       ) : (
         <ActionForm action="savePaycheck" hidden={{ payday: p.date }} className="mt-2" onDone={(r) => r.ok && setEditing(false)}>
-          <div className="flex items-end gap-2">
-            <Field label="What you got after tax" className="min-w-0 flex-1">
-              <input className="input" name="take_home" inputMode="decimal" placeholder="$0.00" defaultValue={saved ? (p.take_home! / 100).toFixed(2) : ""} autoFocus={editing} />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Before tax" hint="From your pay stub">
+              <input className="input" name="gross" inputMode="decimal" placeholder={p.earned > 0 ? usd(p.earned) : "$0.00"} defaultValue={p.gross !== null ? (p.gross / 100).toFixed(2) : ""} autoFocus={editing} />
             </Field>
+            <Field label="After tax" hint="What reached the bank">
+              <input className="input" name="take_home" inputMode="decimal" placeholder="$0.00" defaultValue={saved ? (p.take_home! / 100).toFixed(2) : ""} />
+            </Field>
+          </div>
+          <div className="mt-2 flex justify-end">
             <Submit variant="outline">Save</Submit>
           </div>
         </ActionForm>

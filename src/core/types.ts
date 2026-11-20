@@ -136,6 +136,7 @@ export interface Paycheck {
   coach_id: string;
   payday: string; // date key: the 5th or the 20th
   take_home_cents: number;
+  gross_cents: number | null; // before tax, from the pay stub; null uses the app's own total
   created_at: string;
   updated_at: string;
 }

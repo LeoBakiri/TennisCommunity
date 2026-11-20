@@ -220,6 +220,14 @@ test("a coach saves what a paid BTC payroll left after tax", async () => {
   // Not a payday, or not paid yet: refused. Empty clears it.
   assert.equal((await runAction(leo, "savePaycheck", { payday: addDays(p.date, 1), take_home: "10" })).ok, false);
   assert.equal((await runAction(leo, "savePaycheck", { payday: "2099-01-05", take_home: "10" })).ok, false);
+  // Before tax from the pay stub is optional, and can't be less than after tax.
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, gross: "1500", take_home: "1200" })).ok, true);
+  assert.equal((await store.list("paychecks"))[0].gross_cents, 150000);
+  assert.equal((await loadCoachEarnings(await load(DEMO_IDS.leo, { period: "year" }))).paychecks.find((x) => x.date === p.date)!.gross, 150000);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, gross: "1000", take_home: "1200" })).ok, false);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, gross: "1000", take_home: "" })).ok, false);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, gross: "", take_home: "1200" })).ok, true);
+  assert.equal((await store.list("paychecks"))[0].gross_cents, null);
   assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: "" })).ok, true);
   assert.equal((await store.list("paychecks")).length, 0);
 });

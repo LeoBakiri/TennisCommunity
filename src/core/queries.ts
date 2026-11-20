@@ -605,6 +605,7 @@ function pastPaydays(rows: MoneyRow[], today: string, range: { from: string; to:
     date,
     earned: addMoney(rows.filter((r) => r.payday === date).map((r) => r.money)).net,
     take_home: saved.find((p) => p.payday === date)?.take_home_cents ?? null,
+    gross: saved.find((p) => p.payday === date)?.gross_cents ?? null,
   }));
 }
 
