@@ -177,7 +177,7 @@ async function reindexWaitlist(ctx: Ctx, sessionId: string) {
 
 function decided(choice: "run" | "one_court" | "cancel", moved: number): ActionResult {
   const players = `${moved} player${moved === 1 ? "" : "s"}`;
-  if (choice === "cancel") return { ok: true, message: moved ? `Session cancelled. Let the ${players} know on WhatsApp.` : "Session cancelled." };
+  if (choice === "cancel") return { ok: true, message: moved ? `Session cancelled. Let the ${players} know on WhatsApp.` : "Session cancelled.", redirect: "/coach" };
   if (choice === "one_court") return { ok: true, message: moved ? `Now on one court. ${players} moved to the waitlist; let them know on WhatsApp.` : "Now on one court." };
   return { ok: true, message: "Going ahead on two courts." };
 }
@@ -785,7 +785,7 @@ export const actions: Record<string, Handler> = {
         });
       }
       await ctx.store.update("sessions", s.id, { status: "cancelled" });
-      return { ok: true, message: active.length ? `Session cancelled. Let the ${active.length} affected player(s) know on WhatsApp.` : "Session cancelled." };
+      return { ok: true, message: active.length ? `Session cancelled. Let the ${active.length} affected player(s) know on WhatsApp.` : "Session cancelled.", redirect: "/admin" };
     }
     if (s.status === "cancelled") throw new UserError("Cancelled sessions can't be reopened. Copy it instead.");
     await ctx.store.update("sessions", s.id, { status: input.status });

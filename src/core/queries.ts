@@ -297,7 +297,8 @@ export async function loadMySessions(ctx: LoadCtx) {
     confirmed: upcoming.filter((r) => r.booking.status === "confirmed"),
     waitlisted: upcoming.filter((r) => r.booking.status === "waitlisted"),
     history: rows
-      .filter((r) => r.booking.status === "cancelled" || (r.session.starts_at <= now && holdsSeat(r.booking)))
+      // A cancelled session leaves no trace for the player.
+      .filter((r) => r.session.status !== "cancelled" && (r.booking.status === "cancelled" || (r.session.starts_at <= now && holdsSeat(r.booking))))
       .sort(by((r) => r.session.starts_at, -1))
       .slice(0, 30),
     stats,
@@ -346,7 +347,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
   const quickNames = new Map<string, string>();
   for (const n of [...cards.map((c) => c.full_name), ...past.flatMap((l) => l.client_names)]) if (!quickNames.has(nameKey(n))) quickNames.set(nameKey(n), n);
   const [sessions, twoCourt] = await Promise.all([
-    enrich(ctx.store, rows.filter((s) => s.coach_ids.includes(u.id) && s.status !== "draft"), L, null),
+    enrich(ctx.store, rows.filter((s) => s.coach_ids.includes(u.id) && s.status === "published"), L, null),
     // Whatever week is on screen, the coach hears about two-court sessions in the next week that are still short.
     enrich(ctx.store, soon.filter((s) => s.coach_ids.includes(u.id) && s.status === "published" && s.starts_at > ctx.now.toISOString() && courtPlan(s).courts > 1), L, null),
   ]);
@@ -812,12 +813,12 @@ export async function loadCoachClient(ctx: LoadCtx) {
 // ───────────────────────── admin ─────────────────────────
 
 export async function loadAdminSchedule(ctx: LoadCtx) {
-  const tab = ["upcoming", "past", "draft", "cancelled"].includes(ctx.search.tab) ? ctx.search.tab : "upcoming";
+  const tab = ["upcoming", "past", "draft"].includes(ctx.search.tab) ? ctx.search.tab : "upcoming";
   const now = ctx.now.toISOString();
   const [L, rows] = await Promise.all([profileMap(ctx.store), ctx.store.list("sessions", { order: { field: "starts_at" } })]);
   const all = rows.filter(isCommunity);
   const filtered = all.filter((s) =>
-    tab === "draft" ? s.status === "draft" : tab === "cancelled" ? s.status === "cancelled" : tab === "past" ? s.status === "published" && s.starts_at <= now : s.status === "published" && s.starts_at > now,
+    tab === "draft" ? s.status === "draft" : tab === "past" ? s.status === "published" && s.starts_at <= now : s.status === "published" && s.starts_at > now,
   );
   const list = tab === "past" ? filtered.reverse().slice(0, 60) : filtered.slice(0, 80);
   const today = dateKey(ctx.now);

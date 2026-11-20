@@ -163,7 +163,6 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
           { key: "upcoming", label: "Upcoming", href: tabHref("upcoming"), count: data.counts.upcoming },
           { key: "draft", label: "Drafts", href: tabHref("draft"), count: data.counts.draft },
           { key: "past", label: "Past", href: tabHref("past") },
-          { key: "cancelled", label: "Cancelled", href: tabHref("cancelled") },
         ]}
       />
       {data.sessions.length ? (
