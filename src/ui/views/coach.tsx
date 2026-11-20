@@ -1109,10 +1109,30 @@ function Breakdown({ data }: { data: Earnings }) {
 /** BTC payroll periods, plus lessons elsewhere the player still has to pay for. */
 function GettingPaid({ data }: { data: Earnings }) {
   const owed = data.owed.lessons;
-  if (!data.paydays.length && !owed.length) return null;
+  // Lessons outside BTC this period: the player pays the coach directly.
+  const direct = data.lessons.filter((r) => !r.payday && r.money.priced);
+  const directDone = direct.filter((r) => r.done).reduce((n, r) => n + r.money.net, 0);
+  const directAhead = direct.filter((r) => !r.done).reduce((n, r) => n + r.money.net, 0);
+  const places = [...new Set(direct.map((r) => r.place ?? r.lesson.location).filter(Boolean))].join(", ");
+  if (!data.paydays.length && !owed.length && !direct.length) return null;
   return (
     <Card>
       <SectionTitle>Getting paid</SectionTitle>
+      {direct.length > 0 && (
+        <div className={cx("flex items-start justify-between gap-3", data.paydays.length > 0 && "mb-3")}>
+          <span className="min-w-0 text-sm">
+            <span className="block font-semibold">Outside BTC</span>
+            <span className="block truncate text-[12.5px] text-ink/55">
+              {data.current ? `This ${PERIOD_WORD[data.period]}` : data.label}
+              {places && ` · ${places}`}
+            </span>
+          </span>
+          <span className="shrink-0 text-right">
+            <span className="block font-display text-lg font-semibold tabular-nums">{usd(directDone)}</span>
+            {directAhead > 0 && <span className="block text-[12px] text-ink/50">+ {usd(directAhead)} to come</span>}
+          </span>
+        </div>
+      )}
       {data.paydays.length > 0 && (
         <ul className="space-y-3">
           {data.paydays.map((p) => (
@@ -1130,7 +1150,7 @@ function GettingPaid({ data }: { data: Earnings }) {
         </ul>
       )}
       {owed.length > 0 && (
-        <div className={cx(data.paydays.length > 0 && "mt-4 border-t border-ink/[0.07] pt-4")}>
+        <div className={cx((data.paydays.length > 0 || direct.length > 0) && "mt-4 border-t border-ink/[0.07] pt-4")}>
           <div className="mb-1 flex items-center justify-between gap-3 text-sm">
             <span className="font-semibold">Owed to you</span>
             <span className="font-display text-lg font-semibold tabular-nums">{usd(data.owed.total)}</span>
