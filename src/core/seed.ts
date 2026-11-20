@@ -1,4 +1,4 @@
-import type { Booking, Client, DB, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
+import type { Booking, Client, Clinic, DB, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import { addDays, dateKey, startOfWeek, zonedToUtc } from "./time";
 
 const BALBOA = "Balboa Tennis Club, San Diego";
@@ -203,6 +203,10 @@ export function demoSeed(now = new Date()): DB {
     }
   }
 
+  // Leo's weekly BTC clinics: a flat $70 each from the club. One night last week someone else covered.
+  const clinic = (n: number, title: string, weekday: number): Clinic => ({ id: `00000000-0000-4000-e000-${String(n).padStart(12, "0")}`, coach_id: DEMO_IDS.leo, title, weekday, start_time: "18:30", duration_min: 90, pay_cents: 7000, location: BALBOA, starts_on: addDays(monday, -56 + weekday), ends_on: null, notes: "", created_at: created, updated_at: created });
+  const clinics = [clinic(1, "Legacy Clinic 4.0+", 0), clinic(2, "Legacy Clinic 3.0–4.5", 2)];
+
   // A draft for the admin views.
   mk("performance_accelerator", addDays(monday, 9), "19:00", { title: "Return of Serve", status: "draft" });
 
@@ -219,6 +223,8 @@ export function demoSeed(now = new Date()): DB {
       { id: "demo-rule-balboa", place: "Balboa", percent: 30, per_hour_cents: 0, per_lesson_cents: 0, max_players: null, created_at: created },
     ],
     clients,
+    clinics,
+    clinic_covers: [{ id: "00000000-0000-4000-e100-000000000001", clinic_id: clinics[1].id, coach_id: DEMO_IDS.leo, day: addDays(monday, -5), covered_by: "Kaan", created_at: created }],
     feedback,
     player_calendars: [],
   };

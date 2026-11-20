@@ -27,6 +27,7 @@ export const ROUTES: RouteDef[] = [
   { id: "c.schedule", pattern: "/coach", area: "coach", title: "My Schedule", load: Q.loadCoachSchedule },
   { id: "c.session", pattern: "/coach/sessions/:id", area: "coach", title: "Session", load: Q.loadCoachSession },
   { id: "c.lesson", pattern: "/coach/lessons/:id", area: "coach", title: "Lesson", load: Q.loadLessonEditor },
+  { id: "c.clinic", pattern: "/coach/clinics/:id", area: "coach", title: "Club Clinic", load: Q.loadClinicEditor },
   { id: "c.earnings", pattern: "/coach/earnings", area: "coach", title: "Earnings", load: Q.loadCoachEarnings },
   { id: "c.clients", pattern: "/coach/clients", area: "coach", title: "Clients", load: Q.loadCoachClients },
   { id: "c.client", pattern: "/coach/clients/:id", area: "coach", title: "Client", load: Q.loadCoachClient },

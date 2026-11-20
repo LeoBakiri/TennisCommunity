@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
 import { SKILLS } from "./progress";
+import { allClinicDates, firstOn, weekdayOf } from "./clinics";
 
 export class UserError extends Error {}
 
@@ -229,7 +230,19 @@ async function clashFor(ctx: Ctx, coachId: string, slot: { starts_at: string; en
   const lesson = lessons.find((l) => l.id !== skipLessonId && overlaps(l, slot));
   if (lesson) return `${lesson.client_names.join(", ")}'s lesson`;
   const session = sessions.find((s) => s.session_type && s.status !== "cancelled" && overlaps(s, slot));
-  return session ? (session.session_type === "group" ? "a Group Session" : "a Performance Accelerator") : null;
+  if (session) return session.session_type === "group" ? "a Group Session" : "a Performance Accelerator";
+  // Club clinic nights the coach teaches (empty until the clinics migration runs).
+  const [clinics, covers] = await Promise.all([ctx.store.list("clinics", { eq: { coach_id: coachId } }).catch(() => []), ctx.store.list("clinic_covers", { eq: { coach_id: coachId } }).catch(() => [])]);
+  const day0 = dateKey(slot.starts_at);
+  const night = allClinicDates(clinics, addDays(day0, -1), addDays(day0, 2), covers).find((d) => !d.cover && overlaps(d, slot));
+  return night ? `your ${night.clinic.title}` : null;
+}
+
+async function myClinic(ctx: Ctx, clinicId: string) {
+  const u = staff(ctx);
+  const c = await must(ctx.store.get("clinics", clinicId), "Clinic");
+  if (c.coach_id !== u.id) throw new UserError("Only the clinic's coach can change it.");
+  return c;
 }
 
 const clientFields = {
@@ -579,6 +592,59 @@ export const actions: Record<string, Handler> = {
     if (l.coach_id !== u.id) throw new UserError("Only the lesson's coach can delete it.");
     await ctx.store.remove("lessons", l.id);
     return { ok: true, message: "Lesson deleted.", redirect: "/coach" };
+  }),
+
+  // ── Coach: club clinics (same class every week, flat pay from the club) ──
+  saveClinic: action(
+    z.object({
+      id: text(80),
+      title: req("Name", 120),
+      weekday: int(0, 6, "Day"),
+      time,
+      duration_min: int(15, 600, "Duration"),
+      pay: dollars.refine((v) => v !== null, "Add what the club pays you"),
+      location: text(200).transform(fullPlace),
+      starts_on: date,
+      ends_on: z.preprocess((v) => (v === "" || v === undefined || v === null ? null : v), date.nullable()),
+      notes: text(4000),
+    }),
+    async (ctx, input) => {
+      const u = staff(ctx);
+      const prev = input.id ? await myClinic(ctx, input.id) : null;
+      // The first week is the first chosen weekday on or after the start date.
+      const starts_on = firstOn(input.starts_on, input.weekday);
+      if (input.ends_on && input.ends_on < starts_on) throw new UserError("The last week is before the first one.");
+      const fields = { title: input.title, weekday: input.weekday, start_time: input.time, duration_min: input.duration_min, pay_cents: input.pay!, location: input.location, starts_on, ends_on: input.ends_on, notes: input.notes, updated_at: nowIso() };
+      if (prev) {
+        await ctx.store.update("clinics", prev.id, fields);
+        return { ok: true, message: "Clinic saved.", redirect: `/coach?week=${starts_on > dateKey(ctx.now) ? starts_on : dateKey(ctx.now)}` };
+      }
+      await ctx.store.insert("clinics", { id: uid(), coach_id: u.id, created_at: nowIso(), ...fields });
+      return { ok: true, message: `${input.title} added: every ${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][input.weekday]}.`, redirect: `/coach?week=${starts_on}` };
+    },
+  ),
+
+  /** Someone else takes one night: it stays on the schedule, greyed out, and pays nothing. */
+  coverClinic: action(z.object({ clinic_id: id, day: date, covered_by: text(80) }), async (ctx, input) => {
+    const c = await myClinic(ctx, input.clinic_id);
+    if (weekdayOf(input.day) !== c.weekday || input.day < c.starts_on || (c.ends_on && input.day > c.ends_on)) throw new UserError("The clinic doesn't run that day.");
+    const have = await ctx.store.list("clinic_covers", { eq: { clinic_id: c.id, day: input.day } });
+    if (have[0]) await ctx.store.update("clinic_covers", have[0].id, { covered_by: input.covered_by });
+    else await ctx.store.insert("clinic_covers", { id: uid(), clinic_id: c.id, coach_id: c.coach_id, day: input.day, covered_by: input.covered_by, created_at: nowIso() });
+    return { ok: true, message: `${fmtDay(zonedToUtc(input.day, c.start_time).toISOString())} marked covered${input.covered_by ? ` by ${input.covered_by}` : ""}. It won't count in your pay.` };
+  }),
+
+  uncoverClinic: action(z.object({ clinic_id: id, day: date }), async (ctx, input) => {
+    const c = await myClinic(ctx, input.clinic_id);
+    for (const x of await ctx.store.list("clinic_covers", { eq: { clinic_id: c.id, day: input.day } })) await ctx.store.remove("clinic_covers", x.id);
+    return { ok: true, message: "You're teaching it again." };
+  }),
+
+  deleteClinic: action(z.object({ clinic_id: id }), async (ctx, input) => {
+    const c = await myClinic(ctx, input.clinic_id);
+    for (const x of await ctx.store.list("clinic_covers", { eq: { clinic_id: c.id } })) await ctx.store.remove("clinic_covers", x.id);
+    await ctx.store.remove("clinics", c.id);
+    return { ok: true, message: `${c.title} deleted.`, redirect: "/coach" };
   }),
 
   setLessonPaid: action(z.object({ lesson_id: id, paid: z.enum(["yes", "no"]) }), async (ctx, input) => {

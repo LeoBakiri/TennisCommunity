@@ -115,7 +115,7 @@ test("the earnings page counts only the coach's own lessons, after commission", 
   assert.ok(data.lessons.every((r) => r.lesson.coach_id === DEMO_IDS.leo));
   assert.ok(data.lessons.length <= mine.length);
   // Earned + booked across the chart equals the lessons' and community sessions' net.
-  const rows = [...data.lessons, ...data.sessions];
+  const rows = [...data.lessons, ...data.sessions, ...data.clinics];
   const chart = data.chart.reduce((n, b) => n + b.earned + b.scheduled, 0);
   assert.equal(chart, rows.reduce((n, r) => n + r.money.net, 0));
   assert.equal(data.totals.net, rows.filter((r) => r.done).reduce((n, r) => n + r.money.net, 0));

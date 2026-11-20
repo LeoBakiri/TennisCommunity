@@ -5,10 +5,11 @@ import { ActionButton, ActionForm, Avatar, Badge, btn, Card, cx, Dot, Empty, Fie
 import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWord, type GridSlot } from "../sessions";
 import { LocationCourt, TimeSelect } from "./admin";
 import { ClientCombobox, Dropdown } from "../picker";
-import type { loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
+import type { loadClinicEditor, loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
+import { CLINIC_COLOR, WEEKDAYS, weekdayOf, weekdayPlural } from "@/core/clinics";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
-import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle } from "@/core/util";
+import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle, shortPlace } from "@/core/util";
 import { commissionUnder, fmtPayroll, payday, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
@@ -78,6 +79,7 @@ const LEGEND = [
   { ...SESSION_META.performance_accelerator, mark: <EventMark type="performance_accelerator" color={SESSION_META.performance_accelerator.color} size={18} /> },
   { ...LESSON_META.private, mark: <EventMark color={LESSON_META.private.color} size={18} /> },
   { ...LESSON_META.semi_private, mark: <EventMark semi color={LESSON_META.semi_private.color} size={18} /> },
+  { label: "Club Clinic", color: CLINIC_COLOR, mark: <EventMark clinic color={CLINIC_COLOR} size={18} /> },
 ];
 
 function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
@@ -95,7 +97,7 @@ function CoachHero({ data }: { data: D<typeof loadCoachSchedule> }) {
           </h2>
           {next && (
             <A href={next.href} className="mt-2.5 inline-flex max-w-full items-center gap-2 rounded-full bg-paper/10 py-1.5 pr-3 pl-2 text-sm ring-1 ring-paper/15 hover:bg-paper/15">
-              <EventMark type={next.session_type} semi={next.semi} color={next.color} size={24} className="ring-1 ring-paper/40" />
+              <EventMark type={next.session_type} semi={next.semi} clinic={next.clinic} color={next.color} size={24} className="ring-1 ring-paper/40" />
               <span className="truncate">
                 {next.title} · {fmtRange(next.starts_at, next.ends_at)}
               </span>
@@ -334,9 +336,14 @@ export function CoachSchedule({ data }: { data: D<typeof loadCoachSchedule> }) {
       <PageHeader
         title="My Schedule"
         actions={
-          <LinkButton href={addHref("private")} icon="plus">
-            Add Lesson
-          </LinkButton>
+          <>
+            <LinkButton href="/coach/clinics/new" icon="plus" variant="outline">
+              Add Club Clinic
+            </LinkButton>
+            <LinkButton href={addHref("private")} icon="plus">
+              Add Lesson
+            </LinkButton>
+          </>
         }
       />
       <CoachHero data={data} />
@@ -479,6 +486,134 @@ export function LessonEditor({ data }: { data: D<typeof loadLessonEditor> }) {
         {l && (
           <ActionButton action="deleteLesson" input={{ lesson_id: l.id }} variant="ghost" icon="trash" confirm={{ title: "Delete this lesson?", body: "It's also removed from your Google Calendar. This can't be undone.", label: "Delete", danger: true }}>
             Delete lesson
+          </ActionButton>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ───────────────────────── club clinic ─────────────────────────
+
+type ClinicData = D<typeof loadClinicEditor>;
+
+/** One night of a clinic, picked from the schedule: teach it, or hand it to someone else. */
+function ClinicNight({ clinicId, night }: { clinicId: string; night: ClinicData["nights"][number] }) {
+  const covered = night.covered_by !== null;
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">{fmtDayLong(night.starts_at)}</h3>
+          <p className="text-sm text-ink/60">{fmtRange(night.starts_at, night.ends_at)}</p>
+        </div>
+        {covered ? <Badge>Covered{night.covered_by ? ` by ${night.covered_by}` : ""}</Badge> : <span className="font-display text-lg font-semibold tabular-nums">{usd(night.pay)}</span>}
+      </div>
+      {covered ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-ink/60">Someone else is teaching this one, so it doesn't count in your pay.</p>
+          <ActionButton action="uncoverClinic" input={{ clinic_id: clinicId, day: night.day }} icon="check">
+            I'm teaching it
+          </ActionButton>
+        </div>
+      ) : (
+        <ActionForm action="coverClinic" hidden={{ clinic_id: clinicId, day: night.day }} className="mt-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Who's covering?" hint="Optional" className="min-w-[12rem] flex-1">
+              <input className="input" name="covered_by" placeholder="e.g. Kaan" maxLength={80} />
+            </Field>
+            <Submit icon="user" variant="outline">
+              Mark covered
+            </Submit>
+          </div>
+        </ActionForm>
+      )}
+    </Card>
+  );
+}
+
+export function ClinicEditor({ data }: { data: ClinicData }) {
+  const c = data.clinic;
+  const p = data.prefill;
+  const [weekday, setWeekday] = useState(c ? c.weekday : weekdayOf(p!.day));
+  const [minutes, setMinutes] = useState(c?.duration_min ?? 90);
+  const [location, setLocation] = useState(c?.location ?? p!.location);
+  const night = data.day ? data.nights.find((n) => n.day === data.day) ?? null : null;
+  const upcoming = data.nights.filter((n) => n.day >= data.today).slice(0, 8);
+  const past = data.nights.filter((n) => n.day < data.today).reverse().slice(0, 4);
+  return (
+    <>
+      <PageHeader
+        back={{ href: data.day ? `/coach?week=${startOfWeek(data.day)}` : "/coach", label: "My Schedule" }}
+        title={c ? c.title : "Add Club Clinic"}
+        subtitle={c ? `${weekdayPlural(c.weekday)} · ${fmtClock(c.start_time)} · ${usd(c.pay_cents)} a clinic` : "A class the club runs every week that pays you a flat amount"}
+      />
+      <div className="max-w-2xl space-y-4">
+        {c && night && <ClinicNight clinicId={c.id} night={night} />}
+        <Card>
+          <ActionForm action="saveClinic" hidden={{ id: c?.id ?? "", weekday }}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Name" hint="As it shows on the club's schedule" className="sm:col-span-2">
+                <input className="input" name="title" defaultValue={c?.title ?? ""} placeholder="e.g. Legacy Clinic 4.0+" required maxLength={120} />
+              </Field>
+              <Field label="Every">
+                <Dropdown label="Day" value={String(weekday)} onChange={(v) => setWeekday(Number(v))} options={WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))} />
+              </Field>
+              <Field label="Start time (Pacific)">
+                <TimeSelect name="time" value={c?.start_time ?? p!.time} />
+              </Field>
+              <Field label="Duration">
+                <Dropdown name="duration_min" label="Duration" value={String(minutes)} onChange={(v) => setMinutes(Number(v))} options={durationOptions(minutes)} />
+              </Field>
+              <Field label="Your pay" hint="Before tax, per clinic">
+                <span className="relative block">
+                  <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-[15px] text-ink/45">$</span>
+                  <input className="input pl-7" name="pay" inputMode="decimal" placeholder="70" defaultValue={c ? c.pay_cents / 100 : "70"} required />
+                </span>
+              </Field>
+              <Field label="Location" className="sm:col-span-2">
+                <Dropdown name="location" label="Location" value={shortPlace(location)} onChange={setLocation} options={data.places.map((x) => ({ value: x, label: x }))} />
+              </Field>
+              <Field label="First week">
+                <input className="input" type="date" name="starts_on" defaultValue={c?.starts_on ?? p!.day} required />
+              </Field>
+              <Field label="Last week" hint="Leave empty to keep it going">
+                <input className="input" type="date" name="ends_on" defaultValue={c?.ends_on ?? ""} />
+              </Field>
+              <div className="flex items-center gap-3 rounded-xl bg-sage/50 px-4 py-3 text-[13px] text-ink/70 sm:col-span-2">
+                <Icon name="card" size={16} className="shrink-0 text-ink/55" />
+                <span>No commission is taken. {isBalboa(location) ? "Paid through BTC payroll." : "Counted in Earnings on the night."}</span>
+              </div>
+              <Field label="Notes" className="sm:col-span-2">
+                <textarea className="input" name="notes" defaultValue={c?.notes ?? ""} />
+              </Field>
+            </div>
+            <Submit className="mt-6" icon="check">
+              {c ? "Save clinic" : "Add clinic"}
+            </Submit>
+          </ActionForm>
+        </Card>
+        {c && (upcoming.length > 0 || past.length > 0) && (
+          <Card>
+            <SectionTitle>Nights</SectionTitle>
+            <p className="-mt-1 mb-3 text-[13px] text-ink/55">Tap a night when someone else covers it.</p>
+            <div className="-mx-1 divide-y divide-ink/[0.06]">
+              {[...upcoming, ...past].map((n) => (
+                <A key={n.day} href={`/coach/clinics/${c.id}?day=${n.day}`} className={cx("flex items-center gap-3 rounded-lg px-1 py-2.5 hover:bg-ink/[0.03]", n.day === data.day && "bg-sage/40")}>
+                  <span className={cx("min-w-0 flex-1 text-sm", n.covered_by !== null && "text-ink/50")}>
+                    <span className="font-medium">{fmtKeyLong(n.day)}</span>
+                    {n.day < data.today && <span className="text-ink/45"> · done</span>}
+                  </span>
+                  {n.covered_by !== null ? <Badge>Covered{n.covered_by ? ` by ${n.covered_by}` : ""}</Badge> : <span className="text-sm font-semibold tabular-nums">{usd(n.pay)}</span>}
+                  <Icon name="right" size={16} className="text-ink/30" />
+                </A>
+              ))}
+            </div>
+          </Card>
+        )}
+        {c && (
+          <ActionButton action="deleteClinic" input={{ clinic_id: c.id }} variant="ghost" icon="trash" confirm={{ title: "Delete this clinic?", body: "It also disappears from your past earnings. To stop it from a date on, set a last week instead.", label: "Delete", danger: true }}>
+            Delete clinic
           </ActionButton>
         )}
       </div>
@@ -722,6 +857,12 @@ const PERIOD_WORD: Record<Period, string> = { week: "week", month: "month", year
 
 type Earnings = D<typeof loadCoachEarnings>;
 
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "3 lessons · 2 sessions · 2 clinics", leaving out what's zero (lessons always shown). */
+const taughtLabel = (t: { lessons: number; sessions: number; clinics: number }) =>
+  [count(t.lessons, "lesson"), t.sessions ? count(t.sessions, "session") : "", t.clinics ? count(t.clinics, "clinic") : ""].filter(Boolean).join(" · ");
+const earnedFrom = (t: { clinics: number }) => (t.clinics ? "lessons, sessions and clinics" : "lessons and community sessions");
+
 function EarningsHero({ data }: { data: Earnings }) {
   const t = data.totals;
   const word = PERIOD_WORD[data.period];
@@ -730,17 +871,17 @@ function EarningsHero({ data }: { data: Earnings }) {
     <HeroPanel eyebrow={data.current ? `This ${word}` : data.label}>
       <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
       <p className="mt-1 text-sm text-paper/70">
-        {data.current ? "earned so far from lessons and community sessions, after commission" : "earned from lessons and community sessions, after commission"}
-        {data.scheduled.lessons > 0 && <span className="text-accent"> · {usd(data.scheduled.net)} more booked</span>}
+        {data.current ? `earned so far from ${earnedFrom(t)}, after commission` : `earned from ${earnedFrom(t)}, after commission`}
+        {data.scheduled.lessons + data.scheduled.clinics > 0 && <span className="text-accent"> · {usd(data.scheduled.net)} more booked</span>}
       </p>
-      {(data.previous.lessons + data.previous.sessions > 0 || t.lessons + t.sessions > 0) && (
+      {(data.previous.lessons + data.previous.sessions + data.previous.clinics > 0 || t.lessons + t.sessions + t.clinics > 0) && (
         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paper/10 px-3 py-1 text-[13px] ring-1 ring-paper/15">
           <span className={cx("font-semibold", diff > 0 ? "text-accent" : diff < 0 ? "text-[#F3B7A8]" : "")}>{diff > 0 ? "▲" : diff < 0 ? "▼" : "="} {usd(Math.abs(diff))}</span>
           <span className="text-paper/65">vs last {word}{data.current ? " at this point" : ""}</span>
         </div>
       )}
       <dl className="mt-6 grid max-w-xl grid-cols-2 gap-2 sm:grid-cols-4">
-        <HeroStat value={t.lessons + t.sessions} label={t.sessions ? `${t.lessons} ${t.lessons === 1 ? "lesson" : "lessons"} · ${t.sessions} ${t.sessions === 1 ? "session" : "sessions"}` : t.lessons === 1 ? "lesson taught" : "lessons taught"} />
+        <HeroStat value={t.lessons + t.sessions + t.clinics} label={t.sessions || t.clinics ? taughtLabel(t) : t.lessons === 1 ? "lesson taught" : "lessons taught"} />
         <HeroStat value={t.hours} label="hours" />
         <HeroStat value={t.hours ? usd(t.per_hour) : "—"} label="per hour" />
         <HeroStat value={usd(t.commission)} label="club commission" />
@@ -853,6 +994,24 @@ function SessionMoneyRow({ r, today }: { r: Earnings["sessions"][number]; today:
   );
 }
 
+function ClinicMoneyRow({ r, today }: { r: Earnings["clinics"][number]; today: string }) {
+  const c = r.session;
+  return (
+    <div className={cx("flex items-center gap-3 px-4 py-3 md:px-5", c.covered_by && "opacity-60")}>
+      <Dot color={CLINIC_COLOR} className="shrink-0" />
+      <A href={`/coach/clinics/${c.id}?day=${c.day}`} className="min-w-0 flex-1 hover:underline">
+        <div className="truncate text-sm font-semibold">{c.title}</div>
+        <div className="truncate text-[12.5px] text-ink/55">
+          {fmtDay(c.starts_at)} · {fmtTime(c.starts_at)}
+          {c.covered_by ? ` · Covered by ${c.covered_by}` : r.place ? ` · ${r.place}` : ""}
+        </div>
+      </A>
+      <div className="shrink-0 text-sm font-semibold tabular-nums">{usd(r.money.net)}</div>
+      <div className="hidden w-[128px] shrink-0 justify-end sm:flex">{c.covered_by ? <Badge>Covered</Badge> : r.payday ? <PaydayBadge payday={r.payday} today={today} /> : !r.done ? <Badge>Upcoming</Badge> : null}</div>
+    </div>
+  );
+}
+
 function LessonMoneyRow({ r, today }: { r: Earnings["lessons"][number]; today: string }) {
   const l = r.lesson;
   const m = r.money;
@@ -887,6 +1046,7 @@ function downloadCsv(data: Earnings) {
     ["Date", "Start", "End", "Type", "Players", "Location", "Price", "Commission", "You keep", "Paid"],
     ...[...data.lessons].reverse().map(({ lesson: l, money: m, payday }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : l.paid_at ? dateKey(l.paid_at) : ""]),
     ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.courts > 1 ? ` on ${s.courts} courts` : ""}${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
+    ...[...data.clinics].reverse().map(({ session: c, money: m, payday }) => [dateKey(c.starts_at), timeKey(c.starts_at), timeKey(c.ends_at), "Club Clinic", c.covered_by ? `${c.title} (covered by ${c.covered_by})` : c.title, c.location, (m.gross / 100).toFixed(2), "0.00", (m.net / 100).toFixed(2), payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
   ];
   const blob = new Blob([rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
@@ -898,7 +1058,7 @@ function downloadCsv(data: Earnings) {
 
 function Breakdown({ data }: { data: Earnings }) {
   const max = Math.max(1, ...data.byKind.map((k) => k.net));
-  const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : LESSON_META[k]);
+  const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : k === "clinic" ? { label: "Club clinics", color: CLINIC_COLOR } : LESSON_META[k]);
   return (
     <Card>
       <SectionTitle>Breakdown</SectionTitle>
@@ -908,7 +1068,7 @@ function Breakdown({ data }: { data: Earnings }) {
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-2">
                 <Dot color={meta(k.kind).color} /> {meta(k.kind).label}
-                <span className="text-ink/45">· {k.lessons + k.sessions}</span>
+                <span className="text-ink/45">· {k.lessons + k.sessions + k.clinics}</span>
               </span>
               <span className="font-semibold tabular-nums">{usd(k.net)}</span>
             </div>
@@ -967,7 +1127,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
         title="Earnings"
         actions={
           <>
-            <button className={btn("outline")} onClick={() => downloadCsv(data)} disabled={!data.lessons.length}>
+            <button className={btn("outline")} onClick={() => downloadCsv(data)} disabled={!data.lessons.length && !data.sessions.length && !data.clinics.length}>
               <Icon name="download" size={16} /> Download CSV
             </button>
             <LinkButton href="/coach/lessons/new" icon="plus">
@@ -1028,6 +1188,17 @@ export function CoachEarnings({ data }: { data: Earnings }) {
                 ))}
               </div>
               <p className="mt-2 text-[12.5px] text-ink/50">Your share: every booked player times the price, minus the club's commission (worked out court by court), split evenly between the coaches.</p>
+            </div>
+          )}
+          {data.clinics.length > 0 && (
+            <div className="mt-6">
+              <SectionTitle action={<span className="text-sm text-ink/55">{count(data.clinics.length, "clinic")}</span>}>Club clinics</SectionTitle>
+              <div className="card divide-y divide-ink/[0.06]">
+                {data.clinics.map((r) => (
+                  <ClinicMoneyRow key={`${r.session.id}_${r.session.day}`} r={r} today={data.today} />
+                ))}
+              </div>
+              <p className="mt-2 text-[12.5px] text-ink/50">The flat pay before tax, with no commission. Nights someone else covered count as $0.</p>
             </div>
           )}
         </div>

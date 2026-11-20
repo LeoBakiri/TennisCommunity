@@ -708,8 +708,8 @@ export function WeekGrid({
               {list.length ? (
                 <div className="divide-y divide-ink/[0.06]">
                   {list.map((s) => (
-                    <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", s.cancelled && "opacity-50")}>
-                      <EventMark type={s.session_type} semi={s.semi} color={s.color} size={34} />
+                    <A key={s.id} href={s.href} className={cx("flex items-center gap-3 px-4 py-3 active:bg-paper", (s.cancelled || s.faded) && "opacity-50")}>
+                      <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={34} />
                       <span className="min-w-0 flex-1">
                         <span className={cx("block truncate text-[15px] font-semibold", s.cancelled && "line-through")}>{s.title}</span>
                         <span className="block truncate text-[13px] text-ink/55">
@@ -836,9 +836,9 @@ export function WeekGrid({
                         <A
                           href={s.href}
                           title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${can ? " · drag to move" : ""}`}
-                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || over) && "opacity-60")}
+                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || s.faded || over) && "opacity-60")}
                         >
-                          <EventMark type={s.session_type} semi={s.semi} color={s.color} size={small ? 15 : 18} invert />
+                          <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={small ? 15 : 18} invert />
                           <span className="min-w-0 flex-1">
                             <span className={cx("block truncate font-semibold", s.cancelled && "line-through")}>{s.title}</span>
                             {!small && <span className="block truncate opacity-85">{range}</span>}

@@ -103,6 +103,33 @@ export interface Lesson {
   updated_at: string;
 }
 
+/** A class the club runs every week that pays the coach a flat amount, e.g. a BTC Legacy Clinic. No players, no commission. */
+export interface Clinic {
+  id: string;
+  coach_id: string;
+  title: string;
+  weekday: number; // 0 = Monday … 6 = Sunday
+  start_time: string; // "18:30", Pacific
+  duration_min: number;
+  pay_cents: number; // before tax, per clinic
+  location: string;
+  starts_on: string; // date key of the first week
+  ends_on: string | null; // last week it runs; null keeps going
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One night of a clinic that someone else took: it pays nothing. */
+export interface ClinicCover {
+  id: string;
+  clinic_id: string;
+  coach_id: string;
+  day: string; // date key
+  covered_by: string;
+  created_at: string;
+}
+
 /** Someone a coach teaches privately. Lessons find their clients by name, ignoring case. */
 export interface Client {
   id: string;
@@ -166,6 +193,8 @@ export interface DB {
   coach_calendars: CoachCalendar[];
   commission_rules: CommissionRule[];
   clients: Client[];
+  clinics: Clinic[];
+  clinic_covers: ClinicCover[];
   feedback: Feedback[];
   player_calendars: PlayerCalendar[];
 }

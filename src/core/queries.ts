@@ -1,11 +1,12 @@
 // Read models: one loader per screen. Each returns plain JSON for the UI.
-import type { Actor, Booking, Client, CommissionRule, Feedback, Lesson, LessonKind, Profile, Session, SessionType, Skill } from "./types";
+import type { Actor, Booking, Client, Clinic, ClinicCover, CommissionRule, Feedback, Lesson, LessonKind, Profile, Session, SessionType, Skill } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDateTime, isDateKey, startOfWeek, timeKey, weekDays, zonedToUtc } from "./time";
 import { canSchedule, coachesSession, getSettings, holdsSeat, isActive, isAdmin, isStaff } from "./services";
 import { by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitle, needsDecision, placeLabel, placeOptions, SESSION_META, sessionTitle, uid } from "./util";
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
+import { allClinicDates, CLINIC_COLOR, clinicDates, clinicMoney, clinicPayday, type ClinicDate } from "./clinics";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
@@ -44,7 +45,30 @@ export interface ScheduleItem {
   cancelled: boolean;
   movable?: boolean; // the coach's own lessons can be dragged to a new time
   semi?: boolean; // a semi-private lesson, drawn with two people
+  clinic?: boolean; // a club clinic, drawn with a whistle
+  faded?: boolean; // a clinic night someone else covered
 }
+
+/** A coach's club clinics and covered nights. Empty until the clinics migration has run, so the pages still load. */
+async function myClinics(store: Store, coachId: string): Promise<{ clinics: Clinic[]; covers: ClinicCover[] }> {
+  const [clinics, covers] = await Promise.all([store.list("clinics", { eq: { coach_id: coachId } }).catch(() => [] as Clinic[]), store.list("clinic_covers", { eq: { coach_id: coachId } }).catch(() => [] as ClinicCover[])]);
+  return { clinics, covers };
+}
+
+const coveredWord = (d: ClinicDate) => (d.cover ? `Covered${d.cover.covered_by ? ` by ${d.cover.covered_by}` : ""}` : "");
+const clinicItem = (d: ClinicDate): ScheduleItem => ({
+  id: `${d.clinic.id}_${d.day}`,
+  title: d.clinic.title,
+  label: d.cover ? coveredWord(d) : "Club Clinic",
+  color: CLINIC_COLOR,
+  starts_at: d.starts_at,
+  ends_at: d.ends_at,
+  href: `/coach/clinics/${d.clinic.id}?day=${d.day}`,
+  detail: d.cover ? coveredWord(d) : placeLabel(d.clinic),
+  cancelled: false,
+  clinic: true,
+  faded: !!d.cover,
+});
 
 const person = (p: Profile): Person => ({ id: p.id, full_name: p.full_name, role: p.role });
 
@@ -304,7 +328,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
   const monday = weekParam(ctx);
   const nextMonday = addDays(monday, 7);
   const today = dateKey(ctx.now);
-  const [L, rows, lessons, calendars, soon, settings, cards, past] = await Promise.all([
+  const [L, rows, lessons, calendars, soon, settings, cards, past, mineClinics] = await Promise.all([
     profileMap(ctx.store),
     communityBetween(ctx.store, monday, nextMonday),
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(monday) }, lt: { field: "starts_at", value: startIso(nextMonday) } }),
@@ -313,7 +337,9 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     getSettings(ctx.store),
     ctx.store.list("clients", { eq: { coach_id: u.id } }),
     ctx.store.list("lessons", { eq: { coach_id: u.id } }),
+    myClinics(ctx.store, u.id),
   ]);
+  const clinicNights = allClinicDates(mineClinics.clinics, monday, nextMonday, mineClinics.covers);
   // Booking straight from the grid: each client's name with what their last private lesson cost and where it was.
   const last = new Map<string, Lesson>();
   for (const l of [...past].sort(by((x) => x.starts_at))) if (l.kind === "private") last.set(nameKey(l.client_names[0] ?? ""), l);
@@ -333,8 +359,9 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
       const meta = LESSON_META[l.kind];
       return { id: l.id, title: lessonTitle(l), label: meta.label, color: meta.color, starts_at: l.starts_at, ends_at: l.ends_at, href: `/coach/lessons/${l.id}`, detail: placeLabel(l), cancelled: false, movable: true, semi: l.kind === "semi_private" };
     }),
+    ...clinicNights.map(clinicItem),
   ].sort(by((i) => i.starts_at));
-  const active = items.filter((i) => !i.cancelled);
+  const active = items.filter((i) => !i.cancelled && !i.faded);
   const now = ctx.now.toISOString();
   const live = sessions.filter((s) => s.status !== "cancelled");
   return {
@@ -349,6 +376,7 @@ export async function loadCoachSchedule(ctx: LoadCtx) {
     summary: {
       community: sessions.filter((s) => s.status !== "cancelled").length,
       lessons: lessons.length,
+      clinics: clinicNights.filter((d) => !d.cover).length,
       hours: Math.round(active.reduce((n, i) => n + hours(i.starts_at, i.ends_at), 0) * 10) / 10,
     },
     calendar: calendars[0] ?? null,
@@ -457,6 +485,35 @@ export async function loadLessonEditor(ctx: LoadCtx) {
   return { lesson: lesson as Lesson | null, clients, cardIds, places, rules, back, prefill: null };
 }
 
+/** A club clinic: its weekly details, and its recent and coming nights with any covered by someone else. */
+export async function loadClinicEditor(ctx: LoadCtx) {
+  const u = ctx.actor.user!;
+  const today = dateKey(ctx.now);
+  const [settings, lessons] = await Promise.all([getSettings(ctx.store), ctx.store.list("lessons", { eq: { coach_id: u.id } })]);
+  const places = placeOptions(settings.default_location, ...lessons.map((l) => l.location));
+  if (ctx.params.id === "new") {
+    const s = ctx.search;
+    return {
+      clinic: null as Clinic | null,
+      places,
+      today,
+      day: null as string | null,
+      nights: [] as { day: string; starts_at: string; ends_at: string; covered_by: string | null; pay: number; payday: string | null }[],
+      prefill: { day: isDateKey(s.date) ? s.date : today, time: /^\d{2}:\d{2}$/.test(s.time ?? "") ? s.time : "18:30", location: settings.default_location },
+    };
+  }
+  const clinic = await ctx.store.get("clinics", ctx.params.id);
+  if (!clinic) throw new NotFound();
+  if (clinic.coach_id !== u.id) throw new Forbidden();
+  const covers = await ctx.store.list("clinic_covers", { eq: { clinic_id: clinic.id } });
+  const day = isDateKey(ctx.search.day) ? ctx.search.day : null;
+  // Four weeks back and eight ahead, plus the night the coach tapped on the schedule if it's further out.
+  const from = [addDays(today, -28), day ?? today].sort()[0];
+  const to = [addDays(today, 57), day ? addDays(day, 1) : today].sort()[1];
+  const nights = clinicDates(clinic, from, to, covers).map((d) => ({ day: d.day, starts_at: d.starts_at, ends_at: d.ends_at, covered_by: d.cover ? d.cover.covered_by : null, pay: clinicMoney(d).net, payday: clinicPayday(d) }));
+  return { clinic: clinic as Clinic | null, places, today, day: day && nights.some((n) => n.day === day) ? day : null, nights, prefill: null };
+}
+
 /** One coach's lesson income for a week, month or year. Community sessions are counted, not priced. */
 /** Community sessions that went ahead (or will), with how many players hold a spot. */
 async function sessionsWithPlayers(store: Store, fromKey: string, toKey: string, coachId?: string) {
@@ -507,6 +564,18 @@ function coachMoney(coachId: string, lessons: Lesson[], sessions: PlayedSession[
   return { lessonRows, sessionRows };
 }
 
+/** Clinic nights as money rows. Shaped like session rows (`session`) so the period filters treat them the same. */
+function clinicMoneyRows(nights: ClinicDate[], now: string, rules: CommissionRule[]) {
+  return nights.map((d) => ({
+    session: { id: d.clinic.id, day: d.day, title: d.clinic.title, starts_at: d.starts_at, ends_at: d.ends_at, location: d.clinic.location, covered_by: d.cover ? d.cover.covered_by || "someone else" : null },
+    money: clinicMoney(d),
+    done: d.ends_at <= now,
+    hours: d.cover ? 0 : hours(d.starts_at, d.ends_at),
+    place: ruleFor(d.clinic.location, rules)?.place ?? null, // groups it with the club's lessons under By place
+    payday: clinicPayday(d),
+  }));
+}
+
 type MoneyRow = { money: Money; done: boolean; hours: number; payday: string | null };
 
 /** The next paydays from today, with what's already earned for each and what's still booked. */
@@ -532,33 +601,40 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   // A year back covers the previous period and any lesson still waiting to be paid.
   const since = [before.from, addDays(today, -400)].sort()[0];
   const span = sessionSpan(before, range, today);
-  const [lessons, rules, sessions] = await Promise.all([
+  const [lessons, rules, sessions, mineClinics] = await Promise.all([
     ctx.store.list("lessons", { eq: { coach_id: u.id }, gte: { field: "starts_at", value: startIso(since) }, order: { field: "starts_at" } }),
     ctx.store.list("commission_rules"),
     sessionsWithPlayers(ctx.store, span.from, span.to, u.id),
+    myClinics(ctx.store, u.id),
   ]);
   const now = ctx.now.toISOString();
   const { lessonRows: rows, sessionRows } = coachMoney(u.id, lessons, sessions, rules, now);
+  const clinicRows = clinicMoneyRows(allClinicDates(mineClinics.clinics, span.from, span.to, mineClinics.covers), now, rules);
   type R = (typeof rows)[number];
   type S = (typeof sessionRows)[number];
+  type CR = (typeof clinicRows)[number];
   const within = <T extends { lesson: Lesson } | { session: { starts_at: string } }>(rs: T[], from: string, to: string) => rs.filter((r) => inRange("lesson" in r ? r.lesson.starts_at : r.session.starts_at, from, to));
   const inPeriod = within(rows, range.from, range.to);
   const sessionsIn = within(sessionRows, range.from, range.to);
-  const total = (rs: R[], ss: S[] = []) => ({ ...addMoney([...rs, ...ss].map((r) => r.money)), lessons: rs.length, sessions: ss.length, hours: Math.round([...rs, ...ss].reduce((n, r) => n + r.hours, 0) * 10) / 10 });
+  const clinicsIn = within(clinicRows, range.from, range.to);
+  const total = (rs: R[], ss: S[] = [], cs: CR[] = []) => ({ ...addMoney([...rs, ...ss, ...cs].map((r) => r.money)), lessons: rs.length, sessions: ss.length, clinics: cs.filter((c) => !c.session.covered_by).length, hours: Math.round([...rs, ...ss, ...cs].reduce((n, r) => n + r.hours, 0) * 10) / 10 });
 
   const t = total(
     inPeriod.filter((r) => r.done),
     sessionsIn.filter((r) => r.done),
+    clinicsIn.filter((r) => r.done),
   );
   const scheduled = total(
     inPeriod.filter((r) => !r.done),
     sessionsIn.filter((r) => !r.done),
+    clinicsIn.filter((r) => !r.done),
   );
   // Compare like with like: the same share of the previous period that has passed in this one.
   const prevCut = sameShareOf(range, before, ctx.now);
   const previous = total(
     within(rows, before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut),
     within(sessionRows, before.from, before.to).filter((r) => r.session.ends_at <= prevCut),
+    within(clinicRows, before.from, before.to).filter((r) => r.session.ends_at <= prevCut),
   );
 
   const sumBy = (rs: R[], key: (r: R) => string[]) => {
@@ -579,7 +655,7 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   };
   const placeOf = (r: { place: string | null }, location: string) => r.place ?? (location || "No location");
   const byPlace = new Map<string, { name: string; net: number; gross: number; commission: number; lessons: number }>();
-  for (const r of [...inPeriod.map((r) => ({ name: placeOf(r, r.lesson.location), money: r.money })), ...sessionsIn.map((r) => ({ name: placeOf(r, r.session.location), money: r.money }))]) {
+  for (const r of [...inPeriod.map((r) => ({ name: placeOf(r, r.lesson.location), money: r.money })), ...[...sessionsIn, ...clinicsIn].map((r) => ({ name: placeOf(r, r.session.location), money: r.money }))]) {
     const e = byPlace.get(r.name) ?? { name: r.name, net: 0, gross: 0, commission: 0, lessons: 0 };
     e.net += r.money.net;
     e.gross += r.money.gross;
@@ -603,19 +679,21 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     scheduled,
     previous,
     chart: buckets(period, at).map((b) => {
-      const rs = [...within(rows, b.from, b.to), ...within(sessionRows, b.from, b.to)];
+      const rs = [...within(rows, b.from, b.to), ...within(sessionRows, b.from, b.to), ...within(clinicRows, b.from, b.to)];
       return { key: b.key, label: b.label, earned: addMoney(rs.filter((r) => r.done).map((r) => r.money)).net, scheduled: addMoney(rs.filter((r) => !r.done).map((r) => r.money)).net, current: today >= b.from && today < b.to };
     }),
     byKind: [
-      ...(["private", "semi_private"] as const).map((k) => ({ kind: k as LessonKind | "community", ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
+      ...(["private", "semi_private"] as const).map((k) => ({ kind: k as LessonKind | "community" | "clinic", ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
       { kind: "community" as const, ...total([], sessionsIn) },
+      ...(clinicsIn.length ? [{ kind: "clinic" as const, ...total([], [], clinicsIn) }] : []),
     ],
     byPlace: [...byPlace.values()].sort(by((p) => p.net, -1)).map((p) => ({ ...p, commissioned: rules.some((x) => x.place === p.name) })),
     clients: sumBy(inPeriod, (r) => (r.lesson.client_names.length ? r.lesson.client_names : ["Unnamed"])).slice(0, 6),
     lessons: inPeriod.map(view).sort(by((r) => r.lesson.starts_at, -1)),
     sessions: sessionsIn.sort(by((r) => r.session.starts_at, -1)),
+    clinics: clinicsIn.sort(by((r) => r.session.starts_at, -1)),
     owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
-    paydays: upcomingPaydays([...rows, ...sessionRows], today),
+    paydays: upcomingPaydays([...rows, ...sessionRows, ...clinicRows], today),
     rules,
   };
 }
@@ -852,13 +930,15 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
   const since = [before.from, addDays(today, -400)].sort()[0];
   const span = sessionSpan(before, range, today);
   const clientsSince = startIso(addDays(today, -60));
-  const [L, allLessons, rules, calendars, sessions, upcoming] = await Promise.all([
+  const [L, allLessons, rules, calendars, sessions, upcoming, allClinics, allCovers] = await Promise.all([
     profileMap(ctx.store),
     ctx.store.list("lessons", { gte: { field: "starts_at", value: startIso(since) } }),
     ctx.store.list("commission_rules"),
     ctx.store.list("coach_calendars"),
     sessionsWithPlayers(ctx.store, span.from, span.to),
     ctx.store.list("sessions", { gte: { field: "starts_at", value: now }, order: { field: "starts_at" } }),
+    ctx.store.list("clinics").catch(() => [] as Clinic[]),
+    ctx.store.list("clinic_covers").catch(() => [] as ClinicCover[]),
   ]);
   const prevCut = sameShareOf(range, before, ctx.now);
   const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -870,7 +950,9 @@ export async function loadAdminCoaches(ctx: LoadCtx) {
     .sort(by((p) => p.full_name))
     .map((p) => {
       const { lessonRows, sessionRows } = coachMoney(p.id, allLessons, sessions, rules, now);
-      const all = [...lessonRows, ...sessionRows];
+      // Club clinics count in their earnings and hours, the same as on their own Earnings page.
+      const clinicRows = clinicMoneyRows(allClinicDates(allClinics.filter((c) => c.coach_id === p.id), span.from, span.to, allCovers), now, rules);
+      const all = [...lessonRows, ...sessionRows, ...clinicRows];
       const inP = all.filter((r) => inRange(startOf(r), range.from, range.to));
       const done = inP.filter((r) => r.done);
       const money = addMoney(done.map((r) => r.money));

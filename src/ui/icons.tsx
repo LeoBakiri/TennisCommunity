@@ -107,11 +107,11 @@ export function SessionMark({ type, size = 16, className = "", fill }: { type: S
 }
 
 /** A round badge for anything on a coach's calendar: the palm or rocket for a session, one or two people for a lesson. */
-export function EventMark({ type, semi, color, size = 20, invert, className = "" }: { type?: SessionType | null; semi?: boolean; color: string; size?: number; invert?: boolean; className?: string }) {
+export function EventMark({ type, semi, clinic, color, size = 20, invert, className = "" }: { type?: SessionType | null; semi?: boolean; clinic?: boolean; color: string; size?: number; invert?: boolean; className?: string }) {
   const [bg, fg] = invert ? ["#fff", color] : [color, "#fff"];
   return (
     <span className={`inline-flex shrink-0 items-center justify-center rounded-full ${className}`} style={{ width: size, height: size, background: bg, color: fg }} aria-hidden="true">
-      {type ? <SessionMark type={type} size={size * 0.66} fill={fg} /> : <Icon name={semi ? "users" : "user"} size={size * 0.62} strokeWidth={2.4} />}
+      {type ? <SessionMark type={type} size={size * 0.66} fill={fg} /> : <Icon name={clinic ? "whistle" : semi ? "users" : "user"} size={size * 0.62} strokeWidth={2.4} />}
     </span>
   );
 }
