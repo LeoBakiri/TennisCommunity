@@ -99,3 +99,18 @@ test("the demo clinics count toward last week's earnings, minus the covered nigh
   assert.equal(data.clinics.length, 2);
   assert.equal(data.clinics.reduce((n, r) => n + r.money.net, 0), 7000);
 });
+
+test("a one-off clinic, covering for someone: one night, paid once, on its own date", async () => {
+  const { store, ctx, load, now } = setup();
+  const day = addDays(dateKey(now), 10);
+  const r = await runAction(await ctx(DEMO_IDS.leo), "saveClinic", { id: "", title: "Legacy Clinic (for Kaan)", weekday: "0", once: "1", time: "18:30", duration_min: "90", pay: "70", location: "BTC", starts_on: day, ends_on: "", notes: "" });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const c = (await store.list("clinics", { eq: { title: "Legacy Clinic (for Kaan)" } }))[0];
+  assert.equal(c.starts_on, day);
+  assert.equal(c.ends_on, day);
+  assert.equal(c.weekday, weekdayOf(day));
+  const year = await loadCoachEarnings(await load(DEMO_IDS.leo, {}, { period: "year", at: day }));
+  assert.equal(year.clinics.filter((x) => x.session.id === c.id).length, 1);
+  const week = await loadCoachSchedule(await load(DEMO_IDS.leo, {}, { week: addDays(day, 7) }));
+  assert.ok(!week.items.some((i) => i.href.startsWith(`/coach/clinics/${c.id}`)));
+});

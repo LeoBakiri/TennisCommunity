@@ -4,7 +4,7 @@
 //   POST { action: "start" }       signed-in coach: returns the Google consent URL
 //   POST { action: "disconnect" }  signed-in coach: removes upcoming events and the token
 //   POST { action: "sync" }        signed-in coach or admin, or the cron job: works through the queue
-import { backoffMinutes, GoogleError, ReconnectNeeded, signState, syncSource, verifyState, type EventLink, type GoogleApi, type GoogleEvent, type SourceType, type SyncDeps } from "../_shared/calendarSync.ts";
+import { backoffMinutes, GoogleError, ReconnectNeeded, signState, syncSource, verifyState, type ClinicRow, type EventLink, type GoogleApi, type GoogleEvent, type SourceType, type SyncDeps } from "../_shared/calendarSync.ts";
 
 declare const Deno: { env: { get(k: string): string | undefined }; serve(h: (r: Request) => Promise<Response> | Response): void };
 
@@ -81,7 +81,13 @@ function makeDeps(): SyncDeps {
     return tokens.get(coachId)!;
   };
   return {
-    loadSource: async (type, id) => (await db<never[]>(`${type === "session" ? "sessions" : "lessons"}?id=eq.${id}&select=*`))[0] ?? null,
+    loadSource: async (type, id) => {
+      if (type !== "clinic") return (await db<never[]>(`${type === "session" ? "sessions" : "lessons"}?id=eq.${id}&select=*`))[0] ?? null;
+      const [c] = await db<Omit<ClinicRow, "covered" | "ends_at">[]>(`clinics?id=eq.${id}&select=*`);
+      if (!c) return null;
+      const covers = await db<{ day: string }[]>(`clinic_covers?clinic_id=eq.${id}&select=day`);
+      return { ...c, covered: covers.map((x) => x.day), ends_at: c.ends_on ? `${c.ends_on}T23:59:59Z` : "9999-12-31T00:00:00Z" };
+    },
     listLinks: (type, id) => db<EventLink[]>(`calendar_event_links?source_type=eq.${type}&source_id=eq.${id}&select=*`),
     saveLink: (link) => upsertRow("calendar_event_links", { ...link, updated_at: new Date().toISOString() }, "source_type,source_id,coach_id").then(() => undefined),
     deleteLink: (l) => db(`calendar_event_links?source_type=eq.${l.source_type}&source_id=eq.${l.source_id}&coach_id=eq.${l.coach_id}`, { method: "DELETE" }).then(() => undefined),

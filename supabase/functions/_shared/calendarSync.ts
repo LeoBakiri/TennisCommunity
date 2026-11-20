@@ -2,7 +2,7 @@
 // work out which events should exist and make Google match. Running it twice is harmless.
 // This file has no runtime-specific code, so the tests can run it against a fake Google.
 
-export type SourceType = "session" | "lesson";
+export type SourceType = "session" | "lesson" | "clinic";
 
 export interface SessionRow {
   id: string;
@@ -31,6 +31,21 @@ export interface LessonRow {
   notes: string;
 }
 
+/** A club clinic with the nights someone else covers. It becomes one weekly repeating event. */
+export interface ClinicRow {
+  id: string;
+  coach_id: string;
+  title: string;
+  start_time: string; // "18:30", Pacific
+  duration_min: number;
+  location: string;
+  starts_on: string; // first night, a date key
+  ends_on: string | null; // last week, or null to keep going
+  notes: string;
+  covered: string[]; // date keys of nights someone else takes
+  ends_at: string; // when the last night ends (far future while it keeps going), for disconnect
+}
+
 export interface GoogleEvent {
   summary: string;
   location: string;
@@ -38,6 +53,7 @@ export interface GoogleEvent {
   status: "confirmed";
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
+  recurrence?: string[];
   extendedProperties: { private: { ltc_source: SourceType; ltc_id: string } };
 }
 
@@ -68,7 +84,7 @@ export interface GoogleApi {
 }
 
 export interface SyncDeps {
-  loadSource(type: SourceType, id: string): Promise<SessionRow | LessonRow | null>;
+  loadSource(type: SourceType, id: string): Promise<SessionRow | LessonRow | ClinicRow | null>;
   listLinks(type: SourceType, id: string): Promise<EventLink[]>;
   saveLink(link: EventLink): Promise<void>;
   deleteLink(link: EventLink): Promise<void>;
@@ -94,9 +110,40 @@ function baseEvent(type: SourceType, id: string, row: { starts_at: string; ends_
   };
 }
 
+const compact = (day: string, hhmm: string) => `${day.replace(/-/g, "")}T${hhmm.replace(":", "")}00`;
+const plusMinutes = (day: string, hhmm: string, mins: number) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  const t = new Date(Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10), h, m + mins));
+  return t.toISOString().slice(0, 19);
+};
+
+/** A clinic as one weekly event in Pacific time. Covered nights are left out (EXDATE), so the calendar shows only nights the coach teaches. */
+export function clinicEvent(c: ClinicRow): GoogleEvent {
+  const tz = `TZID=${TIME_ZONE}`;
+  // UNTIL has to be in UTC. The day after the last night, at its end, still comes before the next week's night.
+  const until = c.ends_on ? `;UNTIL=${plusMinutes(c.ends_on, "23:59", 24 * 60).slice(0, 10).replace(/-/g, "")}T235959Z` : "";
+  const covered = [...c.covered].sort();
+  return {
+    summary: c.title,
+    location: c.location,
+    description: ["Club clinic", c.notes].filter(Boolean).join("\n\n"),
+    status: "confirmed",
+    start: { dateTime: `${c.starts_on}T${c.start_time}:00`, timeZone: TIME_ZONE },
+    end: { dateTime: plusMinutes(c.starts_on, c.start_time, c.duration_min), timeZone: TIME_ZONE },
+    // A one-off (first night = last night) is a plain event; covering it means the coach isn't on, so it's dropped.
+    ...(c.ends_on === c.starts_on ? {} : { recurrence: [`RRULE:FREQ=WEEKLY${until}`, ...(covered.length ? [`EXDATE;${tz}:${covered.map((d) => compact(d, c.start_time)).join(",")}`] : [])] }),
+    extendedProperties: { private: { ltc_source: "clinic", ltc_id: c.id } },
+  };
+}
+
 /** The coaches who should have this on their calendar, and what the event should say. */
-export function desiredEvents(type: SourceType, row: SessionRow | LessonRow | null): { coachIds: string[]; event: GoogleEvent } | null {
+export function desiredEvents(type: SourceType, row: SessionRow | LessonRow | ClinicRow | null): { coachIds: string[]; event: GoogleEvent } | null {
   if (!row) return null;
+  if (type === "clinic") {
+    const c = row as ClinicRow;
+    if (c.ends_on === c.starts_on && c.covered.includes(c.starts_on)) return null;
+    return { coachIds: [c.coach_id], event: clinicEvent(c) };
+  }
   if (type === "lesson") {
     const l = row as LessonRow;
     const price = l.price_cents === null ? "" : `Price: $${(l.price_cents / 100).toFixed(l.price_cents % 100 ? 2 : 0)}`;
@@ -128,7 +175,7 @@ export function desiredEvents(type: SourceType, row: SessionRow | LessonRow | nu
  * Google allows a–v and 0–9, which covers the hex digits of a UUID.
  */
 export function eventIdFor(type: SourceType, sourceId: string, coachId: string): string {
-  return `${type === "session" ? "s" : "l"}${sourceId.replace(/-/g, "")}${coachId.replace(/-/g, "")}`.toLowerCase();
+  return `${type === "session" ? "s" : type === "clinic" ? "c" : "l"}${sourceId.replace(/-/g, "")}${coachId.replace(/-/g, "")}`.toLowerCase();
 }
 
 async function upsert(api: GoogleApi, link: EventLink | undefined, id: string, event: GoogleEvent): Promise<string> {

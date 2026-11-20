@@ -49,5 +49,8 @@ export function clinicMoney(d: Pick<ClinicDate, "clinic" | "cover">): Money {
 /** Club clinics are paid through the club's payroll: BTC's twice-a-month paydays. */
 export const clinicPayday = (d: Pick<ClinicDate, "clinic" | "day">) => (isBalboa(d.clinic.location) ? payday(d.day) : null);
 
+/** A one-off clinic: one night only, e.g. covering for another coach. */
+export const isOneOff = (c: Pick<Clinic, "starts_on" | "ends_on">) => c.ends_on === c.starts_on;
+
 /** "Mondays · 6:30–8:00 PM"-style label pieces. */
 export const weekdayPlural = (weekday: number) => `${WEEKDAYS[weekday]}s`;

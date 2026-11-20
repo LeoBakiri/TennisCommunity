@@ -206,3 +206,20 @@ test("OAuth state is tamper-proof and expires", async () => {
   assert.equal(await verifyState("secret", `x${state}`, 2000), null);
   assert.equal(await verifyState("secret", "", 2000), null);
 });
+
+test("a club clinic is one weekly event in Pacific time, with covered nights left out", async () => {
+  const { clinicEvent } = await import("../supabase/functions/_shared/calendarSync");
+  const c = { id: "c1", coach_id: COACH_A, title: "Legacy Clinic 4.0+", start_time: "18:30", duration_min: 90, location: "Balboa Tennis Club, San Diego", starts_on: "2026-11-16", ends_on: null, notes: "", covered: ["2026-11-30", "2026-11-23"], ends_at: "9999-12-31T00:00:00Z" };
+  const e = clinicEvent(c);
+  assert.deepEqual(e.start, { dateTime: "2026-11-16T18:30:00", timeZone: "America/Los_Angeles" });
+  assert.deepEqual(e.end, { dateTime: "2026-11-16T20:00:00", timeZone: "America/Los_Angeles" });
+  assert.deepEqual(e.recurrence, ["RRULE:FREQ=WEEKLY", "EXDATE;TZID=America/Los_Angeles:20261123T183000,20261130T183000"]);
+  assert.equal(e.extendedProperties.private.ltc_source, "clinic");
+  assert.deepEqual(clinicEvent({ ...c, covered: [], ends_on: "2026-12-28" }).recurrence, ["RRULE:FREQ=WEEKLY;UNTIL=20261229T235959Z"]);
+  assert.equal(eventIdFor("clinic", SID, COACH_A)[0], "c");
+  assert.equal(desiredEvents("clinic", c)?.coachIds[0], COACH_A);
+  // A one-off night (covering for someone) is a single event, gone once it's covered.
+  const once = { ...c, covered: [], ends_on: "2026-11-16" };
+  assert.equal(clinicEvent(once).recurrence, undefined);
+  assert.equal(desiredEvents("clinic", { ...once, covered: ["2026-11-16"] }), null);
+});

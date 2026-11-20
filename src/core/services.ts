@@ -606,21 +606,25 @@ export const actions: Record<string, Handler> = {
       location: text(200).transform(fullPlace),
       starts_on: date,
       ends_on: z.preprocess((v) => (v === "" || v === undefined || v === null ? null : v), date.nullable()),
+      once: z.preprocess((v) => v === "1" || v === "on" || v === "true" || v === true, z.boolean()),
       notes: text(4000),
     }),
     async (ctx, input) => {
       const u = staff(ctx);
       const prev = input.id ? await myClinic(ctx, input.id) : null;
-      // The first week is the first chosen weekday on or after the start date.
-      const starts_on = firstOn(input.starts_on, input.weekday);
-      if (input.ends_on && input.ends_on < starts_on) throw new UserError("The last week is before the first one.");
-      const fields = { title: input.title, weekday: input.weekday, start_time: input.time, duration_min: input.duration_min, pay_cents: input.pay!, location: input.location, starts_on, ends_on: input.ends_on, notes: input.notes, updated_at: nowIso() };
+      // A one-off (covering for someone) runs on its date only. A weekly one starts on the first chosen weekday on or after the start date.
+      const weekday = input.once ? weekdayOf(input.starts_on) : input.weekday;
+      const starts_on = input.once ? input.starts_on : firstOn(input.starts_on, weekday);
+      const ends_on = input.once ? starts_on : input.ends_on;
+      if (ends_on && ends_on < starts_on) throw new UserError("The last week is before the first one.");
+      const fields = { title: input.title, weekday, start_time: input.time, duration_min: input.duration_min, pay_cents: input.pay!, location: input.location, starts_on, ends_on, notes: input.notes, updated_at: nowIso() };
       if (prev) {
         await ctx.store.update("clinics", prev.id, fields);
         return { ok: true, message: "Clinic saved.", redirect: `/coach?week=${starts_on > dateKey(ctx.now) ? starts_on : dateKey(ctx.now)}` };
       }
       await ctx.store.insert("clinics", { id: uid(), coach_id: u.id, created_at: nowIso(), ...fields });
-      return { ok: true, message: `${input.title} added: every ${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][input.weekday]}.`, redirect: `/coach?week=${starts_on}` };
+      const when = input.once ? `on ${fmtDay(zonedToUtc(starts_on, input.time).toISOString())}` : `every ${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][weekday]}`;
+      return { ok: true, message: `${input.title} added ${when}.`, redirect: `/coach?week=${starts_on}` };
     },
   ),
 
@@ -954,7 +958,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClinic", "coverClinic", "uncoverClinic", "deleteClinic", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

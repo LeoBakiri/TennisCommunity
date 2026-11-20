@@ -6,7 +6,7 @@ import { countdown, DecisionCard, slotLabel, slotTime, WeekGrid, WeekNav, whenWo
 import { LocationCourt, TimeSelect } from "./admin";
 import { ClientCombobox, Dropdown } from "../picker";
 import type { loadClinicEditor, loadCoachClient, loadCoachClients, loadCoachEarnings, loadCoachSchedule, loadCoachSession, loadLessonEditor } from "@/core/queries";
-import { CLINIC_COLOR, COVERED_COLOR, WEEKDAYS, weekdayOf, weekdayPlural } from "@/core/clinics";
+import { CLINIC_COLOR, COVERED_COLOR, isOneOff, WEEKDAYS, weekdayOf, weekdayPlural } from "@/core/clinics";
 import type { Client, CoachCalendar, CommissionRule, Lesson, LessonKind, Skill } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_META, sessionTitle, shortPlace } from "@/core/util";
@@ -538,6 +538,7 @@ export function ClinicEditor({ data }: { data: ClinicData }) {
   const [weekday, setWeekday] = useState(c ? c.weekday : weekdayOf(p!.day));
   const [minutes, setMinutes] = useState(c?.duration_min ?? 90);
   const [location, setLocation] = useState(c?.location ?? p!.location);
+  const [once, setOnce] = useState(c ? isOneOff(c) : false);
   const night = data.day ? data.nights.find((n) => n.day === data.day) ?? null : null;
   const upcoming = data.nights.filter((n) => n.day >= data.today).slice(0, 8);
   const past = data.nights.filter((n) => n.day < data.today).reverse().slice(0, 4);
@@ -546,19 +547,35 @@ export function ClinicEditor({ data }: { data: ClinicData }) {
       <PageHeader
         back={{ href: data.day ? `/coach?week=${startOfWeek(data.day)}` : "/coach", label: "My Schedule" }}
         title={c ? c.title : "Add Club Clinic"}
-        subtitle={c ? `${weekdayPlural(c.weekday)} · ${fmtClock(c.start_time)} · ${usd(c.pay_cents)} a clinic` : "A class the club runs every week that pays you a flat amount"}
+        subtitle={c ? `${isOneOff(c) ? `One-off · ${fmtKeyLong(c.starts_on)}` : weekdayPlural(c.weekday)} · ${fmtClock(c.start_time)} · ${usd(c.pay_cents)}${isOneOff(c) ? "" : " a clinic"}` : "A club class that pays you a flat amount: every week, or once when you cover for someone"}
       />
       <div className="max-w-2xl space-y-4">
         {c && night && <ClinicNight clinicId={c.id} night={night} />}
         <Card>
-          <ActionForm action="saveClinic" hidden={{ id: c?.id ?? "", weekday }}>
+          <ActionForm action="saveClinic" hidden={{ id: c?.id ?? "", weekday, once: once ? "1" : "" }}>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name" hint="As it shows on the club's schedule" className="sm:col-span-2">
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink/[0.05] p-1 sm:col-span-2" role="radiogroup" aria-label="How often">
+                {[
+                  { v: false, label: "Every week" },
+                  { v: true, label: "Just once" },
+                ].map((o) => (
+                  <button type="button" key={o.label} role="radio" aria-checked={once === o.v} onClick={() => setOnce(o.v)} className={cx("rounded-lg py-2 text-sm font-semibold", once === o.v ? "bg-card shadow-sm" : "text-ink/55")}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <Field label="Name" hint={once ? "e.g. the clinic and who you're covering for" : "As it shows on the club's schedule"} className="sm:col-span-2">
                 <input className="input" name="title" defaultValue={c?.title ?? ""} placeholder="e.g. Legacy Clinic 4.0+" required maxLength={120} />
               </Field>
-              <Field label="Every">
-                <Dropdown label="Day" value={String(weekday)} onChange={(v) => setWeekday(Number(v))} options={WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))} />
-              </Field>
+              {once ? (
+                <Field label="Date" hint="The night you're covering">
+                  <input className="input" type="date" name="starts_on" defaultValue={c?.starts_on ?? p!.day} required />
+                </Field>
+              ) : (
+                <Field label="Every">
+                  <Dropdown label="Day" value={String(weekday)} onChange={(v) => setWeekday(Number(v))} options={WEEKDAYS.map((d, i) => ({ value: String(i), label: d }))} />
+                </Field>
+              )}
               <Field label="Start time (Pacific)">
                 <TimeSelect name="time" value={c?.start_time ?? p!.time} />
               </Field>
@@ -574,12 +591,16 @@ export function ClinicEditor({ data }: { data: ClinicData }) {
               <Field label="Location" className="sm:col-span-2">
                 <Dropdown name="location" label="Location" value={shortPlace(location)} onChange={setLocation} options={data.places.map((x) => ({ value: x, label: x }))} />
               </Field>
-              <Field label="First week">
-                <input className="input" type="date" name="starts_on" defaultValue={c?.starts_on ?? p!.day} required />
-              </Field>
-              <Field label="Last week" hint="Leave empty to keep it going">
-                <input className="input" type="date" name="ends_on" defaultValue={c?.ends_on ?? ""} />
-              </Field>
+              {!once && (
+                <>
+                  <Field label="First week">
+                    <input className="input" type="date" name="starts_on" defaultValue={c?.starts_on ?? p!.day} required />
+                  </Field>
+                  <Field label="Last week" hint="Leave empty to keep it going">
+                    <input className="input" type="date" name="ends_on" defaultValue={c && !isOneOff(c) ? (c.ends_on ?? "") : ""} />
+                  </Field>
+                </>
+              )}
               <div className="flex items-center gap-3 rounded-xl bg-sage/50 px-4 py-3 text-[13px] text-ink/70 sm:col-span-2">
                 <Icon name="card" size={16} className="shrink-0 text-ink/55" />
                 <span>No commission is taken. {isBalboa(location) ? "Paid through BTC payroll." : "Counted in Earnings on the night."}</span>
@@ -589,11 +610,11 @@ export function ClinicEditor({ data }: { data: ClinicData }) {
               </Field>
             </div>
             <Submit className="mt-6" icon="check">
-              {c ? "Save clinic" : "Add clinic"}
+              {c ? "Save clinic" : once ? "Add one-off clinic" : "Add clinic"}
             </Submit>
           </ActionForm>
         </Card>
-        {c && (upcoming.length > 0 || past.length > 0) && (
+        {c && !isOneOff(c) && (upcoming.length > 0 || past.length > 0) && (
           <Card>
             <SectionTitle>Nights</SectionTitle>
             <p className="-mt-1 mb-3 text-[13px] text-ink/55">Tap a night when someone else covers it.</p>
