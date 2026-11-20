@@ -45,8 +45,9 @@ export function commissionFor(l: Priced, rules: CommissionRule[]): number | null
 export interface Money {
   gross: number; // what the player pays
   commission: number; // what the club takes
-  net: number; // what the coach keeps
+  net: number; // what the coach keeps (after tax once that payroll's take-home is in)
   priced: boolean;
+  tax?: number; // taken off net once the coach types in that payroll's take-home
 }
 
 /** A lesson's money. The commission saved with it wins; otherwise today's rule for its place. */
@@ -108,7 +109,7 @@ export function usd(cents: number): string {
 export const usdShort = (cents: number) => (Math.abs(cents) >= 100000 ? `$${(cents / 100000).toFixed(1).replace(/\.0$/, "")}k` : usd(cents));
 
 export function addMoney(items: Money[]) {
-  return items.reduce((t, m) => ({ gross: t.gross + m.gross, commission: t.commission + m.commission, net: t.net + m.net }), { gross: 0, commission: 0, net: 0 });
+  return items.reduce((t, m) => ({ gross: t.gross + m.gross, commission: t.commission + m.commission, net: t.net + m.net, tax: t.tax + (m.tax ?? 0) }), { gross: 0, commission: 0, net: 0, tax: 0 });
 }
 
 // ───────────────────────── periods ─────────────────────────

@@ -891,7 +891,7 @@ function EarningsHero({ data }: { data: Earnings }) {
     <HeroPanel eyebrow={data.current ? cap(thisPeriod(data.period)) : data.label}>
       <h2 className="mt-2 font-display text-4xl leading-tight font-semibold tracking-tight tabular-nums md:text-5xl">{usd(t.net)}</h2>
       <p className="mt-1 text-sm text-paper/70">
-        {data.current ? "earned so far, after commission" : "earned, after commission"}
+        {data.current ? "earned so far" : "earned"}, after commission{t.tax > 0 ? " and tax" : ""}
         {ahead > 0 && (
           <>
             <span className="text-accent"> · {usd(ahead)} still to come</span> · {usd(t.net + ahead)} for the {word}
@@ -988,6 +988,35 @@ function PaydayBadge({ payday, today }: { payday: string; today: string }) {
   return <Badge tone={payday <= today ? "green" : undefined}>Payroll {fmtPayroll(payday)}</Badge>;
 }
 
+const STUB_COLOR = "#7A807B";
+
+/** Under an amount: what tax took once that payroll's take-home is in, otherwise what the club took. */
+function MoneyNote({ m }: { m: Earnings["lessons"][number]["money"] }) {
+  if (m.tax) return <div className="text-[11.5px] text-ink/50 tabular-nums">{usd(m.net + m.tax)} before tax</div>;
+  if (m.commission > 0) return <div className="text-[11.5px] text-ink/50 tabular-nums">{usd(m.gross)} − {usd(m.commission)}</div>;
+  return null;
+}
+
+/** Pay on a BTC stub with no work in the app behind it. */
+function StubMoneyRow({ r, today }: { r: Earnings["stubs"][number]; today: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 md:px-5">
+      <Dot color={STUB_COLOR} className="shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold">BTC pay not in the app</div>
+        <div className="truncate text-[12.5px] text-ink/55">{fmtPayroll(r.payday)} · from your pay stub</div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="text-sm font-semibold tabular-nums">{usd(r.money.net)}</div>
+        <MoneyNote m={r.money} />
+      </div>
+      <div className="hidden w-[128px] shrink-0 justify-end sm:flex">
+        <PaydayBadge payday={r.payday} today={today} />
+      </div>
+    </div>
+  );
+}
+
 function SessionMoneyRow({ r, today }: { r: Earnings["sessions"][number]; today: string }) {
   const s = r.session;
   const m = r.money;
@@ -1006,7 +1035,7 @@ function SessionMoneyRow({ r, today }: { r: Earnings["sessions"][number]; today:
         {m.priced ? (
           <>
             <div className="text-sm font-semibold tabular-nums">{usd(m.net)}</div>
-            {m.commission > 0 && <div className="text-[11.5px] text-ink/50 tabular-nums">{usd(m.gross)} − {usd(m.commission)}</div>}
+            <MoneyNote m={m} />
           </>
         ) : (
           <Badge tone="amber">No price</Badge>
@@ -1029,7 +1058,10 @@ function ClinicMoneyRow({ r, today }: { r: Earnings["clinics"][number]; today: s
           {c.covered_by ? ` · Covered by ${c.covered_by}` : r.place ? ` · ${r.place}` : ""}
         </div>
       </A>
-      <div className="shrink-0 text-sm font-semibold tabular-nums">{usd(r.money.net)}</div>
+      <div className="shrink-0 text-right">
+        <div className="text-sm font-semibold tabular-nums">{usd(r.money.net)}</div>
+        <MoneyNote m={r.money} />
+      </div>
       <div className="hidden w-[128px] shrink-0 justify-end sm:flex">{c.covered_by ? <Badge>Covered</Badge> : r.payday ? <PaydayBadge payday={r.payday} today={today} /> : !r.done ? <Badge>Upcoming</Badge> : null}</div>
     </div>
   );
@@ -1052,7 +1084,7 @@ function LessonMoneyRow({ r, today }: { r: Earnings["lessons"][number]; today: s
         {m.priced ? (
           <>
             <div className="text-sm font-semibold tabular-nums">{usd(m.net)}</div>
-            {m.commission > 0 && <div className="text-[11.5px] text-ink/50 tabular-nums">{usd(m.gross)} − {usd(m.commission)}</div>}
+            <MoneyNote m={m} />
           </>
         ) : (
           <Badge tone="amber">No price</Badge>
@@ -1066,10 +1098,11 @@ function LessonMoneyRow({ r, today }: { r: Earnings["lessons"][number]; today: s
 function downloadCsv(data: Earnings) {
   const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
   const rows = [
-    ["Date", "Start", "End", "Type", "Players", "Location", "Price", "Commission", "You keep", "Paid"],
-    ...[...data.lessons].reverse().map(({ lesson: l, money: m, payday }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : l.paid_at ? dateKey(l.paid_at) : ""]),
-    ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.courts > 1 ? ` on ${s.courts} courts` : ""}${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
-    ...[...data.clinics].reverse().map(({ session: c, money: m, payday }) => [dateKey(c.starts_at), timeKey(c.starts_at), timeKey(c.ends_at), "Club Clinic", c.covered_by ? `${c.title} (covered by ${c.covered_by})` : c.title, c.location, (m.gross / 100).toFixed(2), "0.00", (m.net / 100).toFixed(2), payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
+    ["Date", "Start", "End", "Type", "Players", "Location", "Price", "Commission", "Tax", "You keep", "Paid"],
+    ...[...data.lessons].reverse().map(({ lesson: l, money: m, payday }) => [dateKey(l.starts_at), timeKey(l.starts_at), timeKey(l.ends_at), LESSON_META[l.kind].label, l.client_names.join(", "), l.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), ((m.tax ?? 0) / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : l.paid_at ? dateKey(l.paid_at) : ""]),
+    ...[...data.sessions].reverse().map(({ session: s, money: m, payday }) => [dateKey(s.starts_at), timeKey(s.starts_at), timeKey(s.ends_at), s.session_type ? SESSION_META[s.session_type].label : "Session", `${s.players} players${s.courts > 1 ? ` on ${s.courts} courts` : ""}${s.coaches > 1 ? `, your share of ${s.coaches} coaches` : ""}`, s.location, m.priced ? (m.gross / 100).toFixed(2) : "", (m.commission / 100).toFixed(2), ((m.tax ?? 0) / 100).toFixed(2), m.priced ? (m.net / 100).toFixed(2) : "", payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
+    ...[...data.clinics].reverse().map(({ session: c, money: m, payday }) => [dateKey(c.starts_at), timeKey(c.starts_at), timeKey(c.ends_at), "Club Clinic", c.covered_by ? `${c.title} (covered by ${c.covered_by})` : c.title, c.location, (m.gross / 100).toFixed(2), "0.00", ((m.tax ?? 0) / 100).toFixed(2), (m.net / 100).toFixed(2), payday ? `Payroll ${fmtPayroll(payday)}` : ""]),
+    ...data.stubs.map((x) => [x.last, "", "", "BTC pay not in the app", "", "Balboa", (x.money.gross / 100).toFixed(2), "0.00", ((x.money.tax ?? 0) / 100).toFixed(2), (x.money.net / 100).toFixed(2), `Payroll ${fmtPayroll(x.payday)}`]),
   ];
   const blob = new Blob([rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
@@ -1080,11 +1113,11 @@ function downloadCsv(data: Earnings) {
 }
 
 function Breakdown({ data }: { data: Earnings }) {
-  const kinds = data.byKind.filter((k) => k.lessons + k.sessions + k.clinics > 0);
+  const kinds = data.byKind.filter((k) => k.lessons + k.sessions + k.clinics + k.stubs > 0);
   if (!kinds.length) return null;
   const max = Math.max(1, ...kinds.map((k) => k.net));
   const total = kinds.reduce((n, k) => n + k.net, 0);
-  const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : k === "clinic" ? { label: "Club clinics", color: CLINIC_COLOR } : LESSON_META[k]);
+  const meta = (k: (typeof data.byKind)[number]["kind"]) => (k === "community" ? { label: "Community sessions", color: SESSION_META.group.color } : k === "clinic" ? { label: "Club clinics", color: CLINIC_COLOR } : k === "stub" ? { label: "BTC pay not in the app", color: STUB_COLOR } : LESSON_META[k]);
   return (
     <Card>
       <SectionTitle action={<span className="font-display text-lg font-semibold tabular-nums">{usd(total)}</span>}>Breakdown</SectionTitle>
@@ -1094,7 +1127,7 @@ function Breakdown({ data }: { data: Earnings }) {
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="flex items-center gap-2">
                 <Dot color={meta(k.kind).color} /> {meta(k.kind).label}
-                <span className="text-ink/45">· {k.lessons + k.sessions + k.clinics}</span>
+                <span className="text-ink/45">· {k.lessons + k.sessions + k.clinics + k.stubs}</span>
               </span>
               <span className="font-semibold tabular-nums">{usd(k.net)}</span>
             </div>
@@ -1257,6 +1290,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
     ...data.lessons.map((r) => ({ at: r.lesson.starts_at, node: <LessonMoneyRow key={`l${r.lesson.id}`} r={r} today={data.today} /> })),
     ...data.sessions.map((r) => ({ at: r.session.starts_at, node: <SessionMoneyRow key={`s${r.session.id}`} r={r} today={data.today} /> })),
     ...data.clinics.filter((r) => !r.session.covered_by).map((r) => ({ at: r.session.starts_at, node: <ClinicMoneyRow key={`c${r.session.id}_${r.session.day}`} r={r} today={data.today} /> })),
+    ...data.stubs.map((r) => ({ at: r.session.starts_at, node: <StubMoneyRow key={`p${r.id}`} r={r} today={data.today} /> })),
   ].sort((a, b) => (data.period === "week" || data.period === "day" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
   return (
     <>
@@ -1264,7 +1298,7 @@ export function CoachEarnings({ data }: { data: Earnings }) {
         title="Earnings"
         actions={
           <>
-            <button className={btn("outline")} onClick={() => downloadCsv(data)} disabled={!data.lessons.length && !data.sessions.length && !data.clinics.length}>
+            <button className={btn("outline")} onClick={() => downloadCsv(data)} disabled={!data.lessons.length && !data.sessions.length && !data.clinics.length && !data.stubs.length}>
               <Icon name="download" size={16} /> Download CSV
             </button>
             <LinkButton href="/coach/lessons/new" icon="plus">

@@ -609,6 +609,39 @@ function pastPaydays(rows: MoneyRow[], today: string, range: { from: string; to:
   }));
 }
 
+/** BTC pay on a pay stub with no work in the app behind it (lessons deleted, or never entered). */
+export type StubRow = { id: string; payday: string; from: string; last: string; session: { starts_at: string }; money: Money; done: true; hours: 0 };
+
+/**
+ * Once a payroll's take-home is typed in, its work counts after tax: every item in it loses the same share,
+ * so the payroll adds up to exactly what reached the bank. Pay on the stub that the app has no work for becomes one line.
+ */
+function applyPaychecks(rows: MoneyRow[], saved: Paycheck[]): StubRow[] {
+  const stubs: StubRow[] = [];
+  for (const p of saved) {
+    const mine = rows.filter((r) => r.payday === p.payday);
+    const recorded = addMoney(mine.map((r) => r.money)).net;
+    const before = p.gross_cents ?? recorded;
+    if (before <= 0) continue;
+    const keep = Math.min(1, p.take_home_cents / before);
+    const missing = Math.max(0, before - recorded);
+    const stubNet = missing >= 100 ? Math.round(missing * keep) : 0;
+    // What the recorded work keeps: the take-home minus the stub line, shared out by size; the last item takes the rounding.
+    let left = recorded > 0 ? p.take_home_cents - stubNet : 0;
+    mine.forEach((r, i) => {
+      const net = i === mine.length - 1 ? left : Math.round(r.money.net * keep);
+      left -= net;
+      r.money = { ...r.money, net, tax: r.money.net - net };
+    });
+    if (stubNet > 0) {
+      const w = payWindow(p.payday);
+      const last = addDays(w.to, -1);
+      stubs.push({ id: p.id, payday: p.payday, from: w.from, last, session: { starts_at: zonedToUtc(last, "12:00").toISOString() }, money: { gross: missing, commission: 0, net: stubNet, tax: missing - stubNet, priced: true }, done: true, hours: 0 });
+    }
+  }
+  return stubs;
+}
+
 /** How far back and ahead to load community sessions: the period, the one before it, and the open paydays. */
 const sessionSpan = (before: { from: string }, range: { to: string }, today: string) => ({ from: [before.from, addDays(today, -35)].sort()[0], to: [range.to, addDays(today, 50)].sort()[1] });
 
@@ -633,6 +666,9 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   const now = ctx.now.toISOString();
   const { lessonRows: rows, sessionRows } = coachMoney(u.id, lessons, sessions, rules, now);
   const clinicRows = clinicMoneyRows(allClinicDates(mineClinics.clinics, span.from, span.to, mineClinics.covers), now, rules);
+  // The paid payrolls listed under Getting paid show their before-tax totals, so work them out first.
+  const paid = pastPaydays([...rows, ...sessionRows, ...clinicRows], today, range, inRange(now, range.from, range.to), paychecks);
+  const stubs = applyPaychecks([...rows, ...sessionRows, ...clinicRows], paychecks);
   type R = (typeof rows)[number];
   type S = (typeof sessionRows)[number];
   type CR = (typeof clinicRows)[number];
@@ -640,12 +676,14 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
   const inPeriod = within(rows, range.from, range.to);
   const sessionsIn = within(sessionRows, range.from, range.to);
   const clinicsIn = within(clinicRows, range.from, range.to);
-  const total = (rs: R[], ss: S[] = [], cs: CR[] = []) => ({ ...addMoney([...rs, ...ss, ...cs].map((r) => r.money)), lessons: rs.length, sessions: ss.length, clinics: cs.filter((c) => !c.session.covered_by).length, hours: Math.round([...rs, ...ss, ...cs].reduce((n, r) => n + r.hours, 0) * 10) / 10 });
+  const stubsIn = within(stubs, range.from, range.to);
+  const total = (rs: R[], ss: S[] = [], cs: CR[] = [], xs: StubRow[] = []) => ({ ...addMoney([...rs, ...ss, ...cs, ...xs].map((r) => r.money)), lessons: rs.length, sessions: ss.length, clinics: cs.filter((c) => !c.session.covered_by).length, stubs: xs.length, stubNet: xs.reduce((n, x) => n + x.money.net, 0), hours: Math.round([...rs, ...ss, ...cs].reduce((n, r) => n + r.hours, 0) * 10) / 10 });
 
   const t = total(
     inPeriod.filter((r) => r.done),
     sessionsIn.filter((r) => r.done),
     clinicsIn.filter((r) => r.done),
+    stubsIn,
   );
   const scheduled = total(
     inPeriod.filter((r) => !r.done),
@@ -658,6 +696,7 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     within(rows, before.from, before.to).filter((r) => r.lesson.ends_at <= prevCut),
     within(sessionRows, before.from, before.to).filter((r) => r.session.ends_at <= prevCut),
     within(clinicRows, before.from, before.to).filter((r) => r.session.ends_at <= prevCut),
+    within(stubs, before.from, before.to).filter((r) => r.session.starts_at <= prevCut),
   );
 
   const sumBy = (rs: R[], key: (r: R) => string[]) => {
@@ -698,26 +737,28 @@ export async function loadCoachEarnings(ctx: LoadCtx) {
     current: inRange(now, range.from, range.to),
     prev: range.prev,
     next: range.next,
-    totals: { ...t, per_hour: t.hours ? Math.round(t.net / t.hours / 100) * 100 : 0, unpriced: inPeriod.filter((r) => !r.money.priced) },
+    totals: { ...t, per_hour: t.hours ? Math.round((t.net - t.stubNet) / t.hours / 100) * 100 : 0, unpriced: inPeriod.filter((r) => !r.money.priced) },
     scheduled,
     previous,
     chart: buckets(period, at).map((b) => {
-      const rs = [...within(rows, b.from, b.to), ...within(sessionRows, b.from, b.to), ...within(clinicRows, b.from, b.to)];
+      const rs = [...within(rows, b.from, b.to), ...within(sessionRows, b.from, b.to), ...within(clinicRows, b.from, b.to), ...within(stubs, b.from, b.to)];
       return { key: b.key, label: b.label, earned: addMoney(rs.filter((r) => r.done).map((r) => r.money)).net, scheduled: addMoney(rs.filter((r) => !r.done).map((r) => r.money)).net, current: today >= b.from && today < b.to };
     }),
     byKind: [
-      ...(["private", "semi_private"] as const).map((k) => ({ kind: k as LessonKind | "community" | "clinic", ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
+      ...(["private", "semi_private"] as const).map((k) => ({ kind: k as LessonKind | "community" | "clinic" | "stub", ...total(inPeriod.filter((r) => r.lesson.kind === k)) })),
       { kind: "community" as const, ...total([], sessionsIn) },
       ...(clinicsIn.length ? [{ kind: "clinic" as const, ...total([], [], clinicsIn) }] : []),
+      ...(stubsIn.length ? [{ kind: "stub" as const, ...total([], [], [], stubsIn) }] : []),
     ],
     byPlace: [...byPlace.values()].sort(by((p) => p.net, -1)).map((p) => ({ ...p, commissioned: rules.some((x) => x.place === p.name) })),
     clients: sumBy(inPeriod, (r) => (r.lesson.client_names.length ? r.lesson.client_names : ["Unnamed"])).slice(0, 6),
     lessons: inPeriod.map(view).sort(by((r) => r.lesson.starts_at, -1)),
     sessions: sessionsIn.sort(by((r) => r.session.starts_at, -1)),
     clinics: clinicsIn.sort(by((r) => r.session.starts_at, -1)),
+    stubs: stubsIn,
     owed: { total: owed.reduce((n, r) => n + r.money.gross, 0), lessons: owed },
     paydays: upcomingPaydays([...rows, ...sessionRows, ...clinicRows], today),
-    paychecks: pastPaydays([...rows, ...sessionRows, ...clinicRows], today, range, inRange(now, range.from, range.to), paychecks),
+    paychecks: paid,
     rules,
   };
 }

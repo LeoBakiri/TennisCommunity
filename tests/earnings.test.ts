@@ -242,3 +242,34 @@ test("the latest payroll is there to fill in even with no work recorded for it",
   const p = data.paychecks[0];
   assert.ok(p.date <= dateKey(now) && /-(05|20)$/.test(p.date) && p.earned === 0 && p.take_home === null);
 });
+
+test("a saved take-home turns that payroll's earnings into after-tax money", async () => {
+  const { store, ctx, load, now } = setup();
+  const leo = await ctx(DEMO_IDS.leo);
+  const year = { period: "year" };
+  const before = await loadCoachEarnings(await load(DEMO_IDS.leo, year));
+  const p = before.paychecks.find((x) => x.earned > 0)!;
+  const all = (d: typeof before) => [...d.lessons, ...d.sessions, ...d.clinics];
+  const inPay = (d: typeof before) => all(d).filter((r) => r.payday === p.date);
+  // 80% kept: the payroll's work adds up to exactly the take-home, and the year total drops by the tax.
+  const takeHome = Math.round(p.earned * 0.8);
+  assert.equal((await runAction(leo, "savePaycheck", { payday: p.date, take_home: (takeHome / 100).toFixed(2) })).ok, true);
+  const after = await loadCoachEarnings(await load(DEMO_IDS.leo, year));
+  assert.equal(inPay(after).reduce((n, r) => n + r.money.net, 0), takeHome);
+  assert.ok(inPay(after).every((r) => (r.money.tax ?? 0) >= 0));
+  assert.equal(after.totals.net + after.scheduled.net, before.totals.net + before.scheduled.net - (p.earned - takeHome));
+  assert.equal(after.totals.tax, p.earned - takeHome);
+  // Getting paid still shows that payroll's before-tax total.
+  assert.equal(after.paychecks.find((x) => x.date === p.date)!.earned, p.earned);
+  assert.equal(after.stubs.length, 0);
+
+  // A pay stub bigger than the work in the app: the rest shows as its own line, after tax too.
+  await runAction(leo, "savePaycheck", { payday: p.date, gross: ((p.earned + 50000) / 100).toFixed(2), take_home: (((p.earned + 50000) * 0.8) / 100).toFixed(2) });
+  const stub = await loadCoachEarnings(await load(DEMO_IDS.leo, year));
+  assert.equal(stub.stubs.length, 1);
+  assert.equal(stub.stubs[0].money.gross, 50000);
+  assert.equal(stub.stubs[0].money.net, 40000);
+  assert.equal(inPay(stub).reduce((n, r) => n + r.money.net, 0) + 40000, Math.round((p.earned + 50000) * 0.8));
+  assert.ok(stub.byKind.some((k) => k.kind === "stub" && k.net === 40000));
+  void store; void now;
+});
