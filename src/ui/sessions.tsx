@@ -12,7 +12,10 @@ export function priceLabel(s: Pick<SessionView, "price_cents">) {
 }
 
 /** Diagonal lines over a night that isn't on for the coach (a clinic someone else covered). */
-const HATCH = "repeating-linear-gradient(135deg, rgba(255,255,255,0.32) 0 3px, transparent 3px 9px)";
+// A covered clinic night on the week grid: pale grey with fine grey lines, so it reads as "not yours" without shouting.
+const HATCH_SOFT = "repeating-linear-gradient(135deg, rgba(20,30,25,0.07) 0 2px, transparent 2px 8px)";
+// A soft sheen and a darker stripe down the left edge give solid event blocks a little depth, as Apple Calendar does.
+const EVENT_SHEEN = "linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 60%)";
 
 export const sessionColor = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].color;
 const sessionLabel = (s: Pick<SessionView, "session_type">) => SESSION_META[s.session_type ?? "group"].label;
@@ -717,13 +720,10 @@ export function WeekGrid({
               {hours.map((h, i) => (
                 <div key={h}>
                   {i > 0 && (
-                    <div className="absolute right-2 -translate-y-1/2 text-[11px] font-medium text-ink/50 tabular-nums" style={{ top: i * HOUR_PX }}>
+                    <div className="absolute right-2.5 -translate-y-1/2 text-[10.5px] font-medium tracking-wide text-ink/40 tabular-nums" style={{ top: i * HOUR_PX }}>
                       {fmtClock(`${String(h).padStart(2, "0")}:00`)}
                     </div>
                   )}
-                  <div className="absolute right-2 -translate-y-1/2 text-[10px] text-ink/30 tabular-nums" style={{ top: (i + 0.5) * HOUR_PX }}>
-                    {fmtClock(`${String(h).padStart(2, "0")}:30`).replace(/ [AP]M/, "")}
-                  </div>
                 </div>
               ))}
             </div>
@@ -772,8 +772,8 @@ export function WeekGrid({
                   }}
                 >
                   {hours.map((h, i) => (
-                    <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-ink/[0.07]" style={{ top: i * HOUR_PX, height: HOUR_PX }}>
-                      <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-ink/[0.06]" />
+                    <div key={h} className="pointer-events-none absolute inset-x-0 border-t border-ink/[0.06]" style={{ top: i * HOUR_PX, height: HOUR_PX }}>
+                      <div className="absolute inset-x-0 top-1/2 border-t border-dotted border-ink/[0.05]" />
                     </div>
                   ))}
                   {hover?.day === d && !drag && !draft && (
@@ -794,11 +794,19 @@ export function WeekGrid({
                     const range = placed[s.id] ? slotLabel(p) : fmtRange(s.starts_at, s.ends_at);
                     const small = h < 44;
                     const over = !!nowIso && s.ends_at < nowIso; // already finished: shown paler, as calendars do
+                    const covered = !!s.faded;
+                    const lines = h >= 80 ? 2 : 1; // room for the title to wrap onto a second line
                     return (
                       <div
                         key={s.id}
-                        className={cx("absolute inset-x-1 z-[6] overflow-hidden rounded-md ring-1 ring-card transition-[filter,box-shadow] hover:z-20 hover:shadow-lg hover:brightness-110", can && "cursor-grab", lifted && "opacity-35")}
-                        style={{ top, height: h, background: s.faded ? `${HATCH}, ${s.color}` : s.color, color: "#fff" }}
+                        className={cx(
+                          "absolute right-1.5 left-1 z-[6] overflow-hidden rounded-lg transition-[filter,box-shadow,opacity] hover:z-20 hover:opacity-100",
+                          covered ? "border border-dashed border-ink/20" : "shadow-[0_1px_2px_rgba(16,24,20,0.18),inset_3px_0_0_rgba(0,0,0,0.16)] hover:shadow-lg hover:brightness-110",
+                          (over || s.cancelled) && !covered && "opacity-60",
+                          can && "cursor-grab",
+                          lifted && "opacity-35",
+                        )}
+                        style={{ top, height: h, background: covered ? `${HATCH_SOFT}, #F1F3F1` : `${EVENT_SHEEN}, ${s.color}`, color: covered ? "rgba(20,30,25,0.55)" : "#fff" }}
                         onPointerDown={grabItem("move", s)}
                         onDragStart={(e) => e.preventDefault()}
                         onClickCapture={(e) => {
@@ -809,15 +817,15 @@ export function WeekGrid({
                       >
                         <A
                           href={s.href}
-                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${can ? " · drag to move" : ""}`}
-                          className={cx("flex h-full gap-1.5 px-1.5 text-left text-[12px] leading-tight", small ? "items-center py-0.5" : "py-1.5", (s.cancelled || over) && "opacity-60")}
+                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${covered ? " · covered" : ""}${can ? " · drag to move" : ""}`}
+                          className={cx("flex h-full flex-col pr-1.5 pl-2.5 text-left leading-tight", small ? "justify-center py-0.5" : "py-1.5")}
                         >
-                          <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={s.color} size={small ? 15 : 18} invert />
-                          <span className="min-w-0 flex-1">
-                            <span className={cx("block truncate font-semibold", s.cancelled && "line-through")}>{s.title}</span>
-                            {!small && <span className="block truncate opacity-85">{range}</span>}
-                            {h > 56 && <span className="mt-1 block truncate opacity-85">{s.cancelled ? "Cancelled" : s.detail}</span>}
+                          <span className="flex min-w-0 items-start gap-1.5">
+                            <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={covered ? "#9A9F9B" : s.color} size={small ? 14 : 15} invert={!covered} className="mt-px" />
+                            <span className={cx("min-w-0 flex-1 text-[12px] font-semibold", lines === 2 ? "line-clamp-2 break-words" : "truncate", (s.cancelled || covered) && "line-through decoration-1")}>{s.title}</span>
                           </span>
+                          {!small && <span className="mt-0.5 block truncate text-[11px] font-medium opacity-85 tabular-nums">{range}</span>}
+                          {h > 56 && <span className="mt-auto block truncate pt-0.5 text-[11px] opacity-75">{s.cancelled ? "Cancelled" : s.detail}</span>}
                         </A>
                         {can && <span className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" onPointerDown={grabItem("resize", s)} aria-hidden="true" />}
                       </div>
