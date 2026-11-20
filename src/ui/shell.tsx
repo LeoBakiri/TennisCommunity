@@ -260,8 +260,8 @@ export function PortalShell({ area, meta, children }: { area: PortalArea; meta: 
 
   // Plain functions, not components: a component defined here would be rebuilt on every
   // render, and a link rebuilt between press and release loses the click.
-  // Admins mostly live in Coach and Admin, so Member shrinks to a small link under the tabs.
-  const miniMember = user.role === "admin";
+  // Coaches and admins mostly live in their own views, so Member shrinks to a small link under the tabs.
+  const miniMember = user.role !== "member";
   const tabs = miniMember ? portals.filter((p) => p.area !== "member") : portals;
   const switcher = (dark: boolean) => (
     <div className="space-y-1.5">
