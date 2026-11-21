@@ -4,6 +4,7 @@ import { z, ZodError } from "zod";
 import type { ActionResult, Actor, Booking, BookingStatus, Client, CommissionRule, Feedback, Lesson, Profile, Session, SessionType, Settings } from "./types";
 import type { Store } from "./store";
 import { addDays, dateKey, fmtDay, fmtRange, fmtTime, timeKey, zonedToUtc } from "./time";
+import { applyBulkEdit, hasChanges, type BulkEdit } from "./bulkedit";
 import { courtPlan, fullPlace, isBalboa, isEmail, normalizePhone, nowIso, uid } from "./util";
 import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
@@ -847,51 +848,56 @@ export const actions: Record<string, Handler> = {
     return { ok: true, message: `Deleted ${plural(free.length)}.${kept ? ` ${plural(kept)} with bookings ${kept === 1 ? "was" : "were"} kept — cancel ${kept === 1 ? "it" : "them"} instead.` : ""}` };
   }),
 
-  /** Edit ticked sessions together. A blank field keeps what each session already has; each keeps its own date. */
+  /** Edit ticked sessions together. Anything left on "keep" stays as each session has it. See core/bulkedit.ts. */
   bulkEditSessions: action(
     z.object({
       session_ids: ids,
-      time: z.string().regex(/^(\d{2}:\d{2})?$/).default(""),
-      duration_min: z.preprocess((v) => (v === "" || v === undefined ? null : Number(v)), z.number().int().min(15, "Duration must be 15 minutes or more").max(600).nullable()),
-      capacity: z.preprocess((v) => (v === "" || v === undefined ? null : Number(v)), z.number().int().min(1, "Spots must be 1 or more").max(200).nullable()),
+      move: z.string().regex(/^(wd:[0-6]|days:-?\d{1,3})?$/).default(""),
+      time: z.string().regex(/^(\d{2}:\d{2}|[+-]\d{1,4})?$/).default(""),
+      duration_min: z.preprocess((v) => (v === "" || v === undefined || v === null ? null : Number(v)), z.number({ invalid_type_error: "Duration must be a number" }).int().min(15, "Duration must be 15 minutes or more").max(600).nullable()),
+      session_type: z.enum(["", "group", "performance_accelerator"]).default(""),
+      status: z.enum(["", "published", "draft"]).default(""),
+      spots: z.enum(["keep", "set", "coaches"]).default("keep"),
+      capacity: z.preprocess((v) => (v === "" || v === undefined || v === null ? null : Number(v)), z.number({ invalid_type_error: "Spots must be a number" }).int().min(1, "Spots must be 1 or more").max(200).nullable()),
+      price_mode: z.enum(["keep", "set", "tba"]).default("keep"),
       price: dollars,
-      location: text(200),
-      court: z.string().regex(/^(keep|none|[1-4])$/).default("keep"),
-      set_coaches: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
+      location: text(200).transform((v) => (v ? fullPlace(v) : "")),
+      court: z.enum(["keep", "none", "1", "2", "3", "4"]).default("keep"),
+      coach_mode: z.enum(["keep", "replace", "add", "remove"]).default("keep"),
       coach_ids: ids,
+      title_mode: z.enum(["keep", "set", "clear"]).default("keep"),
       title: text(120),
+      notes_mode: z.enum(["keep", "replace", "append", "clear"]).default("keep"),
       description: text(2000),
+      internal_mode: z.enum(["keep", "replace", "append", "clear"]).default("keep"),
+      internal_notes: text(2000),
     }),
     async (ctx, input) => {
       scheduler(ctx);
       if (!input.session_ids.length) throw new UserError("Tick at least one session.");
+      const e: BulkEdit = { ...input };
+      if (!hasChanges(e)) throw new UserError("Nothing to change — pick at least one thing to change.");
+      if (e.spots === "set" && e.capacity === null) throw new UserError("Type how many spots.");
+      if (e.price_mode === "set" && e.price === null) throw new UserError("Type a price, or pick Price TBA.");
+      if (e.coach_mode !== "keep" && !e.coach_ids.length) throw new UserError("Pick at least one coach.");
+      if (e.title_mode === "set" && !e.title) throw new UserError("Type the focus, or keep it as is.");
+      if ((e.notes_mode === "replace" || e.notes_mode === "append") && !e.description) throw new UserError("Type the note for players.");
+      if ((e.internal_mode === "replace" || e.internal_mode === "append") && !e.internal_notes) throw new UserError("Type the coach note.");
       const rows = (await ctx.store.list("sessions", { in: { field: "id", values: input.session_ids } })).filter((s) => !!s.session_type && s.status !== "cancelled");
-      const location = input.location ? fullPlace(input.location) : "";
-      const changes = [input.time, input.duration_min, input.capacity, input.price, location, input.court !== "keep", input.set_coaches, input.title, input.description].filter((v) => v !== "" && v !== null && v !== false);
-      if (!changes.length) throw new UserError("Nothing to change — fill in at least one field.");
-      if (input.capacity !== null) {
-        const bookings = await ctx.store.list("bookings", { in: { field: "session_id", values: rows.map((s) => s.id) } });
-        const tooFull = rows.filter((s) => seatsUsed(bookings.filter((b) => b.session_id === s.id)) > input.capacity!);
-        if (tooFull.length) throw new UserError(`${tooFull.length} of these already ${tooFull.length === 1 ? "has" : "have"} more than ${input.capacity} players booked. Untick ${tooFull.length === 1 ? "it" : "them"} or pick more spots.`);
-      }
+      const bookings = await ctx.store.list("bookings", { in: { field: "session_id", values: rows.map((s) => s.id) } });
+      const plans = rows.map((prev) => ({ prev, ...applyBulkEdit(prev, e) }));
+      const broken = plans.filter((p) => p.error);
+      if (broken.length) throw new UserError(`${broken.length} of these ${broken[0].error}. Untick ${broken.length === 1 ? "it" : "them"} or change the edit.`);
+      const tooFull = plans.filter((p) => seatsUsed(bookings.filter((b) => b.session_id === p.prev.id)) > p.next.capacity);
+      if (tooFull.length) throw new UserError(`${tooFull.length} of these already ${tooFull.length === 1 ? "has" : "have"} more players booked than the new spots. Untick ${tooFull.length === 1 ? "it" : "them"} or pick more spots.`);
       let promoted = 0;
-      for (const prev of rows) {
-        const length = input.duration_min ?? Math.round((new Date(prev.ends_at).getTime() - new Date(prev.starts_at).getTime()) / 60000);
-        const start = input.time ? zonedToUtc(dateKey(prev.starts_at), input.time) : new Date(prev.starts_at);
-        const where = location || prev.location;
-        const fields: Partial<Session> = {
-          starts_at: start.toISOString(),
-          ends_at: new Date(start.getTime() + length * 60000).toISOString(),
-          location: where,
-          court: courtFor(where, input.court === "keep" ? prev.court : input.court === "none" ? null : Number(input.court)),
-        };
-        if (input.capacity !== null) fields.capacity = input.capacity;
-        if (input.price !== null) fields.price_cents = input.price;
-        if (input.set_coaches) fields.coach_ids = input.coach_ids;
-        if (input.title && prev.session_type === "performance_accelerator") fields.title = input.title;
-        if (input.description) fields.description = input.description;
+      let changed = 0;
+      for (const { prev, next } of plans) {
+        const { id: _id, created_at: _c, ...fields } = next;
+        if (Object.entries(fields).every(([k, v]) => JSON.stringify(v) === JSON.stringify(prev[k as keyof Session]))) continue;
+        changed++;
         const s = await ctx.store.update("sessions", prev.id, fields);
-        if (input.capacity !== null && input.capacity > prev.capacity) {
+        if (next.capacity > prev.capacity) {
           promoted += (
             await ctx.store.exclusive(`session:${s.id}`, async () => {
               const p = await promoteWaitlist(ctx, s);
@@ -901,8 +907,9 @@ export const actions: Record<string, Handler> = {
           ).length;
         }
       }
-      const word = `${rows.length} session${rows.length === 1 ? "" : "s"}`;
-      return { ok: true, message: `Updated ${word}.${promoted ? ` ${promoted} player(s) moved off the waitlist.` : ""}` };
+      const word = (n: number) => `${n} session${n === 1 ? "" : "s"}`;
+      const same = rows.length - changed;
+      return { ok: true, message: `Updated ${word(changed)}.${same ? ` ${word(same)} already matched.` : ""}${promoted ? ` ${promoted} player(s) moved off the waitlist.` : ""}` };
     },
   ),
 

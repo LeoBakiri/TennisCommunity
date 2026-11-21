@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Stat, Submit, Tabs } from "../kit";
@@ -7,8 +7,9 @@ import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
-import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyMonth, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
-import { COURT_SIZE, courtPlan, COURTS, fmtMoney, isBalboa, placeOptions, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
+import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyMonth, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
+import { COURT_SIZE, courtPlan, COURTS, fmtMoney, fullPlace, isBalboa, placeLabel, placeOptions, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
+import { applyBulkEdit, BLANK_EDIT, changedParts, hasChanges, type BulkEdit as BulkEditInput } from "@/core/bulkedit";
 import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
 import { levelLabel } from "@/core/members";
 import { LevelPicker } from "./public";
@@ -293,72 +294,273 @@ function BulkBar({ picked, drafts, coaches, places, onDone }: { picked: D<typeof
   );
 }
 
-/** One form for every ticked session. Blank fields are left alone, and each session keeps its own date. */
-function BulkEdit({ open, picked, coaches, places, onClose, onDone }: { open: boolean; picked: D<typeof loadAdminSchedule>["sessions"]; coaches: { id: string; full_name: string }[]; places: string[]; onClose: () => void; onDone: () => void }) {
-  const [setCoaches, setSetCoaches] = useState(false);
+type Picked = D<typeof loadAdminSchedule>["sessions"];
+
+/** Small pill switch for "keep / change how" choices inside the edit dialog. */
+function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="flex flex-wrap gap-1 rounded-xl bg-ink/[0.05] p-1" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button type="button" key={o.value} role="radio" aria-checked={value === o.value} onClick={() => onChange(o.value)} className={cx("flex-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[13px] font-semibold", value === o.value ? "bg-card shadow-sm" : "text-ink/55 hover:text-ink")}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EditSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="border-t border-ink/8 pt-4 first:border-t-0 first:pt-0">
+      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink/45">{title}</h3>
+      <div className="grid gap-4 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const minutesBetween = (s: { starts_at: string; ends_at: string }) => Math.round((new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 60000);
+
+/** "Now: …" under a field: the value every ticked session shares, or "mixed". */
+function nowHint(picked: Picked, f: (s: Picked[number]) => string) {
+  const all = [...new Set(picked.map(f))];
+  return all.length === 1 ? `Now: ${all[0] || "none"}` : "Now: mixed";
+}
+
+/** One form for every ticked session. Anything left on Keep stays as each session has it. A live list shows what each one becomes. */
+function BulkEdit({ open, picked, coaches, places, onClose, onDone }: { open: boolean; picked: Picked; coaches: { id: string; full_name: string }[]; places: string[]; onClose: () => void; onDone: () => void }) {
+  const [e, setE] = useState<BulkEditInput>(BLANK_EDIT);
+  const [capText, setCapText] = useState("");
+  const [priceText, setPriceText] = useState("");
+  const set = (patch: Partial<BulkEditInput>) => setE((cur) => ({ ...cur, ...patch }));
   const word = `${picked.length} session${picked.length === 1 ? "" : "s"}`;
   const keep = "Keep as is";
-  const hasPA = picked.some((s) => s.session_type === "performance_accelerator");
+  const name = new Map(coaches.map((c) => [c.id, c.full_name.split(" ")[0]]));
+  const hasPA = e.session_type === "performance_accelerator" || (e.session_type === "" && picked.some((s) => s.session_type === "performance_accelerator"));
+  const atBalboa = e.location ? isBalboa(e.location) : picked.some((s) => isBalboa(s.location));
+  const cap = capText.trim() === "" ? null : Number(capText);
+  const price = priceText.trim() === "" ? null : Math.round(Number(priceText.replace(/[$,]/g, "")) * 100);
+  const edit: BulkEditInput = { ...e, capacity: Number.isFinite(cap) ? cap : null, price: Number.isFinite(price) ? price : null, location: e.location ? fullPlace(e.location) : "" };
+  const close = () => {
+    setE(BLANK_EDIT);
+    setCapText("");
+    setPriceText("");
+    onClose();
+  };
+
+  const preview = picked.map((s) => {
+    const { next, error } = applyBulkEdit(s, edit);
+    const full = !error && s.booked > next.capacity;
+    return { s, next, parts: changedParts(s, next), error: error ?? (full ? `has ${s.booked} booked — more than ${next.capacity} spots` : undefined) };
+  });
+  const changing = preview.filter((p) => Object.values(p.parts).some(Boolean)).length;
+  const problems = preview.filter((p) => p.error).length;
+  const people = (ids: string[]) => ids.map((id) => name.get(id) ?? "?").join(", ") || "No coach";
+  const hi = (on: boolean) => (on ? "font-semibold text-brand" : "text-ink/55");
+
   return (
-    <Modal open={open} onClose={onClose} title={`Edit ${word}`} wide>
-      <p className="mb-4 text-sm text-ink/60">Only what you fill in changes. Leave a field blank to keep each session as it is. Dates stay the same.</p>
+    <Modal open={open} onClose={close} title={`Edit ${word}`} wide>
+      <p className="mb-5 text-sm text-ink/60">Change only what you need. Anything left on “Keep” stays as each session has it. Check the list at the bottom before saving.</p>
       {open && (
         <ActionForm
           action="bulkEditSessions"
-          hidden={{ session_ids: picked.map((s) => s.id) }}
+          hidden={{ session_ids: picked.map((s) => s.id), ...edit, capacity: capText, price: priceText, location: e.location }}
           onDone={(r) => {
             if (!r.ok) return;
-            onClose();
+            close();
             onDone();
           }}
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Start time (Pacific)">
-              <Dropdown name="time" label="Start time" defaultValue="" options={[{ value: "", label: keep }, ...TIMES.map((t) => ({ value: t, label: fmtClock(t) }))]} />
-            </Field>
-            <Field label="Duration (minutes)">
-              <input className="input" type="number" name="duration_min" min={15} step={15} placeholder={keep} />
-            </Field>
-            <Field label="Spots">
-              <input className="input" type="number" name="capacity" min={1} placeholder={keep} />
-            </Field>
-            <Field label="Price per player (USD)" hint="0 for free">
-              <input className="input" name="price" inputMode="decimal" placeholder={keep} />
-            </Field>
-            <Field label="Location">
-              <Dropdown name="location" label="Location" defaultValue="" options={[{ value: "", label: keep }, ...places.map((p) => ({ value: p, label: p }))]} />
-            </Field>
-            <Field label="Court" hint="Only used at Balboa">
-              <Dropdown name="court" label="Court" defaultValue="keep" options={[{ value: "keep", label: keep }, { value: "none", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
-            </Field>
-            {hasPA && (
-              <Field label="Focus (Performance Accelerators)" className="sm:col-span-2">
-                <input className="input" name="title" placeholder={keep} />
+          <div className="space-y-5">
+            <EditSection title="When">
+              <Field label="Day" hint={nowHint(picked, (s) => fmtWeekday(s.starts_at))}>
+                <Dropdown
+                  label="Day"
+                  value={e.move}
+                  onChange={(v) => set({ move: v })}
+                  options={[
+                    { value: "", label: "Keep dates" },
+                    ...WEEKDAY_NAMES.map((d, i) => ({ value: `wd:${i}`, label: `Move to ${d}`, hint: "Same week" })),
+                    { value: "days:-7", label: "1 week earlier" },
+                    { value: "days:-1", label: "1 day earlier" },
+                    { value: "days:1", label: "1 day later" },
+                    { value: "days:7", label: "1 week later" },
+                    { value: "days:14", label: "2 weeks later" },
+                    { value: "days:28", label: "4 weeks later" },
+                  ]}
+                />
               </Field>
-            )}
-            <fieldset className="sm:col-span-2">
-              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-                <input type="checkbox" name="set_coaches" className="check" checked={setCoaches} onChange={(e) => setSetCoaches(e.target.checked)} />
-                Change coaches
-              </label>
-              {setCoaches && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {coaches.map((c) => (
-                    <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-xl border border-ink/12 bg-card px-3 py-2 text-sm has-[:checked]:border-brand has-[:checked]:bg-sage/40">
-                      <input type="checkbox" name="coach_ids[]" value={c.id} className="check" />
-                      {c.full_name}
-                    </label>
-                  ))}
+              <Field label="Start time (Pacific)" hint={nowHint(picked, (s) => fmtTime(s.starts_at))}>
+                <Dropdown
+                  label="Start time"
+                  value={e.time}
+                  onChange={(v) => set({ time: v })}
+                  options={[
+                    { value: "", label: keep },
+                    { value: "-60", label: "1 hour earlier" },
+                    { value: "-30", label: "30 min earlier" },
+                    { value: "+30", label: "30 min later" },
+                    { value: "+60", label: "1 hour later" },
+                    ...TIMES.map((t) => ({ value: t, label: fmtClock(t) })),
+                  ]}
+                />
+              </Field>
+              <Field label="Length" hint={nowHint(picked, (s) => `${minutesBetween(s)} min`)}>
+                <Dropdown
+                  label="Length"
+                  value={e.duration_min === null ? "" : String(e.duration_min)}
+                  onChange={(v) => set({ duration_min: v ? Number(v) : null })}
+                  options={[{ value: "", label: keep }, ...[45, 60, 75, 90, 105, 120, 150, 180].map((m) => ({ value: String(m), label: m < 60 || m % 60 ? `${m} min` : `${m / 60} hour${m > 60 ? "s" : ""}` }))]}
+                />
+              </Field>
+              <Field label="Status" hint={nowHint(picked, (s) => (s.status === "draft" ? "Draft" : "Published"))}>
+                <Dropdown
+                  label="Status"
+                  value={e.status}
+                  onChange={(v) => set({ status: v as BulkEditInput["status"] })}
+                  options={[
+                    { value: "", label: keep },
+                    { value: "published", label: "Published", hint: "Players can book" },
+                    { value: "draft", label: "Draft", hint: "Hidden from players" },
+                  ]}
+                />
+              </Field>
+            </EditSection>
+
+            <EditSection title="Session">
+              <div className="sm:col-span-2">
+                <span className="label">Type</span>
+                <Seg
+                  label="Session type"
+                  value={e.session_type || "keep"}
+                  onChange={(v) => set({ session_type: v === "keep" ? "" : (v as SessionType) })}
+                  options={[
+                    { value: "keep", label: "Keep" },
+                    { value: "group", label: SESSION_META.group.label },
+                    { value: "performance_accelerator", label: SESSION_META.performance_accelerator.label },
+                  ]}
+                />
+              </div>
+              {hasPA && (
+                <div className="sm:col-span-2">
+                  <span className="label">Focus (Performance Accelerators)</span>
+                  <Seg label="Focus" value={e.title_mode} onChange={(v) => set({ title_mode: v })} options={[{ value: "keep", label: "Keep" }, { value: "set", label: "Change" }, { value: "clear", label: "Clear" }]} />
+                  {e.title_mode === "set" && <input className="input mt-2" value={e.title} onChange={(x) => set({ title: x.target.value })} placeholder="For example: Serve + Returns" autoFocus />}
                 </div>
               )}
-            </fieldset>
-            <Field label="Notes for players" className="sm:col-span-2">
-              <textarea className="input" name="description" placeholder={keep} />
-            </Field>
+            </EditSection>
+
+            <EditSection title="Coaches & spots">
+              <div className="sm:col-span-2">
+                <span className="label">Coaches</span>
+                <Seg
+                  label="Coaches"
+                  value={e.coach_mode}
+                  onChange={(v) => set({ coach_mode: v })}
+                  options={[
+                    { value: "keep", label: "Keep" },
+                    { value: "replace", label: "Set to" },
+                    { value: "add", label: "Add" },
+                    { value: "remove", label: "Remove" },
+                  ]}
+                />
+                {e.coach_mode !== "keep" && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {coaches.map((c) => (
+                      <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-xl border border-ink/12 bg-card px-3 py-2 text-sm has-[:checked]:border-brand has-[:checked]:bg-sage/40">
+                        <input type="checkbox" className="check" checked={e.coach_ids.includes(c.id)} onChange={(x) => set({ coach_ids: x.target.checked ? [...e.coach_ids, c.id] : e.coach_ids.filter((id) => id !== c.id) })} />
+                        {c.full_name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-ink/50">{nowHint(picked, (s) => people(s.coach_ids))}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="label">Spots</span>
+                <Seg
+                  label="Spots"
+                  value={e.spots}
+                  onChange={(v) => set({ spots: v })}
+                  options={[
+                    { value: "keep", label: "Keep" },
+                    { value: "coaches", label: "One court per coach" },
+                    { value: "set", label: "Set number" },
+                  ]}
+                />
+                {e.spots === "set" && <input className="input mt-2" type="number" min={1} value={capText} onChange={(x) => setCapText(x.target.value)} placeholder="Spots" autoFocus />}
+                <p className="mt-1 text-xs text-ink/50">
+                  {nowHint(picked, (s) => `${s.capacity} spots`)}
+                  {e.spots === "keep" && " · follows the coaches if the number of coaches or the type changes"}
+                </p>
+              </div>
+            </EditSection>
+
+            <EditSection title="Place & price">
+              <Field label="Location" hint={nowHint(picked, (s) => shortPlace(s.location))}>
+                <Dropdown label="Location" value={e.location} onChange={(v) => set({ location: v })} options={[{ value: "", label: keep }, ...places.map((p) => ({ value: p, label: p }))]} />
+              </Field>
+              {atBalboa && (
+                <Field label="Court" hint={nowHint(picked, (s) => (s.court ? `Court ${s.court}` : "not set"))}>
+                  <Dropdown label="Court" value={e.court} onChange={(v) => set({ court: v as BulkEditInput["court"] })} options={[{ value: "keep", label: keep }, { value: "none", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
+                </Field>
+              )}
+              <div className="sm:col-span-2">
+                <span className="label">Price per player</span>
+                <Seg label="Price" value={e.price_mode} onChange={(v) => set({ price_mode: v })} options={[{ value: "keep", label: "Keep" }, { value: "set", label: "Set price" }, { value: "tba", label: "Price TBA" }]} />
+                {e.price_mode === "set" && <input className="input mt-2" inputMode="decimal" value={priceText} onChange={(x) => setPriceText(x.target.value)} placeholder="USD, 0 for free" autoFocus />}
+                <p className="mt-1 text-xs text-ink/50">{nowHint(picked, (s) => fmtMoney(s.price_cents))}</p>
+              </div>
+            </EditSection>
+
+            <EditSection title="Notes">
+              {(
+                [
+                  ["notes_mode", "description", "Notes for players"],
+                  ["internal_mode", "internal_notes", "Session notes (coaches only)"],
+                ] as const
+              ).map(([mode, field, label]) => (
+                <div key={field} className="sm:col-span-2">
+                  <span className="label">{label}</span>
+                  <Seg label={label} value={e[mode]} onChange={(v) => set({ [mode]: v })} options={[{ value: "keep", label: "Keep" }, { value: "replace", label: "Replace" }, { value: "append", label: "Add to end" }, { value: "clear", label: "Clear" }]} />
+                  {(e[mode] === "replace" || e[mode] === "append") && <textarea className="input mt-2 !min-h-[72px]" value={e[field]} onChange={(x) => set({ [field]: x.target.value })} autoFocus />}
+                </div>
+              ))}
+            </EditSection>
+
+            <section className="border-t border-ink/8 pt-4">
+              <h3 className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-ink/45">
+                <span>What will change</span>
+                <span className="normal-case tracking-normal">{hasChanges(edit) ? `${changing} of ${picked.length} change${problems ? ` · ${problems} can't` : ""}` : "Nothing yet"}</span>
+              </h3>
+              <ul className="max-h-64 divide-y divide-ink/8 overflow-y-auto rounded-xl border border-ink/10">
+                {preview.map(({ s, next, parts, error }) => (
+                  <li key={s.id} className={cx("px-3 py-2 text-sm", error && "bg-[#F5E1DC]/60")}>
+                    <div className="flex items-center gap-2">
+                      <SessionMark type={next.session_type!} />
+                      <span className={cx("font-medium", parts.type && "text-brand")}>{sessionTitle(next)}</span>
+                      {parts.status && <Badge tone={next.status === "draft" ? "neutral" : "green"}>{next.status === "draft" ? "Draft" : "Published"}</Badge>}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs">
+                      <span className={hi(parts.when)}>
+                        {parts.when && <s className="mr-1 font-normal text-ink/35">{fmtDay(s.starts_at)} {fmtRange(s.starts_at, s.ends_at)}</s>}
+                        {fmtDay(next.starts_at)} {fmtRange(next.starts_at, next.ends_at)}
+                      </span>
+                      <span className={hi(parts.coaches)}>{people(next.coach_ids)}</span>
+                      <span className={hi(parts.spots)}>{next.capacity} spots</span>
+                      <span className={hi(parts.price)}>{fmtMoney(next.price_cents)}</span>
+                      <span className={hi(parts.place)}>{placeLabel(next)}</span>
+                      {parts.notes && <span className={hi(true)}>Notes changed</span>}
+                    </div>
+                    {error && <p className="mt-0.5 text-xs font-medium text-[#8E3326]">This one {error}.</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
             <Submit icon="check">Save {word}</Submit>
-            <button type="button" className={btn("ghost", "md")} onClick={onClose}>
+            <button type="button" className={btn("ghost", "md")} onClick={close}>
               Close
             </button>
           </div>

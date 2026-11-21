@@ -4,7 +4,7 @@ import { MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import type { Actor, DB, Session } from "../src/core/types";
-import { addDays, dateKey, timeKey } from "../src/core/time";
+import { addDays, dateKey, minutesOfDay, startOfWeek, timeKey } from "../src/core/time";
 import { matchRoute, guard, retiredRedirect } from "../src/core/routes";
 import { loadAdminCoaches, loadAdminMember, loadCoachEarnings, loadCoachSchedule, loadSchedule } from "../src/core/queries";
 
@@ -479,9 +479,9 @@ test("admins edit ticked sessions together; blank fields keep each session's own
   const { store, ctxFor } = setup();
   const admin = await ctxFor(DEMO_IDS.leo);
   const [a, b] = [await freshSession(store, 4, 72), await freshSession(store, 6, 96)];
-  const nothing = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "", duration_min: "", capacity: "", price: "", location: "", court: "keep", coach_ids: [], title: "", description: "" });
+  const nothing = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id] });
   assert.equal(nothing.ok, false);
-  const r = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "18:30", duration_min: "", capacity: "", price: "35", location: "", court: "keep", set_coaches: "on", coach_ids: [DEMO_IDS.kaan], title: "", description: "" });
+  const r = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "18:30", price_mode: "set", price: "35", coach_mode: "replace", coach_ids: [DEMO_IDS.kaan] });
   assert.equal(r.ok, true);
   for (const [before, cap] of [[a, 4], [b, 6]] as const) {
     const after = (await store.get("sessions", before.id))!;
@@ -494,7 +494,36 @@ test("admins edit ticked sessions together; blank fields keep each session's own
   }
   // Spots below what's already booked are refused for the whole batch.
   for (const m of memberIds(demoSeed()).slice(0, 3)) await runAction(await ctxFor(m), "bookSession", { session_id: b.id });
-  const tight = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "", duration_min: "", capacity: "2", price: "", location: "", court: "keep", coach_ids: [], title: "", description: "" });
+  const tight = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], spots: "set", capacity: "2" });
   assert.equal(tight.ok, false);
   assert.equal((await store.get("sessions", a.id))!.capacity, 4);
+});
+
+test("bulk edit moves days, shifts times, adds coaches with their courts and edits notes", async () => {
+  const { store, ctxFor } = setup();
+  const admin = await ctxFor(DEMO_IDS.leo);
+  const a = await freshSession(store, 6, 24 * 9);
+  await store.update("sessions", a.id, { description: "Bring water" });
+  const before = (await store.get("sessions", a.id))!;
+  const r = await runAction(admin, "bulkEditSessions", {
+    session_ids: [a.id], move: "wd:6", time: "+30", coach_mode: "add", coach_ids: [DEMO_IDS.kaan],
+    price_mode: "tba", notes_mode: "append", description: "Doubles focus", status: "draft",
+  });
+  assert.equal(r.ok, true, (r as { message?: string }).message);
+  const after = (await store.get("sessions", a.id))!;
+  assert.equal(dateKey(after.starts_at), addDays(startOfWeek(dateKey(before.starts_at)), 6));
+  assert.equal(minutesOfDay(after.starts_at), minutesOfDay(before.starts_at) + 30);
+  assert.deepEqual(after.coach_ids, [DEMO_IDS.leo, DEMO_IDS.kaan]);
+  assert.equal(after.capacity, 12); // two coaches → two courts of 6
+  assert.equal(after.price_cents, null);
+  assert.equal(after.description, "Bring water\nDoubles focus");
+  assert.equal(after.status, "draft");
+  // Removing every coach is refused.
+  const none = await runAction(admin, "bulkEditSessions", { session_ids: [a.id], coach_mode: "remove", coach_ids: [DEMO_IDS.leo, DEMO_IDS.kaan] });
+  assert.equal(none.ok, false);
+  // Type change follows the courts: two coaches → 8 Accelerator spots.
+  await runAction(admin, "bulkEditSessions", { session_ids: [a.id], session_type: "performance_accelerator", title_mode: "set", title: "Serve + Returns" });
+  const pa = (await store.get("sessions", a.id))!;
+  assert.equal(pa.capacity, 8);
+  assert.equal(pa.title, "Serve + Returns");
 });
