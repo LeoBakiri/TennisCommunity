@@ -532,46 +532,29 @@ function AddPlayer({ sessionId, members }: { sessionId: string; members: { id: s
   );
 }
 
-/** Spots picked as courts: 1 court (6 / 4), 2 courts (12 / 8) or any other number. */
-function CourtsField({ type, initial }: { type: SessionType; initial: number }) {
-  const size = COURT_SIZE[type];
-  const [mode, setMode] = useState<1 | 2 | "custom">(initial === size ? 1 : initial === size * 2 ? 2 : "custom");
-  const [custom, setCustom] = useState(initial);
-  const capacity = mode === "custom" ? custom : mode * size;
-  const { courts, minimum } = courtPlan({ session_type: type, capacity: capacity || 1 });
-  const hint = courts > 1 ? `${courts} courts · needs ${minimum} to go ahead` : "One court · runs with any number of players";
-  const options = [
-    { v: 1 as const, label: `1 court · ${size}` },
-    { v: 2 as const, label: `2 courts · ${size * 2}` },
-    { v: "custom" as const, label: "Custom" },
-  ];
+/** One court per coach: 6 spots a court for a Group Session, 4 for a Performance Accelerator. */
+function SpotsLine({ type, capacity }: { type: SessionType; capacity: number }) {
+  const { courts, minimum } = courtPlan({ session_type: type, capacity });
   return (
-    <div>
-      <span className="label">Courts &amp; spots</span>
-      <div className="grid grid-cols-3 gap-1 rounded-xl bg-ink/[0.05] p-1" role="radiogroup" aria-label="Courts">
-        {options.map((o) => (
-          <button type="button" key={o.v} role="radio" aria-checked={mode === o.v} onClick={() => setMode(o.v)} className={cx("rounded-lg px-2 py-2 text-sm font-semibold", mode === o.v ? "bg-card shadow-sm" : "text-ink/55")}>
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {mode === "custom" ? (
-        <input className="input mt-2" type="number" name="capacity" min={1} value={custom || ""} onChange={(e) => setCustom(Number(e.target.value))} aria-label="Spots" />
-      ) : (
-        <input type="hidden" name="capacity" value={capacity} />
-      )}
-      <p className="mt-1 text-xs text-ink/50">{hint}</p>
-    </div>
+    <p className="mt-2 text-xs text-ink/55">
+      <input type="hidden" name="capacity" value={capacity} />
+      {courts > 1 ? `${courts} courts · ${capacity} spots · needs ${minimum} to go ahead` : `1 court · ${capacity} spots`}
+    </p>
   );
 }
 
 export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
   const s = data.session;
-  const [type, setType] = useState<SessionType>(s?.session_type ?? data.prefill!.session_type);  const defaults = data.defaults[type];
+  const [type, setType] = useState<SessionType>(s?.session_type ?? data.prefill!.session_type);
+  const defaults = data.defaults[type];
   const date = s ? dateKey(s.starts_at) : data.prefill!.date;
   const time = s ? timeKey(s.starts_at) : data.prefill!.time;
   const duration = s ? Math.round((new Date(s.ends_at).getTime() - new Date(s.starts_at).getTime()) / 60000) : defaults.duration_min;
   const coachIds = s ? s.coach_ids : data.prefill!.coach_ids;
+  const [coaches, setCoaches] = useState<string[]>(coachIds);
+  // Each coach brings a court. An existing session keeps its spots until its coaches change.
+  const sameCoaches = !!s && coaches.length === coachIds.length && coaches.every((id) => coachIds.includes(id));
+  const capacity = sameCoaches ? s!.capacity : Math.max(1, coaches.length) * COURT_SIZE[type];
   const active = data.roster.filter((r) => r.booking.status !== "cancelled");
   const inactive = data.roster.filter((r) => r.booking.status === "cancelled");
 
@@ -599,7 +582,6 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
         <Field label="Duration (minutes)">
           <input className="input" type="number" name="duration_min" min={15} step={15} defaultValue={duration} />
         </Field>
-        <CourtsField type={type} initial={s?.capacity ?? defaults.capacity} />
         <Field label="Price per player (USD)" hint="Blank for “Price TBA”, 0 for free">
           <input className="input" name="price" inputMode="decimal" defaultValue={dollarsField(s ? s.price_cents : defaults.price_cents)} />
         </Field>
@@ -609,11 +591,12 @@ export function AdminSession({ data }: { data: D<typeof loadSessionEditor> }) {
           <div className="flex flex-wrap gap-2">
             {data.coaches.map((c) => (
               <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-xl border border-ink/12 bg-card px-3 py-2 text-sm has-[:checked]:border-brand has-[:checked]:bg-sage/40">
-                <input type="checkbox" name="coach_ids[]" value={c.id} defaultChecked={coachIds.includes(c.id)} className="check" />
+                <input type="checkbox" name="coach_ids[]" value={c.id} checked={coaches.includes(c.id)} onChange={(e) => setCoaches((cur) => (e.target.checked ? [...cur, c.id] : cur.filter((x) => x !== c.id)))} className="check" />
                 {c.full_name}
               </label>
             ))}
           </div>
+          <SpotsLine type={type} capacity={capacity} />
         </fieldset>
         <Field label="Notes for players" hint="A sunset, doubles or themed session is a Group Session with a note here." className="sm:col-span-2">
           <textarea className="input" name="description" defaultValue={s?.description ?? ""} />
