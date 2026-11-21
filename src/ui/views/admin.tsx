@@ -2,7 +2,7 @@ import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
-import { DecisionCard, priceLabel, slotTime, WeekGrid, whenWord } from "../sessions";
+import { DecisionCard, slotTime, WeekGrid, whenWord } from "../sessions";
 import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
@@ -195,7 +195,6 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                 <th>When</th>
                 <th className="hidden md:table-cell">Coach</th>
                 <th>Players</th>
-                <th className="hidden sm:table-cell">Price</th>
                 <th />
               </tr>
             </thead>
@@ -224,7 +223,6 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                   <td className="w-36">
                     <Capacity booked={s.booked} capacity={s.capacity} waitlist={s.waitlist} />
                   </td>
-                  <td className="hidden whitespace-nowrap text-ink/70 sm:table-cell">{priceLabel(s)}</td>
                   <td className="text-right">
                     <Icon name="right" size={16} className="text-ink/35" />
                   </td>

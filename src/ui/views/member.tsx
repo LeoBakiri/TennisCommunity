@@ -163,7 +163,7 @@ const matches = (s: SessionView, f: Filter) => (f === "all" ? true : f === "open
 
 function HowItWorks({ data }: { data: ScheduleData }) {
   const steps: [string, string, string][] = [
-    ["calendar", "Pick a session", `Sessions are posted up to ${data.horizon} days ahead, with the coach, place and price on each.`],
+    ["calendar", "Pick a session", `Sessions are posted up to ${data.horizon} days ahead, with the coach and place on each.`],
     ["check", "Book in two taps", `Your spot is held straight away. Cancel free up to ${data.window} hours before; after that, offer your spot to someone else.`],
     ["repeat", "Full? Join the waitlist", "If someone drops out, the first player waiting moves in automatically."],
   ];
