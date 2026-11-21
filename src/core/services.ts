@@ -839,6 +839,65 @@ export const actions: Record<string, Handler> = {
     return { ok: true, message: `Deleted ${plural(free.length)}.${kept ? ` ${plural(kept)} with bookings ${kept === 1 ? "was" : "were"} kept — cancel ${kept === 1 ? "it" : "them"} instead.` : ""}` };
   }),
 
+  /** Edit ticked sessions together. A blank field keeps what each session already has; each keeps its own date. */
+  bulkEditSessions: action(
+    z.object({
+      session_ids: ids,
+      time: z.string().regex(/^(\d{2}:\d{2})?$/).default(""),
+      duration_min: z.preprocess((v) => (v === "" || v === undefined ? null : Number(v)), z.number().int().min(15, "Duration must be 15 minutes or more").max(600).nullable()),
+      capacity: z.preprocess((v) => (v === "" || v === undefined ? null : Number(v)), z.number().int().min(1, "Spots must be 1 or more").max(200).nullable()),
+      price: dollars,
+      location: text(200),
+      court: z.string().regex(/^(keep|none|[1-4])$/).default("keep"),
+      set_coaches: z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean()),
+      coach_ids: ids,
+      title: text(120),
+      description: text(2000),
+    }),
+    async (ctx, input) => {
+      scheduler(ctx);
+      if (!input.session_ids.length) throw new UserError("Tick at least one session.");
+      const rows = (await ctx.store.list("sessions", { in: { field: "id", values: input.session_ids } })).filter((s) => !!s.session_type && s.status !== "cancelled");
+      const location = input.location ? fullPlace(input.location) : "";
+      const changes = [input.time, input.duration_min, input.capacity, input.price, location, input.court !== "keep", input.set_coaches, input.title, input.description].filter((v) => v !== "" && v !== null && v !== false);
+      if (!changes.length) throw new UserError("Nothing to change — fill in at least one field.");
+      if (input.capacity !== null) {
+        const bookings = await ctx.store.list("bookings", { in: { field: "session_id", values: rows.map((s) => s.id) } });
+        const tooFull = rows.filter((s) => seatsUsed(bookings.filter((b) => b.session_id === s.id)) > input.capacity!);
+        if (tooFull.length) throw new UserError(`${tooFull.length} of these already ${tooFull.length === 1 ? "has" : "have"} more than ${input.capacity} players booked. Untick ${tooFull.length === 1 ? "it" : "them"} or pick more spots.`);
+      }
+      let promoted = 0;
+      for (const prev of rows) {
+        const length = input.duration_min ?? Math.round((new Date(prev.ends_at).getTime() - new Date(prev.starts_at).getTime()) / 60000);
+        const start = input.time ? zonedToUtc(dateKey(prev.starts_at), input.time) : new Date(prev.starts_at);
+        const where = location || prev.location;
+        const fields: Partial<Session> = {
+          starts_at: start.toISOString(),
+          ends_at: new Date(start.getTime() + length * 60000).toISOString(),
+          location: where,
+          court: courtFor(where, input.court === "keep" ? prev.court : input.court === "none" ? null : Number(input.court)),
+        };
+        if (input.capacity !== null) fields.capacity = input.capacity;
+        if (input.price !== null) fields.price_cents = input.price;
+        if (input.set_coaches) fields.coach_ids = input.coach_ids;
+        if (input.title && prev.session_type === "performance_accelerator") fields.title = input.title;
+        if (input.description) fields.description = input.description;
+        const s = await ctx.store.update("sessions", prev.id, fields);
+        if (input.capacity !== null && input.capacity > prev.capacity) {
+          promoted += (
+            await ctx.store.exclusive(`session:${s.id}`, async () => {
+              const p = await promoteWaitlist(ctx, s);
+              await reindexWaitlist(ctx, s.id);
+              return p;
+            })
+          ).length;
+        }
+      }
+      const word = `${rows.length} session${rows.length === 1 ? "" : "s"}`;
+      return { ok: true, message: `Updated ${word}.${promoted ? ` ${promoted} player(s) moved off the waitlist.` : ""}` };
+    },
+  ),
+
   duplicateSession: action(z.object({ session_id: id, days: int(0, 365, "Days").default(7) }), async (ctx, input) => {
     scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
@@ -1005,7 +1064,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClinic", "coverClinic", "uncoverClinic", "deleteClinic", "saveClient", "saveSession", "setSessionStatus", "bulkSessions", "deleteSession", "adminRemoveMember"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClinic", "coverClinic", "uncoverClinic", "deleteClinic", "saveClient", "saveSession", "setSessionStatus", "bulkSessions", "bulkEditSessions", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

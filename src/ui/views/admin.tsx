@@ -180,7 +180,7 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
         </div>
         <ViewSwitch current="list" />
       </div>
-      {picked.length > 0 && <BulkBar picked={picked} drafts={data.tab === "draft"} onDone={() => setTicked([])} />}
+      {picked.length > 0 && <BulkBar picked={picked} drafts={data.tab === "draft"} coaches={data.coaches} places={data.places} onDone={() => setTicked([])} />}
       {data.sessions.length ? (
         <div className="card overflow-x-auto">
           <table className="table">
@@ -243,7 +243,8 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
 }
 
 /** What to do with the ticked sessions. Drafts can be published; posted sessions cancelled; either deleted if nobody booked. */
-function BulkBar({ picked, drafts, onDone }: { picked: D<typeof loadAdminSchedule>["sessions"]; drafts: boolean; onDone: () => void }) {
+function BulkBar({ picked, drafts, coaches, places, onDone }: { picked: D<typeof loadAdminSchedule>["sessions"]; drafts: boolean; coaches: { id: string; full_name: string }[]; places: string[]; onDone: () => void }) {
+  const [editing, setEditing] = useState(false);
   const ids = picked.map((s) => s.id);
   const n = picked.length;
   const word = `${n} session${n === 1 ? "" : "s"}`;
@@ -253,6 +254,10 @@ function BulkBar({ picked, drafts, onDone }: { picked: D<typeof loadAdminSchedul
   return (
     <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand/15 bg-card px-3 py-2 shadow-md">
       <span className="mr-auto text-sm font-semibold">{word} selected</span>
+      <button type="button" className={btn("outline", "sm")} onClick={() => setEditing(true)}>
+        <Icon name="edit" size={15} /> Edit
+      </button>
+      <BulkEdit open={editing} picked={picked} coaches={coaches} places={places} onClose={() => setEditing(false)} onDone={onDone} />
       {drafts && (
         <ActionButton action="bulkSessions" input={{ session_ids: ids, op: "publish" }} variant="primary" icon="check" onDone={done} confirm={{ title: `Publish ${word}?`, body: "Players can see and book them straight away.", label: "Publish" }}>
           Publish
@@ -283,6 +288,81 @@ function BulkBar({ picked, drafts, onDone }: { picked: D<typeof loadAdminSchedul
         Clear
       </button>
     </div>
+  );
+}
+
+/** One form for every ticked session. Blank fields are left alone, and each session keeps its own date. */
+function BulkEdit({ open, picked, coaches, places, onClose, onDone }: { open: boolean; picked: D<typeof loadAdminSchedule>["sessions"]; coaches: { id: string; full_name: string }[]; places: string[]; onClose: () => void; onDone: () => void }) {
+  const [setCoaches, setSetCoaches] = useState(false);
+  const word = `${picked.length} session${picked.length === 1 ? "" : "s"}`;
+  const keep = "Keep as is";
+  const hasPA = picked.some((s) => s.session_type === "performance_accelerator");
+  return (
+    <Modal open={open} onClose={onClose} title={`Edit ${word}`} wide>
+      <p className="mb-4 text-sm text-ink/60">Only what you fill in changes. Leave a field blank to keep each session as it is. Dates stay the same.</p>
+      {open && (
+        <ActionForm
+          action="bulkEditSessions"
+          hidden={{ session_ids: picked.map((s) => s.id) }}
+          onDone={(r) => {
+            if (!r.ok) return;
+            onClose();
+            onDone();
+          }}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Start time (Pacific)">
+              <Dropdown name="time" label="Start time" defaultValue="" options={[{ value: "", label: keep }, ...TIMES.map((t) => ({ value: t, label: fmtClock(t) }))]} />
+            </Field>
+            <Field label="Duration (minutes)">
+              <input className="input" type="number" name="duration_min" min={15} step={15} placeholder={keep} />
+            </Field>
+            <Field label="Spots">
+              <input className="input" type="number" name="capacity" min={1} placeholder={keep} />
+            </Field>
+            <Field label="Price per player (USD)" hint="0 for free">
+              <input className="input" name="price" inputMode="decimal" placeholder={keep} />
+            </Field>
+            <Field label="Location">
+              <Dropdown name="location" label="Location" defaultValue="" options={[{ value: "", label: keep }, ...places.map((p) => ({ value: p, label: p }))]} />
+            </Field>
+            <Field label="Court" hint="Only used at Balboa">
+              <Dropdown name="court" label="Court" defaultValue="keep" options={[{ value: "keep", label: keep }, { value: "none", label: "Not set yet" }, ...COURTS.map((n) => ({ value: String(n), label: `Court ${n}` }))]} />
+            </Field>
+            {hasPA && (
+              <Field label="Focus (Performance Accelerators)" className="sm:col-span-2">
+                <input className="input" name="title" placeholder={keep} />
+              </Field>
+            )}
+            <fieldset className="sm:col-span-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                <input type="checkbox" name="set_coaches" className="check" checked={setCoaches} onChange={(e) => setSetCoaches(e.target.checked)} />
+                Change coaches
+              </label>
+              {setCoaches && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {coaches.map((c) => (
+                    <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-xl border border-ink/12 bg-card px-3 py-2 text-sm has-[:checked]:border-brand has-[:checked]:bg-sage/40">
+                      <input type="checkbox" name="coach_ids[]" value={c.id} className="check" />
+                      {c.full_name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </fieldset>
+            <Field label="Notes for players" className="sm:col-span-2">
+              <textarea className="input" name="description" placeholder={keep} />
+            </Field>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Submit icon="check">Save {word}</Submit>
+            <button type="button" className={btn("ghost", "md")} onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </ActionForm>
+      )}
+    </Modal>
   );
 }
 

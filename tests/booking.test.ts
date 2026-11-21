@@ -4,7 +4,7 @@ import { MemoryStore } from "../src/core/store";
 import { demoSeed, DEMO_IDS } from "../src/core/seed";
 import { runAction, type Ctx } from "../src/core/services";
 import type { Actor, DB, Session } from "../src/core/types";
-import { addDays, dateKey } from "../src/core/time";
+import { addDays, dateKey, timeKey } from "../src/core/time";
 import { matchRoute, guard, retiredRedirect } from "../src/core/routes";
 import { loadAdminCoaches, loadAdminMember, loadCoachEarnings, loadCoachSchedule, loadSchedule } from "../src/core/queries";
 
@@ -473,4 +473,28 @@ test("admins publish, cancel and delete ticked sessions together", async () => {
   assert.equal((await runAction(admin, "bulkSessions", { session_ids: [b.id, c.id], op: "cancel" })).ok, true);
   assert.equal((await store.get("sessions", c.id))!.status, "cancelled");
   assert.ok((await store.list("bookings", { eq: { session_id: c.id } })).every((x) => x.status === "cancelled"));
+});
+
+test("admins edit ticked sessions together; blank fields keep each session's own", async () => {
+  const { store, ctxFor } = setup();
+  const admin = await ctxFor(DEMO_IDS.leo);
+  const [a, b] = [await freshSession(store, 4, 72), await freshSession(store, 6, 96)];
+  const nothing = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "", duration_min: "", capacity: "", price: "", location: "", court: "keep", coach_ids: [], title: "", description: "" });
+  assert.equal(nothing.ok, false);
+  const r = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "18:30", duration_min: "", capacity: "", price: "35", location: "", court: "keep", set_coaches: "on", coach_ids: [DEMO_IDS.kaan], title: "", description: "" });
+  assert.equal(r.ok, true);
+  for (const [before, cap] of [[a, 4], [b, 6]] as const) {
+    const after = (await store.get("sessions", before.id))!;
+    assert.equal(dateKey(after.starts_at), dateKey(before.starts_at));
+    assert.equal(timeKey(after.starts_at), "18:30");
+    assert.equal(new Date(after.ends_at).getTime() - new Date(after.starts_at).getTime(), 90 * 60000);
+    assert.equal(after.price_cents, 3500);
+    assert.equal(after.capacity, cap);
+    assert.deepEqual(after.coach_ids, [DEMO_IDS.kaan]);
+  }
+  // Spots below what's already booked are refused for the whole batch.
+  for (const m of memberIds(demoSeed()).slice(0, 3)) await runAction(await ctxFor(m), "bookSession", { session_id: b.id });
+  const tight = await runAction(admin, "bulkEditSessions", { session_ids: [a.id, b.id], time: "", duration_min: "", capacity: "2", price: "", location: "", court: "keep", coach_ids: [], title: "", description: "" });
+  assert.equal(tight.ok, false);
+  assert.equal((await store.get("sessions", a.id))!.capacity, 4);
 });

@@ -907,6 +907,9 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
       draft: all.filter((s) => s.status === "draft").length,
     },
     calendar: await adminCalendar(ctx, all, L),
+    // For editing ticked sessions together.
+    coaches: L.profiles.filter(isStaff).map((p) => ({ id: p.id, full_name: p.full_name })).sort(by((p) => p.full_name)),
+    places: placeOptions((await getSettings(ctx.store)).default_location),
   };
 }
 
