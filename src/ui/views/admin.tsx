@@ -148,6 +148,12 @@ function NeedsAttention({ items, today }: { items: D<typeof loadAdminSchedule>["
   );
 }
 
+/** Admin-only: members don't see session prices. */
+function priceLabel(s: { price_cents: number | null }) {
+  if (s.price_cents === null) return "Price TBA";
+  return s.price_cents === 0 ? "Free" : fmtMoney(s.price_cents);
+}
+
 export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
   const nav = useNav();
   const today = data.pulse.days[0].day;
@@ -195,6 +201,7 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                 <th>When</th>
                 <th className="hidden md:table-cell">Coach</th>
                 <th>Players</th>
+                <th className="hidden sm:table-cell">Price</th>
                 <th />
               </tr>
             </thead>
@@ -223,6 +230,7 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
                   <td className="w-36">
                     <Capacity booked={s.booked} capacity={s.capacity} waitlist={s.waitlist} />
                   </td>
+                  <td className="hidden whitespace-nowrap text-ink/70 sm:table-cell">{priceLabel(s)}</td>
                   <td className="text-right">
                     <Icon name="right" size={16} className="text-ink/35" />
                   </td>
