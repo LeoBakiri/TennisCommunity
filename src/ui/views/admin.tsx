@@ -2,7 +2,7 @@ import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
-import { DecisionCard, slotTime, WeekGrid, whenWord } from "../sessions";
+import { DecisionCard, priceLabel, slotTime, WeekGrid, whenWord } from "../sessions";
 import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
@@ -146,12 +146,6 @@ function NeedsAttention({ items, today }: { items: D<typeof loadAdminSchedule>["
       </div>
     </section>
   );
-}
-
-/** Admin-only: members don't see session prices. */
-function priceLabel(s: { price_cents: number | null }) {
-  if (s.price_cents === null) return "Price TBA";
-  return s.price_cents === 0 ? "Free" : fmtMoney(s.price_cents);
 }
 
 export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {

@@ -4,7 +4,12 @@ import { bookedTakeover, EventMark, Icon, SessionMark } from "./icons";
 import { ActionButton, ActionForm, Badge, BookingBadge, btn, cx, Coaches, Modal, Notice, Place, Spinner, Submit } from "./kit";
 import type { ScheduleItem, SessionView } from "@/core/queries";
 import { addDays, dateKey, fmtClock, fmtDateTime, fmtDay, fmtDayLong, fmtDayRange, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekday, fmtWeekRange, minutesOfDay, relativeFromNow, timeKey } from "@/core/time";
-import { courtPlan, decideBy, needsDecision, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
+import { courtPlan, decideBy, fmtMoney, needsDecision, placeLabel, sessionTitle, SESSION_META } from "@/core/util";
+
+export function priceLabel(s: Pick<SessionView, "price_cents">) {
+  if (s.price_cents === null) return "Price TBA";
+  return s.price_cents === 0 ? "Free" : fmtMoney(s.price_cents);
+}
 
 /** Diagonal lines over a night that isn't on for the coach (a clinic someone else covered). */
 // A covered clinic night on the week grid: pale grey with fine grey lines, so it reads as "not yours" without shouting.
@@ -88,6 +93,9 @@ export function BookButton({ s, signedIn, window }: { s: SessionView; signedIn: 
               <Icon name="calendar" size={15} /> {fmtDayLong(s.starts_at)}, {fmtRange(s.starts_at, s.ends_at)}
             </div>
             <Place p={s} />
+            <div className="flex items-center gap-2">
+              <Icon name="card" size={15} /> {priceLabel(s)}
+            </div>
           </div>
         </div>
         {!isFull && (
@@ -240,7 +248,7 @@ export function TakeSpotButton({ s, signedIn }: { s: SessionView; signedIn: bool
         body: (
           <div className="space-y-3">
             <p>
-              {sessionLabel(s)} · {fmtDayRange(s.starts_at, s.ends_at)}
+              {sessionLabel(s)} · {fmtDayRange(s.starts_at, s.ends_at)} · {priceLabel(s)}
             </p>
             <p>A player can't make it, so their spot is free. Take it and you're booked in.</p>
           </div>
@@ -514,6 +522,7 @@ export function SessionCard({ s, signedIn, window, showDay, skip }: { s: Session
             <div className="font-medium text-ink">{showDay ? fmtDateTime(s.starts_at) : fmtRange(s.starts_at, s.ends_at)}</div>
             <Place p={s} />
             <Coaches people={s.coaches} className="py-0.5" />
+            <div>{priceLabel(s)}</div>
           </div>
           {s.description && <p className="mt-2 text-sm whitespace-pre-line text-ink/60">{s.description}</p>}
         </div>
