@@ -341,7 +341,9 @@ function SeatMeter({ s }: { s: SessionView }) {
   const fill = heat === "open" ? sessionColor(s) : HEAT_FILL[heat];
   const taken = Math.min(s.booked, s.capacity);
   const imIn = s.my_booking?.status === "confirmed";
-  const { size: perCourt, courts, minimum } = courtPlan(s);
+  const { courts, minimum } = courtPlan(s);
+  // Spots are shared evenly between courts: 8 on two courts is 4 | 4, not 6 | 2.
+  const perCourt = Math.ceil(s.capacity / courts);
   // Two courts keep the same big dots as one; they're a touch smaller on a phone so all 12 fit on a line.
   const twoCourts = courts === 2;
   const large = s.capacity <= 8 || twoCourts;
