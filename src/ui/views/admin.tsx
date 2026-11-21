@@ -152,6 +152,12 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
   const nav = useNav();
   const today = data.pulse.days[0].day;
   const tabHref = (tab: string) => withQuery("/admin", { tab: tab === "upcoming" ? "" : tab });
+  // Ticked rows for bulk publish / cancel / delete. Only ids still on screen count, so a reload or tab change drops the rest.
+  const [ticked, setTicked] = useState<string[]>([]);
+  const canPick = data.tab !== "past";
+  const picked = canPick ? data.sessions.filter((s) => ticked.includes(s.id)) : [];
+  const allPicked = picked.length > 0 && picked.length === data.sessions.length;
+  const toggle = (id: string) => setTicked((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
   return (
     <>
       <PageHeader title="Community Schedule" subtitle="Group Sessions and Performance Accelerators." actions={<LinkButton href="/admin/sessions/new" icon="plus">New session</LinkButton>} />
@@ -174,11 +180,17 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
         </div>
         <ViewSwitch current="list" />
       </div>
+      {picked.length > 0 && <BulkBar picked={picked} drafts={data.tab === "draft"} onDone={() => setTicked([])} />}
       {data.sessions.length ? (
         <div className="card overflow-x-auto">
           <table className="table">
             <thead>
               <tr>
+                {canPick && (
+                  <th className="w-10 !pr-0">
+                    <input type="checkbox" className="h-4 w-4 cursor-pointer accent-brand align-middle" aria-label="Select all" checked={allPicked} onChange={() => setTicked(allPicked ? [] : data.sessions.map((s) => s.id))} />
+                  </th>
+                )}
                 <th>Session</th>
                 <th>When</th>
                 <th className="hidden md:table-cell">Coach</th>
@@ -189,7 +201,12 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
             </thead>
             <tbody>
               {data.sessions.map((s) => (
-                <tr key={s.id} className="cursor-pointer" onClick={() => nav.push(`/admin/sessions/${s.id}`)}>
+                <tr key={s.id} className={cx("cursor-pointer", ticked.includes(s.id) && "bg-sage/30")} onClick={() => nav.push(`/admin/sessions/${s.id}`)}>
+                  {canPick && (
+                    <td className="w-10 !pr-0" onClick={(e) => { e.stopPropagation(); toggle(s.id); }}>
+                      <input type="checkbox" className="h-4 w-4 cursor-pointer accent-brand align-middle" aria-label="Select session" checked={ticked.includes(s.id)} onChange={() => toggle(s.id)} onClick={(e) => e.stopPropagation()} />
+                    </td>
+                  )}
                   <td>
                     <div className="flex items-center gap-2 font-medium">
                       <SessionMark type={s.session_type} /> {SESSION_META[s.session_type!].label}
@@ -222,6 +239,50 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
         </>
       )}
     </>
+  );
+}
+
+/** What to do with the ticked sessions. Drafts can be published; posted sessions cancelled; either deleted if nobody booked. */
+function BulkBar({ picked, drafts, onDone }: { picked: D<typeof loadAdminSchedule>["sessions"]; drafts: boolean; onDone: () => void }) {
+  const ids = picked.map((s) => s.id);
+  const n = picked.length;
+  const word = `${n} session${n === 1 ? "" : "s"}`;
+  const players = picked.reduce((t, s) => t + s.booked + s.waitlist, 0);
+  const withBookings = picked.filter((s) => s.booked + s.waitlist > 0).length;
+  const done = (r: { ok: boolean }) => r.ok && onDone();
+  return (
+    <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand/15 bg-card px-3 py-2 shadow-md">
+      <span className="mr-auto text-sm font-semibold">{word} selected</span>
+      {drafts && (
+        <ActionButton action="bulkSessions" input={{ session_ids: ids, op: "publish" }} variant="primary" icon="check" onDone={done} confirm={{ title: `Publish ${word}?`, body: "Players can see and book them straight away.", label: "Publish" }}>
+          Publish
+        </ActionButton>
+      )}
+      {!drafts && (
+        <ActionButton
+          action="bulkSessions"
+          input={{ session_ids: ids, op: "cancel" }}
+          variant="danger"
+          onDone={done}
+          confirm={{ title: `Cancel ${word}?`, body: players ? `${players} booking(s) will be cancelled. Tell players on WhatsApp.` : "Nobody has booked these yet.", label: "Cancel sessions", danger: true, reason: true }}
+        >
+          Cancel
+        </ActionButton>
+      )}
+      <ActionButton
+        action="bulkSessions"
+        input={{ session_ids: ids, op: "delete" }}
+        variant="ghost"
+        icon="trash"
+        onDone={done}
+        confirm={{ title: `Delete ${word}?`, body: withBookings ? `This can't be undone. ${withBookings} of them ${withBookings === 1 ? "has" : "have"} bookings and will be kept — cancel ${withBookings === 1 ? "it" : "those"} instead.` : "This can't be undone.", label: "Delete", danger: true }}
+      >
+        Delete
+      </ActionButton>
+      <button type="button" className={btn("ghost", "sm")} onClick={onDone}>
+        Clear
+      </button>
+    </div>
   );
 }
 

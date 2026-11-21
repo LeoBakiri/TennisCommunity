@@ -49,6 +49,22 @@ function admin(ctx: Ctx): Profile {
   if (!isAdmin(u)) throw new UserError("Administrators only.");
   return u;
 }
+/** Cancels a session and every live booking on it; returns the bookings that were cancelled. */
+async function cancelSessionRow(ctx: Ctx, s: Session, reason?: string) {
+  const active = (await ctx.store.list("bookings", { eq: { session_id: s.id } })).filter(isActive);
+  for (const b of active) {
+    await ctx.store.update("bookings", b.id, {
+      status: "cancelled",
+      cancelled_at: nowIso(),
+      updated_at: nowIso(),
+      cancel_reason: reason || "Session cancelled by coach",
+      waitlist_position: null,
+    });
+  }
+  await ctx.store.update("sessions", s.id, { status: "cancelled" });
+  return active;
+}
+
 function scheduler(ctx: Ctx): Profile {
   const u = me(ctx);
   if (!canSchedule(u)) throw new UserError("Only admins can change the Community Schedule.");
@@ -791,22 +807,36 @@ export const actions: Record<string, Handler> = {
     scheduler(ctx);
     const s = await must(ctx.store.get("sessions", input.session_id), "Session");
     if (input.status === "cancelled") {
-      const active = (await ctx.store.list("bookings", { eq: { session_id: s.id } })).filter(isActive);
-      for (const b of active) {
-        await ctx.store.update("bookings", b.id, {
-          status: "cancelled",
-          cancelled_at: nowIso(),
-          updated_at: nowIso(),
-          cancel_reason: input.reason || "Session cancelled by coach",
-          waitlist_position: null,
-        });
-      }
-      await ctx.store.update("sessions", s.id, { status: "cancelled" });
+      const active = await cancelSessionRow(ctx, s, input.reason);
       return { ok: true, message: active.length ? `Session cancelled. Let the ${active.length} affected player(s) know on WhatsApp.` : "Session cancelled.", redirect: "/admin" };
     }
     if (s.status === "cancelled") throw new UserError("Cancelled sessions can't be reopened. Copy it instead.");
     await ctx.store.update("sessions", s.id, { status: input.status });
     return { ok: true, message: input.status === "published" ? "Published — players can book now." : "Moved back to draft." };
+  }),
+
+  /** Ticked sessions on the Community Schedule list: publish drafts, cancel, or delete those with no bookings. */
+  bulkSessions: action(z.object({ session_ids: z.array(id).min(1).max(200), op: z.enum(["publish", "cancel", "delete"]), reason: text(300) }), async (ctx, input) => {
+    scheduler(ctx);
+    const rows = (await ctx.store.list("sessions", { in: { field: "id", values: input.session_ids } })).filter((s) => !!s.session_type);
+    const plural = (n: number) => `${n} session${n === 1 ? "" : "s"}`;
+    if (input.op === "publish") {
+      const drafts = rows.filter((s) => s.status === "draft");
+      for (const s of drafts) await ctx.store.update("sessions", s.id, { status: "published" });
+      return { ok: true, message: `Published ${plural(drafts.length)} — players can book now.` };
+    }
+    if (input.op === "cancel") {
+      let players = 0;
+      const live = rows.filter((s) => s.status !== "cancelled");
+      for (const s of live) players += (await cancelSessionRow(ctx, s, input.reason)).length;
+      return { ok: true, message: `Cancelled ${plural(live.length)}.${players ? ` Let the ${players} affected player(s) know on WhatsApp.` : ""}` };
+    }
+    const bookings = await ctx.store.list("bookings", { in: { field: "session_id", values: rows.map((s) => s.id) } });
+    const booked = new Set(bookings.map((b) => b.session_id));
+    const free = rows.filter((s) => !booked.has(s.id));
+    for (const s of free) await ctx.store.remove("sessions", s.id);
+    const kept = rows.length - free.length;
+    return { ok: true, message: `Deleted ${plural(free.length)}.${kept ? ` ${plural(kept)} with bookings ${kept === 1 ? "was" : "were"} kept — cancel ${kept === 1 ? "it" : "them"} instead.` : ""}` };
   }),
 
   duplicateSession: action(z.object({ session_id: id, days: int(0, 365, "Days").default(7) }), async (ctx, input) => {
@@ -975,7 +1005,7 @@ export const actions: Record<string, Handler> = {
 export type ActionName = keyof typeof actions;
 
 /** Actions that can change what belongs on a coach's Google Calendar. */
-export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClinic", "coverClinic", "uncoverClinic", "deleteClinic", "saveClient", "saveSession", "setSessionStatus", "deleteSession", "adminRemoveMember"]);
+export const CALENDAR_ACTIONS = new Set(["saveLesson", "moveLesson", "deleteLesson", "saveClinic", "coverClinic", "uncoverClinic", "deleteClinic", "saveClient", "saveSession", "setSessionStatus", "bulkSessions", "deleteSession", "adminRemoveMember"]);
 
 export async function runAction(ctx: Ctx, name: string, input: Record<string, unknown>): Promise<ActionResult> {
   const handler = actions[name];

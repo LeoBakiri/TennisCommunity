@@ -454,3 +454,23 @@ test("admin member history shows the live booking after a cancel and rebook", as
   const data = await loadAdminMember(await load(DEMO_IDS.leo, { id: a }));
   assert.equal(data.history.find((r) => r.session.id === s.id)?.booking.status, "confirmed");
 });
+
+test("admins publish, cancel and delete ticked sessions together", async () => {
+  const { store, ctxFor } = setup();
+  const admin = await ctxFor(DEMO_IDS.leo);
+  const [a, b, c] = [await freshSession(store, 4), await freshSession(store, 4), await freshSession(store, 4)];
+  for (const s of [a, b]) await store.update("sessions", s.id, { status: "draft" });
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.sam), "bulkSessions", { session_ids: [a.id], op: "publish" })).ok, false);
+  assert.equal((await runAction(admin, "bulkSessions", { session_ids: [a.id, b.id], op: "publish" })).ok, true);
+  assert.equal((await store.get("sessions", a.id))!.status, "published");
+  assert.equal((await store.get("sessions", b.id))!.status, "published");
+  // c has a booking: cancelling cancels it, deleting keeps the session.
+  assert.equal((await runAction(await ctxFor(DEMO_IDS.sam), "bookSession", { session_id: c.id })).ok, true);
+  const del = await runAction(admin, "bulkSessions", { session_ids: [a.id, c.id], op: "delete" });
+  assert.match((del as { message: string }).message, /Deleted 1 session\. 1 session with bookings was kept/);
+  assert.equal(await store.get("sessions", a.id), null);
+  assert.ok(await store.get("sessions", c.id));
+  assert.equal((await runAction(admin, "bulkSessions", { session_ids: [b.id, c.id], op: "cancel" })).ok, true);
+  assert.equal((await store.get("sessions", c.id))!.status, "cancelled");
+  assert.ok((await store.list("bookings", { eq: { session_id: c.id } })).every((x) => x.status === "cancelled"));
+});
