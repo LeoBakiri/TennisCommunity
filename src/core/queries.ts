@@ -46,7 +46,8 @@ export interface ScheduleItem {
   movable?: boolean; // the coach's own lessons can be dragged to a new time
   semi?: boolean; // a semi-private lesson, drawn with two people
   clinic?: boolean; // a club clinic, drawn with a whistle
-  faded?: boolean; // a clinic night someone else covered
+  faded?: boolean; // a clinic night someone else covered, or a draft session
+  draft?: boolean; // a session not posted yet: drawn pale, but not struck through
 }
 
 /** A coach's club clinics and covered nights. Empty until the clinics migration has run, so the pages still load. */
@@ -905,7 +906,42 @@ export async function loadAdminSchedule(ctx: LoadCtx) {
       upcoming: all.filter((s) => s.status === "published" && s.starts_at > now).length,
       draft: all.filter((s) => s.status === "draft").length,
     },
+    calendar: await adminCalendar(ctx, all, L),
   };
+}
+
+/** The Week and Month calendars on the Community Schedule: every live or draft session in the days on screen. */
+async function adminCalendar(ctx: LoadCtx, all: Session[], L: Awaited<ReturnType<typeof profileMap>>) {
+  const view: "week" | "month" | "list" = ctx.search.view === "week" || ctx.search.view === "month" ? ctx.search.view : "list";
+  if (view === "list") return null;
+  const today = dateKey(ctx.now);
+  // Week: Monday to Sunday. Month: whole weeks from the Monday on or before the 1st to the Sunday on or after the last day.
+  const month = /^\d{4}-\d{2}$/.test(ctx.search.month ?? "") ? ctx.search.month : today.slice(0, 7);
+  const first = view === "week" ? weekParam(ctx) : startOfWeek(`${month}-01`);
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = addDays(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`, -1);
+  const end = view === "week" ? addDays(first, 7) : addDays(startOfWeek(lastDay), 7);
+  const rows = all.filter((s) => s.status !== "cancelled" && s.starts_at >= startIso(first) && s.starts_at < startIso(end));
+  const sessions = await enrich(ctx.store, rows, L, null);
+  const items: ScheduleItem[] = sessions.map((s) => {
+    const meta = SESSION_META[s.session_type!];
+    const draft = s.status === "draft";
+    return {
+      id: s.id,
+      title: s.title || meta.label,
+      label: meta.label,
+      color: meta.color,
+      session_type: s.session_type!,
+      starts_at: s.starts_at,
+      ends_at: s.ends_at,
+      href: `/admin/sessions/${s.id}`,
+      detail: draft ? "Draft · not posted" : `${s.booked}/${s.capacity} booked${s.waitlist ? ` · ${s.waitlist} waiting` : ""} · ${s.coaches.map((c) => c.full_name.split(" ")[0]).join(", ") || "no coach"}`,
+      cancelled: false,
+      faded: draft,
+      draft,
+    };
+  });
+  return { view, today, nowIso: ctx.now.toISOString(), month, first, end, items };
 }
 
 /** The next seven days at a glance, and the sessions that need a decision. */

@@ -817,12 +817,12 @@ export function WeekGrid({
                       >
                         <A
                           href={s.href}
-                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${covered ? " · covered" : ""}${can ? " · drag to move" : ""}`}
+                          title={`${s.title === s.label ? s.label : `${s.label}: ${s.title}`} · ${range}${s.draft ? " · draft" : covered ? " · covered" : ""}${can ? " · drag to move" : ""}`}
                           className={cx("flex h-full flex-col pr-1.5 pl-2.5 text-left leading-tight", small ? "justify-center py-0.5" : "py-1.5")}
                         >
                           <span className="flex min-w-0 items-start gap-1.5">
                             <EventMark type={s.session_type} semi={s.semi} clinic={s.clinic} color={covered ? "#9A9F9B" : s.color} size={small ? 14 : 15} invert={!covered} className="mt-px" />
-                            <span className={cx("min-w-0 flex-1 text-[12px] font-semibold", lines === 2 ? "line-clamp-2 break-words" : "truncate", (s.cancelled || covered) && "line-through decoration-1")}>{s.title}</span>
+                            <span className={cx("min-w-0 flex-1 text-[12px] font-semibold", lines === 2 ? "line-clamp-2 break-words" : "truncate", (s.cancelled || (covered && !s.draft)) && "line-through decoration-1")}>{s.title}</span>
                           </span>
                           {!small && <span className="mt-0.5 block truncate text-[11px] font-medium opacity-85 tabular-nums">{range}</span>}
                           {h > 56 && <span className="mt-auto block truncate pt-0.5 text-[11px] opacity-75">{s.cancelled ? "Cancelled" : s.detail}</span>}

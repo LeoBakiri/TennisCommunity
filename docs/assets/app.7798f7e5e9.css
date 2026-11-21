@@ -614,6 +614,9 @@
   .min-h-10 {
     min-height: calc(var(--spacing) * 10);
   }
+  .min-h-\[76px\] {
+    min-height: 76px;
+  }
   .min-h-screen {
     min-height: 100vh;
   }
@@ -643,6 +646,9 @@
   }
   .w-6 {
     width: calc(var(--spacing) * 6);
+  }
+  .w-7 {
+    width: calc(var(--spacing) * 7);
   }
   .w-8 {
     width: calc(var(--spacing) * 8);
@@ -856,6 +862,9 @@
   }
   .grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .grid-cols-7 {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
   .grid-cols-10 {
     grid-template-columns: repeat(10, minmax(0, 1fr));
@@ -1302,6 +1311,12 @@
     background-color: var(--ink);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--ink) 40%, transparent);
+    }
+  }
+  .bg-ink\/\[0\.02\] {
+    background-color: var(--ink);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--ink) 2%, transparent);
     }
   }
   .bg-ink\/\[0\.03\] {
@@ -2222,6 +2237,9 @@
         border-color: color-mix(in oklab, var(--ink) 30%, transparent);
       }
     }
+    .hover\:bg-brand:hover {
+      background-color: var(--brand);
+    }
     .hover\:bg-card\/60:hover {
       background-color: color-mix(in oklab, #ffffff 60%, transparent);
     }
@@ -2247,6 +2265,14 @@
     @supports (color: color-mix(in lab, red, red)) {
       .hover\:bg-ink\/\[0\.03\]:hover {
         background-color: color-mix(in oklab, var(--ink) 3%, transparent);
+      }
+    }
+    .hover\:bg-ink\/\[0\.06\]:hover {
+      background-color: var(--ink);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ink\/\[0\.06\]:hover {
+        background-color: color-mix(in oklab, var(--ink) 6%, transparent);
       }
     }
     .hover\:bg-paper:hover {
@@ -2364,6 +2390,9 @@
     .sm\:h-\[22px\] {
       height: 22px;
     }
+    .sm\:min-h-\[118px\] {
+      min-height: 118px;
+    }
     .sm\:w-9 {
       width: calc(var(--spacing) * 9);
     }
@@ -2439,6 +2468,9 @@
     .sm\:rounded-2xl {
       border-radius: var(--radius-2xl);
     }
+    .sm\:p-1\.5 {
+      padding: calc(var(--spacing) * 1.5);
+    }
     .sm\:p-4 {
       padding: calc(var(--spacing) * 4);
     }
@@ -2495,6 +2527,9 @@
     }
     .md\:hidden {
       display: none;
+    }
+    .md\:inline {
+      display: inline;
     }
     .md\:table-cell {
       display: table-cell;

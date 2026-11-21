@@ -2,12 +2,12 @@ import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
 import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
-import { DecisionCard, priceLabel, whenWord } from "../sessions";
+import { DecisionCard, priceLabel, slotTime, WeekGrid, whenWord } from "../sessions";
 import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
 import type { loadAdminCoaches, loadAdminMember, loadAdminMembers, loadAdminSchedule, loadSessionEditor, loadSettingsPage } from "@/core/queries";
 import type { SessionType } from "@/core/types";
-import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, timeKey } from "@/core/time";
+import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyMonth, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { COURTS, fmtMoney, isBalboa, placeOptions, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
 import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
 
@@ -157,14 +157,23 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
       <PageHeader title="Community Schedule" subtitle="Group Sessions and Performance Accelerators." actions={<LinkButton href="/admin/sessions/new" icon="plus">New session</LinkButton>} />
       <WeekPulse pulse={data.pulse} />
       <NeedsAttention items={data.pulse.attention} today={today} />
-      <Tabs
-        current={data.tab}
-        items={[
-          { key: "upcoming", label: "Upcoming", href: tabHref("upcoming"), count: data.counts.upcoming },
-          { key: "draft", label: "Drafts", href: tabHref("draft"), count: data.counts.draft },
-          { key: "past", label: "Past", href: tabHref("past") },
-        ]}
-      />
+      {data.calendar ? (
+        <ScheduleCalendar cal={data.calendar} />
+      ) : (
+        <>
+      <div className="flex flex-wrap items-start justify-between gap-x-3">
+        <div className="min-w-0">
+          <Tabs
+            current={data.tab}
+            items={[
+              { key: "upcoming", label: "Upcoming", href: tabHref("upcoming"), count: data.counts.upcoming },
+              { key: "draft", label: "Drafts", href: tabHref("draft"), count: data.counts.draft },
+              { key: "past", label: "Past", href: tabHref("past") },
+            ]}
+          />
+        </div>
+        <ViewSwitch current="list" />
+      </div>
       {data.sessions.length ? (
         <div className="card overflow-x-auto">
           <table className="table">
@@ -210,7 +219,138 @@ export function AdminSchedule({ data }: { data: D<typeof loadAdminSchedule> }) {
       ) : (
         <Empty icon="calendar" title="No sessions here" action={<LinkButton href="/admin/sessions/new" size="sm">Create a session</LinkButton>} />
       )}
+        </>
+      )}
     </>
+  );
+}
+
+type Cal = NonNullable<D<typeof loadAdminSchedule>["calendar"]>;
+
+/** List, Week or Month, in the same pill style as the tabs. */
+function ViewSwitch({ current }: { current: "list" | "week" | "month" }) {
+  const views = [
+    { key: "list", label: "List", href: "/admin" },
+    { key: "week", label: "Week", href: withQuery("/admin", { view: "week" }) },
+    { key: "month", label: "Month", href: withQuery("/admin", { view: "month" }) },
+  ] as const;
+  return (
+    <nav className="mb-5 flex shrink-0 gap-1 rounded-xl bg-ink/[0.045] p-1" aria-label="View">
+      {views.map((v) => (
+        <A key={v.key} href={v.href} aria-current={v.key === current ? "page" : undefined} className={cx("rounded-lg px-3 py-2 text-sm font-medium transition-colors", v.key === current ? "bg-card text-ink shadow-sm" : "text-ink/60 hover:text-ink")}>
+          {v.label}
+        </A>
+      ))}
+    </nav>
+  );
+}
+
+const monthShift = (month: string, n: number) => {
+  const [y, m] = month.split("-").map(Number);
+  const i = y * 12 + (m - 1) + n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+};
+
+/** Week or month calendar of community sessions. Tap free time (week) to start a new session there. */
+function ScheduleCalendar({ cal }: { cal: Cal }) {
+  const nav = useNav();
+  const week = cal.view === "week";
+  const prev = week ? withQuery("/admin", { view: "week", week: addDays(cal.first, -7) }) : withQuery("/admin", { view: "month", month: monthShift(cal.month, -1) });
+  const next = week ? withQuery("/admin", { view: "week", week: addDays(cal.first, 7) }) : withQuery("/admin", { view: "month", month: monthShift(cal.month, 1) });
+  const now = withQuery("/admin", { view: cal.view });
+  return (
+    <>
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-x-3">
+        <div className="mb-5 flex items-center gap-2">
+          <A href={prev} className={btn("outline", "sm")} aria-label={week ? "Previous week" : "Previous month"}>
+            <Icon name="left" size={16} />
+          </A>
+          <A href={now} className={btn("outline", "sm")}>
+            Today
+          </A>
+          <A href={next} className={btn("outline", "sm")} aria-label={week ? "Next week" : "Next month"}>
+            <Icon name="right" size={16} />
+          </A>
+          <span className="ml-1.5 font-display text-[17px] font-semibold tracking-tight">{week ? fmtWeekRange(cal.first) : fmtKeyMonth(`${cal.month}-01`)}</span>
+        </div>
+        <ViewSwitch current={cal.view} />
+      </div>
+      {week ? (
+        <>
+          <p className="mb-2 text-[12.5px] text-ink/50">
+            <span className="md:hidden">Tap free time to add a session there. Swipe sideways for the rest of the week.</span>
+            <span className="hidden md:inline">Click or drag over free time to add a session there. Pale blocks are drafts.</span>
+          </p>
+          <WeekGrid
+            days={Array.from({ length: 7 }, (_, i) => addDays(cal.first, i))}
+            today={cal.today}
+            items={cal.items}
+            nowIso={cal.nowIso}
+            onCreate={(slot) => nav.push(withQuery("/admin/sessions/new", { date: slot.day, time: slotTime(slot.start) }))}
+          />
+        </>
+      ) : (
+        <MonthGrid cal={cal} />
+      )}
+    </>
+  );
+}
+
+function MonthGrid({ cal }: { cal: Cal }) {
+  const days: string[] = [];
+  for (let d = cal.first; d < cal.end; d = addDays(d, 1)) days.push(d);
+  const weekdays = days.slice(0, 7);
+  return (
+    <div className="card overflow-hidden">
+      <div className="grid grid-cols-7 border-b border-ink/[0.07]">
+        {weekdays.map((d) => (
+          <div key={d} className="py-2 text-center text-[11px] font-semibold tracking-wide text-ink/45 uppercase">
+            {fmtKeyWeekday(d)}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {days.map((d, i) => {
+          const inMonth = d.startsWith(cal.month);
+          const items = cal.items.filter((s) => dateKey(s.starts_at) === d);
+          const shown = items.slice(0, 3);
+          const weekHref = withQuery("/admin", { view: "week", week: startOfWeek(d) });
+          return (
+            <div key={d} className={cx("min-h-[76px] border-ink/[0.06] p-1 sm:min-h-[118px] sm:p-1.5", i % 7 !== 0 && "border-l", i >= 7 && "border-t", !inMonth && "bg-ink/[0.02]", d === cal.today && "bg-sage/25")}>
+              <A href={weekHref} title="Open this week" className={cx("mb-1 flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-semibold tabular-nums hover:bg-ink/[0.06]", d === cal.today ? "bg-brand text-paper hover:bg-brand" : !inMonth ? "text-ink/30" : d < cal.today ? "text-ink/45" : "text-ink")}>
+                {fmtKeyNum(d)}
+              </A>
+              {/* Phones: a coloured dot per session. */}
+              {items.length > 0 && (
+                <A href={weekHref} className="flex flex-wrap gap-1 px-1 sm:hidden" aria-label={`${items.length} sessions`}>
+                  {items.map((s) => (
+                    <span key={s.id} className={cx("h-2 w-2 rounded-full", s.draft && "opacity-40")} style={{ background: s.color }} />
+                  ))}
+                </A>
+              )}
+              <div className="hidden space-y-1 sm:block">
+                {shown.map((s) => (
+                  <A key={s.id} href={s.href} title={`${s.title} · ${fmtRange(s.starts_at, s.ends_at)} · ${s.detail}`} className="block">
+                    <span
+                      className={cx("flex items-center gap-1 truncate rounded-md px-1.5 py-[3px] text-[11.5px] leading-tight font-semibold hover:brightness-110", s.draft ? "border border-dashed border-ink/25 text-ink/60" : "text-white shadow-[0_1px_1px_rgba(16,24,20,0.15)]", s.ends_at < cal.nowIso && "opacity-60")}
+                      style={s.draft ? { background: "#F1F3F1" } : { background: s.color }}
+                    >
+                      <span className="shrink-0 font-medium tabular-nums opacity-85">{fmtTime(s.starts_at).replace(" ", "").toLowerCase()}</span>
+                      <span className="truncate">{s.title}</span>
+                    </span>
+                  </A>
+                ))}
+                {items.length > shown.length && (
+                  <A href={weekHref} className="block px-1.5 text-[11px] font-medium text-ink/55 hover:text-ink">
+                    +{items.length - shown.length} more
+                  </A>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
