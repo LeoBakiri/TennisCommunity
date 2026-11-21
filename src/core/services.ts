@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from "./seed";
 import { COMMISSION_ROWS, commissionFor } from "./earnings";
 import { hasClient, nameKey, overlaps, sameName, weeklyDates } from "./clients";
 import { SKILLS } from "./progress";
+import { LEVEL_VALUES } from "./members";
 import { allClinicDates, firstOn, weekdayOf } from "./clinics";
 
 export class UserError extends Error {}
@@ -206,7 +207,13 @@ function action<S extends z.ZodTypeAny>(schema: S, fn: (ctx: Ctx, input: z.infer
   return async (ctx, raw) => fn(ctx, schema.parse(raw));
 }
 
-const profileFields = { full_name: req("Full name", 120), phone: text(40), email: text(200) };
+const profileFields = { full_name: req("Full name", 120), phone: text(40), email: text(200), level: text(40) };
+
+/** The level to save, only when it changed, so profiles still save before the level migration runs. */
+function levelChange(input: { level: string }, p: Partial<Profile> | null | undefined) {
+  const level = LEVEL_VALUES.includes(input.level) ? input.level : "";
+  return level !== (p?.level ?? "") ? { level } : {};
+}
 
 function cleanContact(input: { email: string; phone: string }) {
   const email = input.email ? input.email.toLowerCase() : "";
@@ -278,8 +285,9 @@ export const actions: Record<string, Handler> = {
     if (!a.auth_id) throw new UserError("Please sign in first.");
     const contact = cleanContact(input);
     if (!contact.email && !contact.phone) throw new UserError("Add an email or phone number.");
+    if (!LEVEL_VALUES.includes(input.level)) throw new UserError("Pick your tennis level.");
     const existing = a.user ?? (await ctx.store.get("profiles", a.auth_id));
-    const base = { full_name: input.full_name, email: contact.email, phone: contact.phone, onboarded: true };
+    const base = { full_name: input.full_name, email: contact.email, phone: contact.phone, onboarded: true, ...levelChange(input, existing) };
     if (existing) await ctx.store.update("profiles", existing.id, base);
     else await ctx.store.insert("profiles", { id: a.auth_id, role: "member", emergency_contact: "", status: "active", created_at: nowIso(), ...base });
     return { ok: true, redirect: "/schedule" };
@@ -288,7 +296,7 @@ export const actions: Record<string, Handler> = {
   updateMyProfile: action(z.object(profileFields), async (ctx, input) => {
     const u = me(ctx);
     const contact = cleanContact(input);
-    await ctx.store.update("profiles", u.id, { full_name: input.full_name, email: contact.email ?? u.email, phone: contact.phone });
+    await ctx.store.update("profiles", u.id, { full_name: input.full_name, email: contact.email ?? u.email, phone: contact.phone, ...levelChange(input, u) });
     return { ok: true, message: "Profile saved." };
   }),
 
@@ -977,6 +985,7 @@ export const actions: Record<string, Handler> = {
         email: contact.email,
         phone: contact.phone,
         emergency_contact: input.emergency_contact,
+        ...levelChange(input, p),
         role: input.role,
         status: input.status,
         // Only a coach can hold it; admins already have the whole area. Left out when unchanged, so this saves before its migration runs.

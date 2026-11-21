@@ -13,6 +13,7 @@ import { isBalboa, LESSON_META, lessonTitle, placeLabel, placeOptions, SESSION_M
 import { commissionUnder, fmtPayday, fmtPayroll, payday, PERIODS, ruleFor, usd, usdShort, type Period } from "@/core/earnings";
 import { CLIENT_STATUS, lessonPayday, nameKey, REBOOK_DAYS, whatsappHref } from "@/core/clients";
 import { MY_GAME_LAUNCHED, POINTS, SKILLS } from "@/core/progress";
+import { levelLabel } from "@/core/members";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -779,7 +780,10 @@ export function CoachSession({ data }: { data: D<typeof loadCoachSession> }) {
                     <div className="flex flex-wrap items-center gap-3">
                       <Avatar name={r.player?.full_name ?? "?"} size={38} />
                       {/* Wide enough that on a phone the attendance buttons wrap below instead of covering the name. */}
-                      <div className="min-w-[7.5rem] flex-1 font-semibold">{r.player?.full_name}</div>
+                      <div className="min-w-[7.5rem] flex-1">
+                        <div className="font-semibold">{r.player?.full_name}</div>
+                        {r.player?.level && <div className="text-xs text-ink/55">{levelLabel(r.player.level)}</div>}
+                      </div>
                       {r.booking.spot_offered_at && <Badge tone="amber">Offering spot</Badge>}
                       <AttendanceToggle bookingId={r.booking.id} value={r.booking.attended} />
                       <button className={btn("ghost", "sm")} onClick={() => setOpen(open === r.booking.id ? null : r.booking.id)} aria-expanded={open === r.booking.id}>

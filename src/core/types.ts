@@ -45,6 +45,7 @@ export interface Profile {
   onboarded: boolean;
   weekly_goal?: number; // sessions a week the player aims for, 1–3; missing until the My Game migration runs
   leaderboard_hidden?: boolean;
+  level?: string; // tennis level the member picked (see LEVELS in members.ts); missing until its migration runs
   schedule_access?: boolean; // a coach who may also run the Community Schedule in Admin; missing until its migration runs
   created_at: string;
 }

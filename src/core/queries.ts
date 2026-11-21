@@ -7,6 +7,7 @@ import { BALBOA_FULL, by, courtPlan, decideBy, isBalboa, LESSON_META, lessonTitl
 import { addMoney, buckets, inRange, lessonMoney, lessonPlayers, payday, payWindow, periodLabel, periodRange, PERIODS, playersPerCourt, ruleFor, sessionShare, type Money, type Period } from "./earnings";
 import { clientSummary, hasClient, nameKey, nextSameWeekday, sameName, type ClientStatus } from "./clients";
 import { allClinicDates, CLINIC_COLOR, COVERED_COLOR, clinicDates, clinicMoney, clinicPayday, type ClinicDate } from "./clinics";
+import { emptyStats, memberStats } from "./members";
 import { goalOf, POINTS, POINTS_PER_LEVEL, progress, streakWeeks, type Played } from "./progress";
 
 export class NotFound extends Error {}
@@ -410,7 +411,7 @@ export async function loadCoachSession(ctx: LoadCtx) {
     .sort((a, b) => (a.status === "waitlisted" ? 1 : 0) - (b.status === "waitlisted" ? 1 : 0) || (a.waitlist_position ?? 0) - (b.waitlist_position ?? 0) || (a.created_at < b.created_at ? -1 : 1))
     .map((b) => {
       const p = L.profile.get(b.user_id);
-      return { booking: b, player: p ? { id: p.id, full_name: p.full_name, email: p.email, phone: p.phone, emergency_contact: p.emergency_contact } : null };
+      return { booking: b, player: p ? { id: p.id, full_name: p.full_name, email: p.email, phone: p.phone, emergency_contact: p.emergency_contact, level: p.level ?? "" } : null };
     });
   return { session: view, roster, isAdmin: canSchedule(u), feedback, started: s.starts_at <= ctx.now.toISOString() };
 }
@@ -1130,15 +1131,29 @@ const payWindowDays = (date: string) => {
 export async function loadAdminMembers(ctx: LoadCtx) {
   const q = (ctx.search.q ?? "").toLowerCase().trim();
   const role = ctx.search.role ?? "";
-  const [L, bookings] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings")]);
-  const count = new Map<string, number>();
-  for (const b of bookings) if (holdsSeat(b)) count.set(b.user_id, (count.get(b.user_id) ?? 0) + 1);
-  const members = L.profiles
+  const sort = ctx.search.sort ?? "";
+  const [L, bookings, sessions] = await Promise.all([profileMap(ctx.store), ctx.store.list("bookings"), ctx.store.list("sessions")]);
+  const monthStart = startIso(`${dateKey(ctx.now).slice(0, 8)}01`);
+  const stats = memberStats(bookings, new Map(sessions.map((s) => [s.id, s])), ctx.now, monthStart);
+  const all = L.profiles.map((p) => ({ ...p, stats: stats.get(p.id) ?? emptyStats() }));
+  const members = all
     .filter((p) => !role || p.role === role)
     .filter((p) => !q || [p.full_name, p.email ?? "", p.phone ?? ""].some((v) => v.toLowerCase().includes(q)))
-    .sort(by((p) => p.full_name))
-    .map((p) => ({ ...p, bookings: count.get(p.id) ?? 0 }));
-  return { members, q, role, total: L.profiles.length };
+    .sort(sort === "played" ? by((p) => -p.stats.played) : sort === "recent" ? by((p) => p.stats.lastPlayed ?? "", -1) : sort === "new" ? by((p) => p.created_at, -1) : by((p) => p.full_name));
+  const players = all.filter((p) => p.role === "member");
+  return {
+    members,
+    q,
+    role,
+    sort,
+    total: L.profiles.length,
+    summary: {
+      members: players.length,
+      newThisMonth: players.filter((p) => p.created_at >= monthStart).length,
+      activeThisMonth: all.filter((p) => p.stats.playedThisMonth > 0).length,
+      noLevel: players.filter((p) => !p.level).length,
+    },
+  };
 }
 
 export async function loadAdminMember(ctx: LoadCtx) {
@@ -1161,8 +1176,11 @@ export async function loadAdminMember(ctx: LoadCtx) {
     const booking = bookings.find((b) => b.session_id === session.id && isActive(b)) ?? bookings.find((b) => b.session_id === session.id);
     return booking ? [{ session, booking }] : [];
   });
+  const monthStart = startIso(`${dateKey(ctx.now).slice(0, 8)}01`);
+  const stats = memberStats(bookings, new Map(sessions.map((s) => [s.id, s])), ctx.now, monthStart).get(id) ?? emptyStats();
   return {
     profile,
+    stats,
     history: history.sort(by((r) => r.session.starts_at, -1)),
     coaching: {
       sessions: coachSessions.filter((s) => s.starts_at >= now && isCommunity(s) && s.status === "published").length,

@@ -60,7 +60,7 @@ export function demoSeed(now = new Date()): DB {
     profile({ id: DEMO_IDS.leo, full_name: "Leo Bakiri", email: "leo@leobakiritennis.com", role: "admin" }),
     profile({ id: DEMO_IDS.kaan, full_name: "Kaan Ayman", email: "kaan@example.com", role: "admin" }),
     profile({ id: DEMO_IDS.maya, full_name: "Maya Chen", email: "maya@example.com", role: "coach" }),
-    profile({ id: DEMO_IDS.sam, full_name: "Sam Rivera", email: "sam@example.com", phone: "+16195550101" }),
+    profile({ id: DEMO_IDS.sam, full_name: "Sam Rivera", email: "sam@example.com", phone: "+16195550101", level: "intermediate" }),
   ];
   ["Priya Patel", "Jordan Lee", "Ava Thompson", "Marcus Johnson", "Elena Rossi", "Noah Kim", "Sofia Garcia", "Ethan Brooks", "Lily Nguyen", "Diego Alvarez", "Hannah Wright", "Omar Haddad"].forEach((name, i) => {
     profiles.push(
@@ -70,6 +70,7 @@ export function demoSeed(now = new Date()): DB {
         email: `${name.split(" ")[0].toLowerCase()}@example.com`,
         phone: `+1619555${String(1100 + i).padStart(4, "0")}`,
         created_at: new Date(now.getTime() - (100 - i * 7) * 86400000).toISOString(),
+        level: ["beginner", "advanced_beginner", "intermediate", "intermediate", "advanced", ""][i % 6],
       }),
     );
   });

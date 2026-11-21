@@ -5,6 +5,8 @@ import { ActionForm, Avatar, btn, Card, cx, Field, Spinner, Submit } from "../ki
 import { DemoBar, Logo, type FrameMeta } from "../shell";
 import type { loadWelcome } from "@/core/queries";
 import type { Profile } from "@/core/types";
+import { Dropdown } from "../picker";
+import { LEVELS } from "@/core/members";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -142,6 +144,10 @@ export function LoginView({ meta }: { meta: FrameMeta }) {
   );
 }
 
+export function LevelPicker({ defaultValue }: { defaultValue: string }) {
+  return <Dropdown name="level" defaultValue={defaultValue} placeholder="Choose your level" label="Tennis level" options={LEVELS.map((l) => ({ value: l.value, label: l.label, hint: l.hint }))} />;
+}
+
 export function ProfileFields({ p, prefill }: { p?: Partial<Profile> | null; prefill?: { email: string; phone: string } }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -153,6 +159,9 @@ export function ProfileFields({ p, prefill }: { p?: Partial<Profile> | null; pre
       </Field>
       <Field label="Mobile number">
         <input className="input" name="phone" type="tel" defaultValue={p?.phone ?? prefill?.phone ?? ""} autoComplete="tel" />
+      </Field>
+      <Field label="Your tennis level" hint="Helps the coaches plan sessions. You can change it later." className="sm:col-span-2">
+        <LevelPicker defaultValue={p?.level ?? ""} />
       </Field>
     </div>
   );

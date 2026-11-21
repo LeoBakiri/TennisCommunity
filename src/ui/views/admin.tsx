@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { A, useNav, withQuery } from "../nav";
 import { Icon, SessionMark } from "../icons";
-import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Submit, Tabs } from "../kit";
+import { ActionButton, ActionForm, Avatar, Badge, BookingBadge, btn, Capacity, Card, cx, Empty, Field, HeroPanel, HeroStat, LinkButton, Modal, Notice, PageHeader, SectionTitle, Stat, Submit, Tabs } from "../kit";
 import { DecisionCard, priceLabel, slotTime, WeekGrid, whenWord } from "../sessions";
 import { Dropdown } from "../picker";
 import type { FrameMeta } from "../shell";
@@ -10,6 +10,8 @@ import type { SessionType } from "@/core/types";
 import { addDays, dateKey, fmtClock, fmtDate, fmtDateTime, fmtDay, fmtDayLong, fmtKeyLong, fmtKeyMonth, fmtKeyNum, fmtKeyWeekday, fmtRange, fmtTime, fmtWeekRange, startOfWeek, timeKey } from "@/core/time";
 import { COURT_SIZE, courtPlan, COURTS, fmtMoney, isBalboa, placeOptions, shortPlace, SESSION_META, sessionTitle } from "@/core/util";
 import { COMMISSION_ROWS, fmtPayroll, usd } from "@/core/earnings";
+import { levelLabel } from "@/core/members";
+import { LevelPicker } from "./public";
 
 type D<T extends (...a: never[]) => unknown> = Awaited<ReturnType<T>>;
 
@@ -968,6 +970,7 @@ export function AdminCoaches({ data }: { data: CoachesData }) {
 export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
   const nav = useNav();
   const [adding, setAdding] = useState(false);
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString();
   return (
     <>
       <PageHeader
@@ -979,12 +982,18 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
           </button>
         }
       />
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Members" value={data.summary.members} hint={data.summary.newThisMonth ? `${data.summary.newThisMonth} new this month` : "None new this month"} icon="users" />
+        <Stat label="Played this month" value={data.summary.activeThisMonth} hint="People on court at least once" icon="calendar" />
+        <Stat label="Sessions played" value={data.members.reduce((n, m) => n + m.stats.played, 0)} hint="All time, by the people listed" icon="check" />
+        <Stat label="Level not set" value={data.summary.noLevel} hint={data.summary.noLevel ? "Members who haven't picked one" : "Everyone has one"} icon="user" />
+      </div>
       <div className="mb-4 flex flex-wrap gap-2">
         <form
           className="min-w-[220px] flex-1"
           onSubmit={(e) => {
             e.preventDefault();
-            nav.push(withQuery("/admin/members", { q: String(new FormData(e.currentTarget).get("q") ?? ""), role: data.role }));
+            nav.push(withQuery("/admin/members", { q: String(new FormData(e.currentTarget).get("q") ?? ""), role: data.role, sort: data.sort }));
           }}
         >
           <label className="relative block">
@@ -992,12 +1001,32 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
             <input name="q" defaultValue={data.q} className="input !pl-10" placeholder="Search name, email or phone" />
           </label>
         </form>
-        <select className="input !w-auto" value={data.role} onChange={(e) => nav.push(withQuery("/admin/members", { q: data.q, role: e.target.value }))} aria-label="Role">
-          <option value="">Everyone</option>
-          <option value="member">Members</option>
-          <option value="coach">Coaches</option>
-          <option value="admin">Admins</option>
-        </select>
+        <div className="w-auto min-w-[9rem]">
+          <Dropdown
+            value={data.role}
+            onChange={(v) => nav.push(withQuery("/admin/members", { q: data.q, role: v, sort: data.sort }))}
+            label="Role"
+            options={[
+              { value: "", label: "Everyone" },
+              { value: "member", label: "Members" },
+              { value: "coach", label: "Coaches" },
+              { value: "admin", label: "Admins" },
+            ]}
+          />
+        </div>
+        <div className="w-auto min-w-[11rem]">
+          <Dropdown
+            value={data.sort}
+            onChange={(v) => nav.push(withQuery("/admin/members", { q: data.q, role: data.role, sort: v }))}
+            label="Sort"
+            options={[
+              { value: "", label: "Name A–Z" },
+              { value: "played", label: "Most sessions" },
+              { value: "recent", label: "Played recently" },
+              { value: "new", label: "Newest first" },
+            ]}
+          />
+        </div>
       </div>
       {data.members.length ? (
         <div className="card overflow-x-auto">
@@ -1005,8 +1034,10 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
             <thead>
               <tr>
                 <th>Name</th>
-                <th className="hidden md:table-cell">Contact</th>
-                <th className="hidden sm:table-cell">Bookings</th>
+                <th className="hidden lg:table-cell">Contact</th>
+                <th className="hidden sm:table-cell">Level</th>
+                <th>Sessions</th>
+                <th className="hidden md:table-cell">Last played</th>
               </tr>
             </thead>
             <tbody>
@@ -1015,21 +1046,31 @@ export function AdminMembers({ data }: { data: D<typeof loadAdminMembers> }) {
                   <td>
                     <div className="flex items-center gap-3">
                       <Avatar name={m.full_name} size={32} />
-                      <div>
+                      <div className="min-w-0">
                         <div className="font-medium">{m.full_name}</div>
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           {m.role !== "member" && <Badge tone="dark">{m.role}</Badge>}
                           {m.status === "inactive" && <Badge>Inactive</Badge>}
                           {!m.onboarded && <Badge tone="amber">Invited</Badge>}
+                          {m.role === "member" && m.created_at >= monthAgo && <Badge tone="green">New</Badge>}
+                          {m.level && <span className="text-xs text-ink/55 sm:hidden">{levelLabel(m.level)}</span>}
                         </div>
+                        <div className="text-xs text-ink/45">Joined {fmtDate(m.created_at)}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="hidden text-ink/65 md:table-cell">
+                  <td className="hidden text-ink/65 lg:table-cell">
                     <div>{m.email}</div>
                     <div className="text-xs">{m.phone}</div>
                   </td>
-                  <td className="hidden tabular-nums sm:table-cell">{m.bookings}</td>
+                  <td className="hidden sm:table-cell">{m.level ? levelLabel(m.level) : <span className="text-ink/35">Not set</span>}</td>
+                  <td className="tabular-nums">
+                    <div className="font-medium">{m.stats.played}</div>
+                    <div className="text-xs text-ink/50">
+                      {[m.stats.upcoming ? `${m.stats.upcoming} coming up` : "", m.stats.noShows ? `${m.stats.noShows} no-show${m.stats.noShows === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}
+                    </div>
+                  </td>
+                  <td className="hidden text-ink/65 md:table-cell">{m.stats.lastPlayed ? fmtDate(m.stats.lastPlayed) : <span className="text-ink/35">Not yet</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -1063,9 +1104,16 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
   const p = data.profile;
   const isMe = p.id === meta.user!.id;
   const isCoach = p.role !== "member";
+  const st = data.stats;
   return (
     <>
-      <PageHeader back={{ href: "/admin/members", label: "Members" }} title={p.full_name} subtitle={`Joined ${fmtDate(p.created_at)}`} />
+      <PageHeader back={{ href: "/admin/members", label: "Members" }} title={p.full_name} subtitle={[levelLabel(p.level), `Joined ${fmtDate(p.created_at)}`].filter(Boolean).join(" · ")} />
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Sessions played" value={st.played} hint={st.played ? `${st.group} Group · ${st.pa} Performance Accelerator` : "None yet"} icon="check" />
+        <Stat label="This month" value={st.playedThisMonth} hint={st.lastPlayed ? `Last on ${fmtDate(st.lastPlayed)}` : "Hasn't played yet"} icon="calendar" />
+        <Stat label="Coming up" value={st.upcoming} hint={st.upcoming === 1 ? "Booked session" : "Booked sessions"} icon="clock" />
+        <Stat label="No-shows" value={st.noShows} hint={st.lateCancels ? `${st.lateCancels} late cancel${st.lateCancels === 1 ? "" : "s"}` : "No late cancels"} icon="flag" />
+      </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
         <div className="space-y-6">
           <Card>
@@ -1103,6 +1151,9 @@ export function AdminMember({ data, meta }: { data: D<typeof loadAdminMember>; m
                 </Field>
                 <Field label="Emergency contact" className="sm:col-span-2">
                   <input className="input" name="emergency_contact" defaultValue={p.emergency_contact} />
+                </Field>
+                <Field label="Tennis level" className="sm:col-span-2">
+                  <LevelPicker defaultValue={p.level ?? ""} />
                 </Field>
                 <Field label="Role" hint="Coaches get My Schedule; admins also get this admin area.">
                   <select className="input" name="role" defaultValue={p.role} disabled={isMe}>
