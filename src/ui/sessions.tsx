@@ -309,10 +309,13 @@ export function seatCopy(s: Pick<SessionView, "booked" | "capacity" | "spots_lef
   return { heat, title, sub: `Join ${others} other ${others === 1 ? "player" : "players"}` };
 }
 
-/** Two-court sessions say so, and until they have enough players, how many more they need. */
-/** Only while a two-court session is short of its minimum; the dots already show the two courts. */
+/** Members only hear about the minimum in the last week; further out it's too early to matter. */
+const NOTE_WINDOW_MS = 7 * 24 * 3600000;
+const inNoteWindow = (s: { starts_at: string }, now = Date.now()) => new Date(s.starts_at).getTime() - now <= NOTE_WINDOW_MS;
+
+/** Only while a two-court session is short of its minimum, and only in the week before it; the dots already show the two courts. */
 export function courtNote(s: Pick<SessionView, "session_type" | "capacity" | "booked" | "status" | "decided_at" | "decide_by" | "starts_at">, now = Date.now()) {
-  if (!needsDecision(s)) return null;
+  if (!needsDecision(s) || !inNoteWindow(s, now)) return null;
   const by = decideBy(s);
   return new Date(by).getTime() <= now ? "Coach is confirming" : `${courtPlan(s).minimum - s.booked} more needed by ${shortWhen(by)}`;
 }
@@ -321,7 +324,7 @@ const shortWhen = (iso: string) => `${fmtWeekday(iso)} ${fmtTime(iso)}`;
 
 /** Booking a two-court session that your spot won't fill to its minimum. */
 export function courtHeadsUp(s: SessionView) {
-  if (!needsDecision(s) || s.booked + 1 >= courtPlan(s).minimum) return null;
+  if (!needsDecision(s) || !inNoteWindow(s) || s.booked + 1 >= courtPlan(s).minimum) return null;
   return `Needs ${courtPlan(s).minimum} players to run on 2 courts. Your coach confirms by ${shortWhen(decideBy(s))}.`;
 }
 

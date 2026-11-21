@@ -27,6 +27,7 @@ test("players see how many more a two-court session needs, and nothing once it h
   assert.match(courtNote(s(3, { session_type: "performance_accelerator", capacity: 8 }))!, /^3 more needed by /);
   assert.equal(courtNote(s(2, { decided_at: at(-1) })), null);
   assert.equal(courtNote(s(2, { starts_at: at(6) })), "Coach is confirming");
+  assert.equal(courtNote(s(2, { starts_at: at(24 * 8) })), null); // more than a week out: too early to say
 });
 
 function setup() {
@@ -102,6 +103,7 @@ test("booking a short two-court session says what happens if it stays short", ()
   const view = (booked: number) => ({ session_type: "group", capacity: 12, booked, status: "published", decided_at: null, starts_at: new Date(Date.now() + 48 * 3600000).toISOString() }) as unknown as SessionView;
   assert.match(courtHeadsUp(view(2))!, /^Needs 10 players to run on 2 courts\. Your coach confirms by .+\.$/);
   assert.equal(courtHeadsUp(view(9)), null); // the 10th player tips it over
+  assert.equal(courtHeadsUp({ ...view(2), starts_at: new Date(Date.now() + 8 * 24 * 3600000).toISOString() } as SessionView), null);
   assert.equal(courtHeadsUp({ ...view(2), decided_at: new Date().toISOString() } as SessionView), null);
 });
 
